@@ -331,7 +331,19 @@
     <!-- ===== Suche ===== -->
     <section class="view" id="view-search">
       <div class="page-head"><div><h2 data-i18n="nav-search">Suche</h2><p data-i18n="search-p">Volltext über alle Indizes · Originale werden dabei nie geladen.</p></div></div>
-      <div class="top-search" style="max-width:none;margin-bottom:18px">🔎 <input id="search-input" placeholder="Suchbegriff…" data-i18n-ph="search-ph2" style="font-size:14px"><button class="btn sm" id="search-btn" data-i18n="do-search">Suchen</button></div>
+      <div class="top-search" style="max-width:none;margin-bottom:10px">🔎 <input id="search-input" placeholder="Suchbegriff…" data-i18n-ph="search-ph2" style="font-size:14px"><button class="btn sm" id="search-btn" data-i18n="do-search">Suchen</button></div>
+      <div class="row" style="gap:14px;margin-bottom:18px;flex-wrap:wrap;align-items:center">
+        <div class="seg" id="search-mode" style="border-radius:8px" title="Such-Modus">
+          <button class="on" data-smode="text" data-i18n="sm-text">Volltext</button>
+          <button data-smode="exact" data-i18n="sm-exact">Genauer Wortlaut</button>
+          <button data-smode="ask" data-i18n="sm-ask">Frage (KI)</button>
+        </div>
+        <div class="seg" id="search-scope" style="border-radius:8px" title="Suchbereich">
+          <button class="on" data-sscope="all" data-i18n="sc-all">Alle Dokumente</button>
+          <button data-sscope="selected" data-i18n="sc-selected">Nur markierte</button>
+        </div>
+        <span id="search-scope-hint" style="color:var(--text-muted);font-size:12px"></span>
+      </div>
       <div class="search-layout">
         <aside class="panel panel-pad">
           <div class="filter-group">
@@ -631,7 +643,7 @@
     indexCache:new Map(),       // id -> vollständiges Index-Objekt
     lastHits:[],                // letzte Suchtreffer
     lib:{ sort:'importedAt', dir:'desc', type:'all', tag:null, q:'' , selected:new Set() },
-    search:{ q:'', types:new Set(SUPPORTED.map(typeOf)), from:'', to:'', tag:null, selected:new Set() },
+    search:{ q:'', types:new Set(SUPPORTED.map(typeOf)), from:'', to:'', tag:null, selected:new Set(), mode:'text', scope:'all' },
     curDoc:null,                // {doc, ref, terms, page}
     pdfView:{docId:null,pdf:null}, // gecachtes PDF.js-Dokument fuer den Viewer
     _renderSeq:0, _renderTask:null,
@@ -678,6 +690,12 @@
     'lib-empty-h':['Noch keine Dokumente','No documents yet'],'lib-empty-p':['Importiere Dateien per Drag & Drop, Dateiauswahl oder ganzem Ordner.','Import files via drag & drop, file picker or a whole folder.'],
     'search-p':['Volltext über alle Indizes · Originale werden dabei nie geladen.','Full-text across all indexes · originals are never loaded.'],
     'search-ph':['Volltextsuche über alle Dokumente…','Full-text search across all documents…'],'search-ph2':['Suchbegriff…','Search term…'],'do-search':['Suchen','Search'],
+    'sm-text':['Volltext','Full text'],'sm-exact':['Genauer Wortlaut','Exact wording'],'sm-ask':['Frage (KI)','Ask (AI)'],
+    'sc-all':['Alle Dokumente','All documents'],'sc-selected':['Nur markierte','Selected only'],
+    'scope-none':['Es sind keine Dokumente markiert. Setze in der Bibliothek Haken bei den gewünschten Dokumenten.','No documents are selected. Tick the documents you want in the library.'],
+    'ask-nokey':['Für die KI-Frage wird ein Claude-API-Key benötigt (Einstellungen).','The AI question needs a Claude API key (Settings).'],
+    'ask-working':['Antwort wird erstellt …','Generating answer …'],
+    'ask-nodocs':['Keine passenden Dokumente gefunden.','No matching documents found.'],
     'f-type':['Dateityp','File type'],'f-date':['Zeitraum (Import)','Date range (import)'],'f-tags':['Tags / Kategorien','Tags / categories'],'f-reset':['Filter zurücksetzen','Reset filters'],
     'select-all':['Alle wählen','Select all'],'sum-selected':['Ausgewählte zusammenfassen','Summarize selected'],'export':['Export','Export'],
     'doc-original':['Original','Original'],'reindex':['Neu-Indexieren','Re-index'],
@@ -1150,17 +1168,23 @@
   // Kern der Suche – arbeitet mit expliziten Parametern, damit auch Live-Exporte
   // dieselbe Suche jederzeit reproduzieren koennen.
   async function searchArchive(p){
-    const qy=parseQuery(p.q||'');
+    // „Genauer Wortlaut": die gesamte Eingabe als EINE zusammenhaengende Phrase.
+    const qy = (p.exact && (p.q||'').trim())
+      ? { terms:[], phrases:[{ raw:p.q.trim(), f:fold(p.q) }] }
+      : parseQuery(p.q||'');
     const needles=[...qy.terms.map(t=>t.raw), ...qy.phrases.map(t=>t.raw)];
     if(!qy.terms.length&&!qy.phrases.length) return {terms:[], hits:[]};
     await loadAllIndexes();
     const types=p.types&&p.types.length?new Set(p.types):null;
+    // Suchbereich: optionale Einschraenkung auf bestimmte Dokument-IDs (markierte).
+    const idset=(p.ids&&p.ids.length)?new Set(p.ids):null;
     const hits=[];
     const allNeedles=[...qy.terms, ...qy.phrases];
     // Wortgrenzen-Regex je Begriff EINMAL vorkompilieren (Praezisions-Ranking).
     const esc2=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     for(const nd of allNeedles){ nd.re=new RegExp('(^|[^a-z0-9])'+esc2(nd.f)+'([^a-z0-9]|$)'); }
     for(const c of state.catalog){
+      if(idset&&!idset.has(c.id))continue;
       if(types&&!types.has(c.type))continue;
       if(p.tag&&!(c.tags||[]).includes(p.tag))continue;
       if(p.from&&c.importedAt&&c.importedAt.slice(0,10)<p.from)continue;
@@ -1191,15 +1215,52 @@
     hits.sort((a,b)=>b.score-a.score);
     return {terms:needles, hits};
   }
-  function currentSearchParams(){ return {q:state.search.q, types:Array.from(state.search.types), from:state.search.from, to:state.search.to, tag:state.search.tag}; }
+  function currentSearchParams(){ return {q:state.search.q, types:Array.from(state.search.types), from:state.search.from, to:state.search.to, tag:state.search.tag, exact:state.search.mode==='exact', ids: state.search.scope==='selected'? Array.from(state.lib.selected) : null }; }
   async function runSearch(){
     const q=$('#search-input').value.trim(); state.search.q=q;
     const resEl=$('#search-results'); state.search.selected.clear();
     if(!q){ resEl.innerHTML=`<div class="empty"><div class="big">🔎</div><p>${tr('type-search-hint')}</p></div>`; $('#search-count').textContent='—'; return; }
+    if(state.search.mode==='ask'){ await askQuestion(q); return; }
+    if(state.search.scope==='selected' && !state.lib.selected.size){ resEl.innerHTML=`<div class="empty"><div class="big">☑</div><p>${tr('scope-none')}</p></div>`; $('#search-count').textContent='—'; return; }
     resEl.innerHTML=`<div class="empty"><span class="busy"></span></div>`;
     const {terms,hits}=await searchArchive(currentSearchParams());
     state.lastHits=hits; state.search.terms=terms;
     renderSearchResults();
+  }
+  // Einfache Stichwort-Retrieval fuer die KI-Frage: Dokumente nach Anzahl passender
+  // Fragewoerter ranken (ODER), begrenzt die an die API gesendete Textmenge.
+  const STOP=new Set('der die das und oder in im am zur zum ein eine einen eines dem den des mit von vom fur für auf ist sind war waren wie was wo wer welche welcher alles über uber about the a an of to in on for is are what which where who all and or with from find finde raus mir mich'.split(/\s+/));
+  function retrieveDocs(q, max){
+    const words=[...new Set(fold(q).split(/[^a-z0-9]+/).filter(w=>w.length>=3 && !STOP.has(w)))];
+    if(!words.length) return state.catalog.slice(0,max).map(c=>c.id);
+    const scored=[];
+    for(const c of state.catalog){ const doc=state.indexCache.get(c.id); if(!doc)continue; let s=0; for(const u of (doc.units||[])){ const f=foldUnit(u); for(const w of words){ if(f.includes(w))s++; } } if(s)scored.push({id:c.id,s}); }
+    scored.sort((a,b)=>b.s-a.s);
+    return scored.slice(0,max).map(x=>x.id);
+  }
+  async function askQuestion(q){
+    const resEl=$('#search-results'); $('#search-count').textContent='';
+    if(!state.apiKey){ resEl.innerHTML=`<div class="empty"><div class="big">🤖</div><p>${tr('ask-nokey')}</p><button class="btn sm" data-view-jump="settings" style="margin-top:8px">⚙️ ${tr('nav-set')}</button></div>`; wireJump(resEl); return; }
+    resEl.innerHTML=`<div class="empty"><span class="busy"></span> <span style="margin-left:8px">${tr('ask-working')}</span></div>`;
+    await loadAllIndexes();
+    let ids = state.search.scope==='selected' ? Array.from(state.lib.selected) : retrieveDocs(q, 12);
+    if(!ids.length){ resEl.innerHTML=`<div class="empty"><p>${tr('ask-nodocs')}</p></div>`; return; }
+    try{
+      const ans=await claudeAnswer(q, ids);
+      resEl.innerHTML=`<div class="panel panel-pad"><div class="r-title" style="font-weight:600;margin-bottom:10px">🤖 ${esc(q)}</div><div class="section-text" style="max-height:none">${esc(ans.text)}</div>${sourceListHtml(ans.picked, ans.sources)}</div>`;
+    }catch(e){ resEl.innerHTML=`<div class="empty"><p style="color:var(--danger)">${esc(e.message)}</p></div>`; }
+  }
+  async function claudeAnswer(q, ids){
+    if(!navigator.onLine) throw new Error(state.settings.lang==='de'?'Keine Internetverbindung.':'No internet connection.');
+    let corpus=''; const sources=[]; const LIMIT=60000;
+    for(const id of ids){ const doc=await getIndex(id); sources.push(doc); corpus+=`\n\n### ${doc.name}\n`; for(const u of (doc.units||[])){ corpus+=`[${refLabel(u.ref)}] ${u.text}\n`; if(corpus.length>LIMIT)break; } if(corpus.length>LIMIT){ corpus=corpus.slice(0,LIMIT); break; } }
+    const lang=state.settings.lang==='de'?'Deutsch':'English';
+    const prompt=`Beantworte die folgende Frage AUSSCHLIESSLICH anhand der bereitgestellten Dokumentauszüge, auf ${lang}. Wenn die Auszüge die Antwort nicht enthalten, sage das ehrlich. Verweise im Text auf die betreffenden Dateinamen/Fundstellen.\n\nFrage: ${q}\n\nDokumentauszüge:${corpus}`;
+    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, body:JSON.stringify({model:'claude-opus-4-8',max_tokens:1500,messages:[{role:'user',content:prompt}]}) });
+    if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('API '+r.status+': '+t.slice(0,200)); }
+    const data=await r.json(); const text=(data.content||[]).map(c=>c.text||'').join('\n').trim();
+    const picked=sources.map(d=>({docId:d.id, name:d.name, ref: d.pageCount ? {page:(d.pageCount>1?('1–'+d.pageCount):1)} : null}));
+    return {text, sources, picked};
   }
   function refLabel(ref){ if(!ref)return ''; if(ref.page!=null)return `${tr('page')} ${ref.page}`; if(ref.sheet!=null)return `${tr('sheet')} „${ref.sheet}"${ref.cell?` · ${tr('cell')} ${ref.cell}`:''}`; if(ref.section!=null)return `${tr('section')} ${ref.section}`; return ''; }
   function renderSearchResults(){
@@ -1221,6 +1282,15 @@
     const ftg=$('#filter-tags'); if(ftg) ftg.innerHTML=allTags().map(t=>`<span class="chip ${state.search.tag===t?'on':''}" data-stag="${esc(t)}">${esc(t)}</span>`).join(' ')||`<span style="color:var(--text-muted);font-size:12px">${state.settings.lang==='de'?'Keine Tags':'No tags'}</span>`;
     if(ft)$$('[data-ftype]',ft).forEach(cb=>cb.onchange=()=>{ if(cb.checked)state.search.types.add(cb.dataset.ftype); else state.search.types.delete(cb.dataset.ftype); if(state.search.q)runSearch(); });
     if(ftg)$$('[data-stag]',ftg).forEach(c=>c.onclick=()=>{ state.search.tag=state.search.tag===c.dataset.stag?null:c.dataset.stag; renderFilters(); if(state.search.q)runSearch(); });
+    syncSearchControls();
+  }
+  // Haelt Such-Modus/-Bereich-Umschalter, Eingabe-Platzhalter und Markiert-Hinweis synchron.
+  function syncSearchControls(){
+    const de=state.settings.lang==='de';
+    $$('#search-mode button').forEach(b=>b.classList.toggle('on', b.dataset.smode===state.search.mode));
+    $$('#search-scope button').forEach(b=>b.classList.toggle('on', b.dataset.sscope===state.search.scope));
+    const inp=$('#search-input'); if(inp) inp.placeholder = state.search.mode==='ask' ? (de?'Frage stellen, z. B. „Was steht zu Mietverträgen?"':'Ask a question, e.g. "What do the docs say about lease agreements?"') : (state.search.mode==='exact' ? (de?'Genauer Wortlaut …':'Exact wording …') : (de?'Suchbegriff…':'Search term…'));
+    const hint=$('#search-scope-hint'); if(hint) hint.textContent = state.search.scope==='selected' ? (state.lib.selected.size ? (state.lib.selected.size+' '+(de?'markiert (in der Bibliothek)':'selected (in library)')) : (de?'Keine Dokumente markiert – bitte in der Bibliothek Haken setzen.':'No documents selected – tick them in the library.')) : '';
   }
 
   // ---------- Fundstelle ----------
@@ -1874,7 +1944,9 @@
 
     // Suche
     $('#search-btn').onclick=runSearch; $('#search-input').onkeydown=(e)=>{ if(e.key==='Enter')runSearch(); };
-    $('#top-search-input').onkeydown=(e)=>{ if(e.key==='Enter'){ $('#search-input').value=e.target.value; switchView('search'); runSearch(); } };
+    $('#top-search-input').onkeydown=(e)=>{ if(e.key==='Enter'){ $('#search-input').value=e.target.value; state.search.mode='text'; syncSearchControls(); switchView('search'); runSearch(); } };
+    $$('#search-mode button').forEach(b=>b.onclick=()=>{ state.search.mode=b.dataset.smode; syncSearchControls(); if(state.search.q)runSearch(); });
+    $$('#search-scope button').forEach(b=>b.onclick=()=>{ state.search.scope=b.dataset.sscope; syncSearchControls(); if(state.search.q)runSearch(); });
     $('#filter-from').onchange=(e)=>{state.search.from=e.target.value; if(state.search.q)runSearch();};
     $('#filter-to').onchange=(e)=>{state.search.to=e.target.value; if(state.search.q)runSearch();};
     $('#filter-reset').onclick=()=>{ state.search.types=new Set(SUPPORTED.map(typeOf)); state.search.tag=null; state.search.from=''; state.search.to=''; $('#filter-from').value=''; $('#filter-to').value=''; renderFilters(); if(state.search.q)runSearch(); };
