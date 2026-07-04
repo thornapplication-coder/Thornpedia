@@ -146,7 +146,7 @@
     .rowmenu{position:relative}
     .rowmenu-btn{border:0;background:transparent;color:var(--text-muted);font-size:18px;padding:2px 8px;border-radius:6px}
     .rowmenu-btn:hover{background:var(--bg-alt)}
-    .menu{position:absolute;right:0;top:100%;z-index:20;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);min-width:190px;padding:6px;display:none}
+    .menu{position:absolute;right:0;top:100%;z-index:50;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);min-width:190px;padding:6px;display:none}
     .menu.show{display:block}
     .menu button{display:flex;gap:9px;align-items:center;width:100%;text-align:left;border:0;background:transparent;color:var(--text);padding:8px 10px;border-radius:6px;font-size:13px}
     .menu button:hover{background:var(--bg-alt)}
@@ -295,6 +295,7 @@
     <div class="seg" id="lang-seg" title="Sprache / Language">
       <button data-lang="de">DE</button><button data-lang="en">EN</button>
     </div>
+    <button class="icon-btn" id="settings-btn" title="Einstellungen" aria-label="Einstellungen" data-i18n-title="nav-set">⚙️</button>
     <button class="icon-btn" id="refresh-btn" title="Neu laden" aria-label="Neu laden" data-i18n-title="refresh-title">🔄</button>
     <button class="icon-btn" id="theme-btn" title="Theme wechseln" aria-label="Theme wechseln" data-i18n-title="theme-title">🌓</button>
   </header>
@@ -305,10 +306,10 @@
     <button class="nav-item" data-view="search"><span class="ic">🔎</span><span class="txt" data-i18n="nav-search">Suche</span></button>
     <button class="nav-item" data-view="doc" id="nav-doc" style="display:none"><span class="ic">📄</span><span class="txt" data-i18n="nav-doc">Fundstelle</span></button>
     <button class="nav-item" data-view="summary"><span class="ic">✨</span><span class="txt" data-i18n="nav-sum">Zusammenfassung</span></button>
-    <button class="nav-item" data-view="backup"><span class="ic">💾</span><span class="txt" data-i18n="nav-backup">Backup</span></button>
-    <button class="nav-item" data-view="settings"><span class="ic">⚙️</span><span class="txt" data-i18n="nav-set">Einstellungen</span></button>
     <div class="nav-label" data-i18n="nav-actions">Aktionen</div>
     <button class="nav-item" data-view="import"><span class="ic">⬆️</span><span class="txt" data-i18n="nav-import">Importieren</span></button>
+    <button class="nav-item" data-view="exporte"><span class="ic">📤</span><span class="txt" data-i18n="nav-exporte">Exporte</span></button>
+    <button class="nav-item" data-view="backup"><span class="ic">💾</span><span class="txt" data-i18n="nav-backup">Backup</span></button>
     <div class="sidebar-foot">
       <div class="storage-ok"><span class="dot"></span> <span data-i18n="foot-connected">Ordner verbunden</span></div>
       <div style="margin-top:4px;opacity:.85" id="foot-path">—</div>
@@ -433,7 +434,12 @@
           <div class="dropzone" id="backup-drop" style="margin-top:12px;padding:22px"><div style="font-size:24px">⬆️</div><div data-i18n="backup-drop">Backup-ZIP hierher ziehen oder klicken</div></div>
         </div>
       </div>
-      <div class="panel panel-pad" style="margin-top:16px;max-width:900px">
+    </section>
+
+    <!-- ===== Exporte (Live-Exporte) ===== -->
+    <section class="view" id="view-exporte">
+      <div class="page-head"><div><h2 data-i18n="nav-exporte">Exporte</h2><p data-i18n="exp-live-p2">Gespeicherte Exporte (Suchberichte & Zusammenfassungen). Jeder Eintrag wird bei Änderungen am Archiv automatisch neu erzeugt und liegt in /exports.</p></div></div>
+      <div class="panel panel-pad" style="max-width:900px">
         <div class="row" style="justify-content:space-between;margin-bottom:6px">
           <h4 data-i18n="exp-live-h">Live-Exporte</h4>
           <div class="row">
@@ -509,7 +515,14 @@
         </div>
         <div class="panel panel-pad">
           <h4 style="margin-bottom:6px" data-i18n="set-about">Über</h4>
-          <p style="color:var(--text-muted);margin:0" data-i18n="set-about-p">Wissensarchiv · Keine Konten, kein Server – deine Daten bleiben bei dir.</p>
+          <p style="color:var(--text-muted);margin:0 0 4px" data-i18n="set-about-p">Wissensarchiv · Keine Konten, kein Server – deine Daten bleiben bei dir.</p>
+          <p style="color:var(--text-muted);margin:0 0 12px;font-size:12px" id="about-version"></p>
+          <div style="border-top:1px solid var(--line);padding-top:12px;line-height:1.65">
+            <p style="margin:0 0 10px">Thornpedia ist eine digitale Wissensplattform für die zivile Luftfahrt, die zur Unterstützung von Aus- und Weiterbildungsmaßnahmen im EASA-regulierten Flugbetrieb entwickelt wurde. Sie dient als zentrale Informationsquelle für flugbetriebliche, technische und regulatorische Themen und unterstützt einen strukturierten, standardisierten sowie nachhaltigen Wissenstransfer.</p>
+            <p style="margin:0 0 10px">Die Plattform stellt fundierte Informationen zu Luftfahrzeugen, Flugzeugsystemen, Betriebsverfahren, Performance, Navigation, Meteorologie, Human Factors sowie den geltenden EASA-Regularien bereit. Thornpedia unterstützt Pilotinnen und Piloten, Fluglehrende, Prüfer sowie Trainingsverantwortliche bei der Vorbereitung, Durchführung und Nachbereitung von Ausbildungs- und Qualifizierungsmaßnahmen.</p>
+            <p style="margin:0 0 10px">Zur effizienten Aufbereitung umfangreicher Fachinformationen nutzt Thornpedia moderne Verfahren der Künstlichen Intelligenz. Diese werden eingesetzt, um Inhalte zu analysieren, zusammenzufassen und übersichtlich darzustellen. Dadurch können relevante Informationen schneller erfasst werden, ohne den fachlichen Kontext aus dem Blick zu verlieren.</p>
+            <p style="margin:0">Ziel ist es, komplexe Fachinhalte verständlich und praxisnah aufzubereiten, den selbstständigen Wissenserwerb zu fördern und einen einheitlichen Ausbildungsstandard im Einklang mit den Anforderungen der EASA zu unterstützen.</p>
+          </div>
         </div>
       </div>
     </section>
@@ -659,7 +672,7 @@
     'ob-sub':['Deine persönliche, offline-fähige Wissensdatenbank. Wähle einen Ordner auf der Festplatte – dort werden alle Originaldateien, der Suchindex und deine Metadaten als echte Dateien gespeichert. Das übersteht auch das Löschen von Browser-Daten.','Your personal, offline-capable knowledge base. Choose a folder on disk – all original files, the search index and your metadata are stored there as real files. This survives clearing your browser data.'],
     'ob-yourfolder':['Dein Ordner','Your folder'],'ob-d1':['– Originaldateien','– original files'],'ob-d2':['– ein JSON-Index pro Dokument','– one JSON index per document'],'ob-d3':['– Tags, Notizen, Einstellungen, API-Key','– tags, notes, settings, API key'],'ob-d4':['– Berichte & Backups','– reports & backups'],
     'ob-choose':['Ordner wählen','Choose folder'],'ob-browser':['Erfordert Chrome oder Edge (Desktop).','Requires Chrome or Edge (desktop).'],
-    'nav-nav':['Navigation','Navigation'],'nav-actions':['Aktionen','Actions'],'nav-lib':['Bibliothek','Library'],'nav-search':['Suche','Search'],'nav-doc':['Fundstelle','Source view'],'nav-sum':['Zusammenfassung','Summary'],'nav-backup':['Backup','Backup'],'nav-set':['Einstellungen','Settings'],'nav-import':['Importieren','Import'],
+    'nav-nav':['Navigation','Navigation'],'nav-actions':['Aktionen','Actions'],'nav-lib':['Bibliothek','Library'],'nav-search':['Suche','Search'],'nav-doc':['Fundstelle','Source view'],'nav-sum':['Zusammenfassung','Summary'],'nav-backup':['Backup','Backup'],'nav-set':['Einstellungen','Settings'],'nav-import':['Importieren','Import'],'nav-exporte':['Exporte','Exports'],
     'foot-connected':['Ordner verbunden','Folder connected'],
     'lib-h':['Bibliothek','Library'],'lib-p':['Alle Dokumente an einem Ort.','All your documents in one place.'],
     'lib-empty-h':['Noch keine Dokumente','No documents yet'],'lib-empty-p':['Importiere Dateien per Drag & Drop, Dateiauswahl oder ganzem Ordner.','Import files via drag & drop, file picker or a whole folder.'],
@@ -702,6 +715,7 @@
     'ob-note-opfs':['Tipp: Über „Teilen → Zum Home-Bildschirm" wird das Wissensarchiv zur App und läuft offline.','Tip: use “Share → Add to Home Screen” to install the archive as an app that works offline.'],
     'opfs-hint':['Auf diesem Gerät liegen die Daten im App-Speicher des Browsers. Erstelle regelmäßig Backup-ZIPs – wenn Website-Daten gelöscht werden, wäre das Archiv sonst weg.','On this device data lives in the browser’s app storage. Create backup ZIPs regularly – clearing site data would otherwise delete the archive.'],
     'exp-live-h':['Live-Exporte','Live exports'],
+    'exp-live-p2':['Gespeicherte Exporte (Suchberichte & Zusammenfassungen). Jeder Eintrag wird bei Änderungen am Archiv automatisch neu erzeugt und liegt in /exports.','Saved exports (search reports & summaries). Each entry is regenerated automatically on archive changes and stored in /exports.'],
     'exp-refresh':['Jetzt aktualisieren','Refresh now'],
     'exp-auto':['Automatisch aktualisieren','Refresh automatically'],
     'exp-live-p':['Jeder Export wird hier registriert und bei jeder Änderung am Archiv (Import, Löschen, Tags …) automatisch neu erzeugt – die Dateien in /exports sind damit immer aktuell.','Every export is registered here and regenerated automatically whenever the archive changes (import, delete, tags …) – the files in /exports stay current at all times.'],
@@ -975,10 +989,21 @@
     $$('th.sortable',el).forEach(th=>th.onclick=()=>{ const k=th.dataset.sort; if(state.lib.sort===k)state.lib.dir=state.lib.dir==='asc'?'desc':'asc'; else{state.lib.sort=k;state.lib.dir=k==='name'?'asc':'desc';} renderLibrary(); });
     const selall=$('#lib-selall',el); if(selall)selall.onchange=()=>{ if(selall.checked)rows.forEach(r=>state.lib.selected.add(r.id)); else state.lib.selected.clear(); renderLibrary(); };
     $$('.rowsel',el).forEach(cb=>cb.onchange=()=>{ const id=cb.closest('tr').dataset.id; if(cb.checked)state.lib.selected.add(id); else state.lib.selected.delete(id); renderLibrary(); });
-    $$('[data-menu]',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const m=$('#menu-'+b.dataset.menu); const open=m.classList.contains('show'); $$('.menu.show').forEach(x=>x.classList.remove('show')); if(!open)m.classList.add('show'); });
+    $$('[data-menu]',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const m=$('#menu-'+b.dataset.menu); const open=m.classList.contains('show'); $$('.menu.show').forEach(x=>x.classList.remove('show')); if(!open){ m.classList.add('show'); positionMenu(m,b); } });
     $$('.menu button',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.closest('.menu').id.replace('menu-',''); $$('.menu.show').forEach(x=>x.classList.remove('show')); docAction(b.dataset.act, id); });
     const bt=$('#batch-tag',el); if(bt)bt.onclick=()=>batchTag(); const bd=$('#batch-del',el); if(bd)bd.onclick=()=>batchDelete(); const bc=$('#batch-clear',el); if(bc)bc.onclick=()=>{state.lib.selected.clear();renderLibrary();};
     $$('.fname',el).forEach(f=>{ const tr_=f.closest('tr'); if(tr_)f.style.cursor='pointer', f.onclick=()=>openDoc(tr_.dataset.id); });
+  }
+  // Verankert das Zeilen-Menue per fixer Positionierung am Button, damit es nicht
+  // vom scrollenden Tabellen-Container (overflow) abgeschnitten wird.
+  function positionMenu(m, btn){
+    const r=btn.getBoundingClientRect();
+    const menuW=Math.max(190, m.offsetWidth||200);
+    const menuH=m.offsetHeight||300;
+    m.style.position='fixed';
+    m.style.left=Math.max(8, Math.min(r.right-menuW, window.innerWidth-menuW-8))+'px';
+    if(r.bottom+menuH+8>window.innerHeight && r.top-menuH-4>8){ m.style.top=(r.top-menuH-4)+'px'; }
+    else { m.style.top=(r.bottom+4)+'px'; }
   }
   document.addEventListener('click',()=>$$('.menu.show').forEach(x=>x.classList.remove('show')));
 
@@ -1793,7 +1818,7 @@
 
   // ---------- Navigation ----------
   function switchView(view){ $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); $('.main').scrollTop=0;
-    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();} if(view==='summary')renderSumPicklist(); if(view==='backup'){renderBackupStats();renderExportsPanel();} }
+    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();} if(view==='summary')renderSumPicklist(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; } }
 
   // ---------- Boot ----------
   function updateStorageLabels(){
@@ -1836,6 +1861,9 @@
     $('#refresh-btn').onclick=reloadApp;
     $('#btn-change-folder').onclick=pickFolder; $('#btn-disconnect').onclick=disconnect;
     $$('.nav-item').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+    $('#settings-btn').onclick=()=>switchView('settings');
+    // Statische „Sprung"-Buttons (z. B. „Importieren" im Bibliotheks-Kopf) global verdrahten.
+    $$('[data-view-jump]').forEach(b=>b.onclick=()=>switchView(b.dataset.viewJump));
     $$('#theme-seg button').forEach(b=>b.onclick=()=>{applyTheme(b.dataset.themeVal);persistSettings();});
     $$('#lang-seg button, #lang-seg2 button').forEach(b=>b.onclick=()=>{applyLang(b.dataset.lang);persistSettings();});
     // dlg-dup und dlg-prompt warten auf eine Antwort (Promise/Callback) – sie dürfen
