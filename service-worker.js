@@ -5,7 +5,7 @@
  * damit Updates sofort ankommen – und cache-first für die (unveränderlichen)
  * Bibliotheken und Icons, mit Offline-Fallback auf den Cache. */
 
-const VERSION = 'wa-1.0.1';
+const VERSION = 'wa-1.0.2';
 const CACHE = `wissensarchiv-${VERSION}`;
 
 // Kern der App-Shell, der beim Installieren fest vorgeladen wird.
@@ -41,7 +41,9 @@ self.addEventListener('install', (event) => {
       const cache = await caches.open(CACHE);
       // Einzeln hinzufügen, damit ein fehlendes optionales Asset die Installation nicht abbricht.
       await Promise.allSettled(APP_SHELL.map((url) => cache.add(new Request(url, { cache: 'reload' }))));
-      await self.skipWaiting();
+      // Bewusst KEIN skipWaiting() hier: Eine neue Version bleibt im "waiting"-
+      // Zustand, bis der Nutzer im Update-Banner auf "Jetzt aktualisieren" klickt
+      // (die App schickt dann die 'skipWaiting'-Nachricht, siehe message-Listener).
     })()
   );
 });

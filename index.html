@@ -205,6 +205,18 @@
     .toast.err{background:var(--danger);color:#fff}
     .toast.ok{background:var(--good);color:#fff}
 
+    /* Copyright-Footer */
+    .copyright{font-size:11px;color:var(--text-muted);opacity:.8;text-align:center}
+    .sidebar-foot .copyright{margin-top:8px;padding-top:8px;border-top:1px solid var(--line)}
+    .card-center .copyright{margin-top:26px}
+
+    /* Update-Banner ("Neue Version verfügbar") */
+    #update-banner{position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:120;display:none;align-items:center;gap:12px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-left:4px solid var(--primary);border-radius:10px;padding:10px 12px 10px 14px;box-shadow:0 8px 28px rgba(0,0,0,.28);max-width:94vw;font-size:13px}
+    #update-banner .upd-msg{display:flex;align-items:center;gap:8px;font-weight:600}
+    #update-banner button.upd-apply{border:none;background:linear-gradient(135deg,var(--primary),var(--secondary));color:#fff;border-radius:8px;padding:7px 14px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer}
+    #update-banner button.upd-apply:disabled{opacity:.6;cursor:default}
+    #update-banner button.upd-x{border:none;background:transparent;color:var(--text-muted);font-size:18px;line-height:1;cursor:pointer;padding:2px 6px}
+
     .stat{display:flex;flex-direction:column;gap:3px}
     .busy{display:inline-block;width:15px;height:15px;border:2px solid var(--line);border-top-color:var(--primary);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px}
     @keyframes spin{to{transform:rotate(360deg)}}
@@ -234,6 +246,7 @@
     <h1 data-i18n="uns-h">Nicht unterstützter Browser</h1>
     <p data-i18n="uns-p">Das Wissensarchiv benötigt die <b>File System Access API</b>, um deine Daten direkt auf der Festplatte zu speichern. Diese ist aktuell nur in <b>Google Chrome</b> und <b>Microsoft Edge</b> (Desktop) verfügbar.</p>
     <p class="small-note" data-i18n="uns-note">Bitte öffne diese Seite in Chrome oder Edge. Hinweis: Die App muss über <code>https://</code> oder <code>localhost</code> laufen – nicht per Doppelklick als lokale Datei.</p>
+    <div class="copyright">© Copyright by Patrick Thorn</div>
   </div>
 </div>
 
@@ -245,6 +258,7 @@
     <p data-i18n="lock-p">Das Wissensarchiv läuft schon in einem anderen Tab oder Fenster. Um Datenverlust durch gleichzeitige Änderungen zu vermeiden, kann es nur in einem Tab gleichzeitig geöffnet sein.</p>
     <button class="btn lg" onclick="location.reload()">🔄 <span data-i18n="lock-retry">Erneut versuchen</span></button>
     <p class="small-note" data-i18n="lock-note">Schließe den anderen Tab und klicke dann auf „Erneut versuchen".</p>
+    <div class="copyright">© Copyright by Patrick Thorn</div>
   </div>
 </div>
 
@@ -263,6 +277,7 @@
     </div>
     <button class="btn lg" id="btn-pick">📂 <span data-i18n="ob-choose">Ordner wählen</span></button>
     <p class="small-note" data-i18n="ob-browser">Erfordert Chrome oder Edge (Desktop).</p>
+    <div class="copyright">© Copyright by Patrick Thorn</div>
   </div>
 </div>
 
@@ -293,6 +308,7 @@
       <div class="storage-ok"><span class="dot"></span> <span data-i18n="foot-connected">Ordner verbunden</span></div>
       <div style="margin-top:4px;opacity:.85" id="foot-path">—</div>
       <div style="margin-top:4px;opacity:.7" id="foot-version"></div>
+      <div class="copyright">© Copyright by Patrick Thorn</div>
     </div>
   </nav>
 
@@ -555,6 +571,13 @@
 
 <div id="toasts"></div>
 
+<!-- Update-Benachrichtigung: erscheint, wenn eine neue Version im Cache bereitliegt -->
+<div id="update-banner" role="alert">
+  <span class="upd-msg">🎉 <span data-i18n="upd-text">Neue Version verfügbar</span></span>
+  <button class="upd-apply" id="update-apply" data-i18n="upd-apply">Jetzt aktualisieren</button>
+  <button class="upd-x" id="update-dismiss" title="Später" aria-label="Später">×</button>
+</div>
+
 <script>
 /* =====================================================================
    Wissensarchiv – Vollständige App
@@ -563,7 +586,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0';
+  const APP_VERSION = '1.0.2';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -686,6 +709,8 @@
     'lock-note':['Schließe den anderen Tab und klicke dann auf „Erneut versuchen".','Close the other tab, then click “Try again”.'],
     'ab-label':['Automatisches Backup','Automatic backup'],
     'refresh-title':['Neu laden','Reload'],
+    'upd-text':['Neue Version verfügbar','New version available'],
+    'upd-apply':['Jetzt aktualisieren','Update now'],
   };
   const tr = (key) => (I18N[key]||['',''])[state.settings.lang==='de'?0:1];
   function applyLang(lang){ state.settings.lang=lang; const i=lang==='de'?0:1; document.documentElement.lang=lang;
@@ -1569,7 +1594,48 @@
   // ---------- Offline / SW ----------
   let offlineReady=false;
   function updateOfflineLabel(){ const sw=$('#sw-offline'), lbl=$('#offline-label'); if(!lbl)return; sw.classList.toggle('on',offlineReady); const i=state.settings.lang==='de'?0:1; lbl.innerHTML=offlineReady?I18N['set-offline-on'][i]:(('serviceWorker'in navigator&&window.isSecureContext)?I18N['set-offline'][i]:I18N['set-offline-off'][i]); }
-  async function registerSW(){ if(!('serviceWorker'in navigator)||!window.isSecureContext){ updateOfflineLabel(); return; } try{ const reg=await navigator.serviceWorker.register('service-worker.js'); const check=()=>{ if(navigator.serviceWorker.controller||reg.active){offlineReady=true;updateOfflineLabel();} }; check(); navigator.serviceWorker.addEventListener('controllerchange',check); }catch(e){console.warn(e);} updateOfflineLabel(); }
+  // Update-Erkennung: sobald eine neue Version im Hintergrund installiert wurde
+  // (und bereits ein Service Worker aktiv ist), erscheint das Update-Banner.
+  let _updateShown=false, _applyingUpdate=false;
+  function showUpdateBanner(reg){
+    if(_updateShown)return; _updateShown=true;
+    const el=$('#update-banner'); if(!el)return;
+    el.style.display='flex';
+    const apply=$('#update-apply'), dismiss=$('#update-dismiss');
+    apply.onclick=()=>{
+      _applyingUpdate=true; apply.disabled=true;
+      const w=reg.waiting||reg.installing;
+      if(w) w.postMessage('skipWaiting'); else location.reload();
+    };
+    dismiss.onclick=()=>{ el.style.display='none'; };
+  }
+  async function registerSW(){
+    if(!('serviceWorker'in navigator)||!window.isSecureContext){ updateOfflineLabel(); return; }
+    try{
+      const reg=await navigator.serviceWorker.register('service-worker.js');
+      const check=()=>{ if(navigator.serviceWorker.controller||reg.active){offlineReady=true;updateOfflineLabel();} };
+      check();
+      navigator.serviceWorker.addEventListener('controllerchange',()=>{
+        check();
+        // Nur neu laden, wenn der Nutzer das Update aktiv angestoßen hat –
+        // nicht bei der Erstinstallation.
+        if(_applyingUpdate){ _applyingUpdate=false; location.reload(); }
+      });
+      // Wartet schon eine neue Version aus einer früheren Sitzung? -> Banner.
+      if(reg.waiting && navigator.serviceWorker.controller) showUpdateBanner(reg);
+      // Neue Version wird zur Laufzeit gefunden.
+      reg.addEventListener('updatefound',()=>{
+        const nw=reg.installing; if(!nw)return;
+        nw.addEventListener('statechange',()=>{
+          if(nw.state==='installed' && navigator.serviceWorker.controller) showUpdateBanner(reg);
+        });
+      });
+      // Regelmäßig und beim Zurückkehren zum Tab auf Updates prüfen.
+      setInterval(()=>{ reg.update().catch(()=>{}); }, 60*60*1000);
+      document.addEventListener('visibilitychange',()=>{ if(!document.hidden) reg.update().catch(()=>{}); });
+    }catch(e){console.warn(e);}
+    updateOfflineLabel();
+  }
 
   // ---------- Neu laden ----------
   // Aktualisiert (falls vorhanden) den Service Worker und lädt die App neu.
