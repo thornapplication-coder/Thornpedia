@@ -586,7 +586,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.6';
+  const APP_VERSION = '1.0.7';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1126,19 +1126,36 @@
     await loadAllIndexes();
     const types=p.types&&p.types.length?new Set(p.types):null;
     const hits=[];
+    const allNeedles=[...qy.terms, ...qy.phrases];
+    // Wortgrenzen-Regex je Begriff EINMAL vorkompilieren (Praezisions-Ranking).
+    const esc2=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    for(const nd of allNeedles){ nd.re=new RegExp('(^|[^a-z0-9])'+esc2(nd.f)+'([^a-z0-9]|$)'); }
     for(const c of state.catalog){
       if(types&&!types.has(c.type))continue;
       if(p.tag&&!(c.tags||[]).includes(p.tag))continue;
       if(p.from&&c.importedAt&&c.importedAt.slice(0,10)<p.from)continue;
       if(p.to&&c.importedAt&&c.importedAt.slice(0,10)>p.to)continue;
       const doc=state.indexCache.get(c.id); if(!doc)continue;
-      for(const u of (doc.units||[])){
-        const ftext=foldUnit(u);
-        // UND-Suche: jedes Wort und jede Phrase muss vorkommen
-        let score=0, ok=true;
-        for(const t of qy.terms){ const n=countOcc(ftext,t.f); if(!n){ok=false;break;} score+=n; }
-        if(ok)for(const ph of qy.phrases){ const n=countOcc(ftext,ph.f); if(!n){ok=false;break;} score+=n*2; }
-        if(ok) hits.push({docId:c.id, name:c.name, type:c.type, ref:u.ref, text:u.text, score, tags:c.tags||[], importedAt:c.importedAt});
+      const units=doc.units||[]; if(!units.length)continue;
+      const folded=units.map(foldUnit);
+      // UND auf DOKUMENT-Ebene: jeder Begriff/jede Phrase muss IRGENDWO im
+      // Dokument vorkommen (nicht mehr zwingend in derselben Texteinheit) –
+      // so gehen Treffer ueber Seiten-/Zellgrenzen hinweg nicht verloren.
+      let docOK=true;
+      for(const nd of allNeedles){ if(!folded.some(f=>f.includes(nd.f))){ docOK=false; break; } }
+      if(!docOK)continue;
+      // Jede Texteinheit mit mindestens EINEM Begriff wird als Fundstelle gelistet.
+      // Ranking: Vorkommen (Phrasen doppelt) + Wortgrenzen-Bonus (exakte Wort-
+      // Treffer vor Teilstring, ohne Komposita/Flexion auszuschliessen); eine
+      // Einheit, die ALLE Begriffe enthaelt (Passage), wird stark bevorzugt.
+      for(let ui=0; ui<units.length; ui++){
+        const f=folded[ui]; let score=0, present=0;
+        for(const t of qy.terms){ const n=countOcc(f,t.f); if(n){ present++; score+=n+(t.re.test(f)?3:0); } }
+        for(const ph of qy.phrases){ const n=countOcc(f,ph.f); if(n){ present++; score+=n*2+(ph.re.test(f)?3:0); } }
+        if(present){
+          if(present===allNeedles.length) score+=100;
+          hits.push({docId:c.id, name:c.name, type:c.type, ref:units[ui].ref, text:units[ui].text, score, tags:c.tags||[], importedAt:c.importedAt});
+        }
       }
     }
     hits.sort((a,b)=>b.score-a.score);
