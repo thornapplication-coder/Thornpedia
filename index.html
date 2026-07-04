@@ -586,7 +586,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.3';
+  const APP_VERSION = '1.0.4';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1333,30 +1333,108 @@
     const items=idxs.map(i=>state.lastHits[i]).filter(Boolean).map(h=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)}));
     return { title:(state.settings.lang==='de'?'Suchbericht':'Search report'), params:(state.settings.lang==='de'?'Suchbegriff: ':'Query: ')+'"'+state.search.q+'" · '+items.length+' '+tr('hits'), summary:'', items };
   }
+  // Gemeinsames Tabellen-Modell: eine Zeile je Fundstelle/Quelle, damit XLSX,
+  // DOCX und PDF dieselbe übersichtliche Quellen-Tabelle zeigen. Spalten, die
+  // für den jeweiligen Export leer wären (z. B. „Textstelle" bei einer reinen
+  // Zusammenfassung), werden automatisch weggelassen.
+  function tableModel(data, de){
+    const items=data.items||[];
+    const hasSnip=items.some(it=>it.snippet);
+    const hasTags=items.some(it=>it.tags);
+    const hasDate=items.some(it=>it.date);
+    const headers=[de?'Nr.':'No.', de?'Dokument':'Document', de?'Fundstelle':'Reference'];
+    const widths=[0.06,0.28,0.17];
+    if(hasSnip){ headers.push(de?'Textstelle':'Excerpt'); widths.push(0.33); }
+    if(hasTags){ headers.push('Tags'); widths.push(0.10); }
+    if(hasDate){ headers.push(de?'Datum':'Date'); widths.push(0.12); }
+    const total=widths.reduce((a,b)=>a+b,0);
+    const rows=items.map((it,i)=>{
+      const r=[String(i+1), it.file||'', it.ref||'—'];
+      if(hasSnip) r.push(it.snippet||'');
+      if(hasTags) r.push(it.tags||'');
+      if(hasDate) r.push(it.date||'');
+      return r;
+    });
+    return { headers, rows, widths:widths.map(w=>w/total) };
+  }
+
+  // Zeichnet eine umbrochene, umrandete Tabelle im PDF (jsPDF, ohne AutoTable-Plugin):
+  // Kopfzeile wird bei jedem Seitenumbruch wiederholt.
+  function pdfTable(doc, headers, rows, widths, startY){
+    const margin=14, pad=1.8, lh=4.2, fs=9;
+    const pw=doc.internal.pageSize.getWidth(), ph=doc.internal.pageSize.getHeight();
+    const usable=pw-margin*2;
+    const colW=widths.map(w=>Math.max(12,w*usable));
+    doc.setFontSize(fs);
+    let y=startY;
+    const wrap=(cells)=>cells.map((c,i)=>doc.splitTextToSize(String(c==null?'':c),colW[i]-pad*2));
+    const rowH=(lines)=>Math.max(1,...lines.map(l=>l.length))*lh+pad*2;
+    const draw=(cells,bold,fill)=>{
+      doc.setFont(undefined,bold?'bold':'normal');
+      const lines=wrap(cells); const h=rowH(lines);
+      if(y+h>ph-margin){ doc.addPage(); y=margin; draw(headers,true,240); doc.setFont(undefined,bold?'bold':'normal'); }
+      let x=margin;
+      for(let i=0;i<cells.length;i++){
+        if(fill!=null){ doc.setFillColor(fill); doc.rect(x,y,colW[i],h,'F'); }
+        doc.setDrawColor(205); doc.rect(x,y,colW[i],h);
+        doc.text(lines[i],x+pad,y+pad+lh-1);
+        x+=colW[i];
+      }
+      y+=h;
+    };
+    draw(headers,true,240);
+    for(const r of rows) draw(r,false,null);
+    return y;
+  }
+
   // Blob-Erzeugung fuer alle drei Formate – wird von Downloads UND Live-Refresh genutzt.
   async function makeExportBlob(fmt, data){
     const de=state.settings.lang==='de';
+    const t=tableModel(data, de);
+    const srcHead=data.summary?(de?'Quellenverzeichnis':'Source list'):(de?'Treffer':'Results');
+
     if(fmt==='xlsx'){
       await loadScript('vendor/xlsx.full.min.js'); const XLSX=window.XLSX;
-      const head=de?['Datei','Seite/Blatt','Snippet','Tags','Datum']:['File','Page/Sheet','Snippet','Tags','Date'];
-      const rows=[head, ...data.items.map(it=>[it.file,it.ref,it.snippet,it.tags,it.date])];
-      const ws=XLSX.utils.aoa_to_sheet(rows); const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,ws,'Treffer');
+      const wb=XLSX.utils.book_new();
+      if(data.summary){
+        const s1=XLSX.utils.aoa_to_sheet([[data.title],[data.params],[],[de?'Zusammenfassung':'Summary'],[data.summary]]);
+        s1['!cols']=[{wch:110}];
+        XLSX.utils.book_append_sheet(wb,s1,de?'Zusammenfassung':'Summary');
+      }
+      const ws=XLSX.utils.aoa_to_sheet([t.headers, ...t.rows]);
+      ws['!cols']=t.widths.map(w=>({wch:Math.max(6,Math.round(w*130))}));
+      XLSX.utils.book_append_sheet(wb,ws, srcHead.slice(0,31));
       const out=XLSX.write(wb,{type:'array',bookType:'xlsx'});
       return new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
     }
+
     if(fmt==='pdf'){
       await loadScript('vendor/jspdf.umd.min.js'); const {jsPDF}=window.jspdf; const doc=new jsPDF(); let y=18;
       doc.setFontSize(16); doc.text(data.title,14,y); y+=8;
-      doc.setFontSize(10); doc.setTextColor(90); doc.text(doc.splitTextToSize(data.params,180),14,y); y+=10; doc.setTextColor(20);
-      if(data.summary){ doc.setFontSize(11); const s=doc.splitTextToSize(data.summary,180); doc.text(s,14,y); y+=s.length*5+6; }
-      doc.setFontSize(11);
-      for(const it of data.items){ if(y>270){doc.addPage();y=18;} doc.setFont(undefined,'bold'); doc.text(doc.splitTextToSize(`• ${it.file} — ${it.ref}`,180),14,y); y+=6; doc.setFont(undefined,'normal'); doc.setTextColor(80); if(it.snippet){ const sn=doc.splitTextToSize('"'+it.snippet+'"',180); doc.text(sn,18,y); y+=sn.length*5; } if(it.tags){doc.text('Tags: '+it.tags,18,y);y+=6;} doc.setTextColor(20); y+=2; }
+      doc.setFontSize(10); doc.setTextColor(90); const pl=doc.splitTextToSize(data.params,182); doc.text(pl,14,y); y+=pl.length*5+4; doc.setTextColor(20);
+      if(data.summary){ doc.setFontSize(11); const s=doc.splitTextToSize(data.summary,182); doc.text(s,14,y); y+=s.length*5+8; }
+      doc.setFontSize(12); doc.setFont(undefined,'bold'); doc.text(srcHead,14,y); y+=6; doc.setFont(undefined,'normal');
+      pdfTable(doc, t.headers, t.rows, t.widths, y);
       return doc.output('blob');
     }
+
     await loadScript('vendor/docx.umd.js'); const D=window.docx;
+    const border={style:D.BorderStyle.SINGLE,size:2,color:'CCCCCC'};
+    const cellBorders={top:border,bottom:border,left:border,right:border};
+    const shade=D.ShadingType?{type:D.ShadingType.CLEAR,color:'auto',fill:'EFEFEF'}:undefined;
+    const cell=(text,i,head)=>new D.TableCell({
+      width:{size:Math.round(t.widths[i]*100),type:D.WidthType.PERCENTAGE},
+      borders:cellBorders,
+      shading:head?shade:undefined,
+      children:[new D.Paragraph({children:[new D.TextRun({text:String(text==null?'':text), bold:!!head})]})]
+    });
+    const headRow=new D.TableRow({tableHeader:true, children:t.headers.map((h,i)=>cell(h,i,true))});
+    const dataRows=t.rows.map(r=>new D.TableRow({children:r.map((c,i)=>cell(c,i,false))}));
+    const table=new D.Table({width:{size:100,type:D.WidthType.PERCENTAGE}, rows:[headRow,...dataRows]});
     const kids=[ new D.Paragraph({text:data.title, heading:D.HeadingLevel.HEADING_1}), new D.Paragraph({text:data.params, spacing:{after:200}}) ];
     if(data.summary) kids.push(new D.Paragraph({text:data.summary, spacing:{after:200}}));
-    for(const it of data.items){ kids.push(new D.Paragraph({children:[new D.TextRun({text:`${it.file} — ${it.ref}`, bold:true})], spacing:{before:120}})); if(it.snippet)kids.push(new D.Paragraph({children:[new D.TextRun({text:'„'+it.snippet+'"', italics:true})]})); if(it.tags)kids.push(new D.Paragraph({text:'Tags: '+it.tags})); }
+    kids.push(new D.Paragraph({text:srcHead, heading:D.HeadingLevel.HEADING_2, spacing:{before:120,after:120}}));
+    kids.push(table);
     const docx=new D.Document({sections:[{children:kids}]});
     return await D.Packer.toBlob(docx);
   }
