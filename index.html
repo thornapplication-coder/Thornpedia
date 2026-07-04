@@ -1475,7 +1475,7 @@
     // kind: 'hits' | 'summary'
     if(kind==='summary'&&state.lastSummary){ const s=state.lastSummary; return { title:s.title, params:(state.settings.lang==='de'?'Modus: ':'Mode: ')+(s.mode==='ai'?'Claude API':(state.settings.lang==='de'?'Extraktiv':'Extractive')), summary:s.text, items:(s.picked||[]).map(p=>({file:p.name,ref:refLabel(p.ref),snippet:'',tags:'',date:''})) }; }
     const idxs = state.search.selected.size? Array.from(state.search.selected): state.lastHits.map((_,i)=>i);
-    const items=idxs.map(i=>state.lastHits[i]).filter(Boolean).map(h=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)}));
+    const items=idxs.map(i=>state.lastHits[i]).filter(Boolean).map(h=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), text:h.text, tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)}));
     return { title:(state.settings.lang==='de'?'Suchbericht':'Search report'), params:(state.settings.lang==='de'?'Suchbegriff: ':'Query: ')+'"'+state.search.q+'" · '+items.length+' '+tr('hits'), summary:'', items };
   }
   // Gemeinsames Tabellen-Modell: eine Zeile je Fundstelle/Quelle, damit XLSX,
@@ -1503,39 +1503,8 @@
     return { headers, rows, widths:widths.map(w=>w/total) };
   }
 
-  // Zeichnet eine umbrochene, umrandete Tabelle im PDF (jsPDF, ohne AutoTable-Plugin):
-  // Kopfzeile wird bei jedem Seitenumbruch wiederholt.
-  function pdfTable(doc, headers, rows, widths, startY){
-    const margin=14, pad=1.8, lh=4.2, fs=9;
-    const pw=doc.internal.pageSize.getWidth(), ph=doc.internal.pageSize.getHeight();
-    const usable=pw-margin*2;
-    const colW=widths.map(w=>Math.max(12,w*usable));
-    // Nach dem Mindestbreiten-Clamp normalisieren, damit die Spaltensumme nie den Rand ueberschreitet.
-    const sumW=colW.reduce((a,b)=>a+b,0); if(sumW>usable){ const f=usable/sumW; for(let i=0;i<colW.length;i++)colW[i]*=f; }
-    doc.setFontSize(fs);
-    let y=startY;
-    // Eine einzelne Zelle kann nie hoeher als eine Seite werden: ueberlange Texte
-    // werden begrenzt und mit „…" markiert (statt am Seitenende abgeschnitten zu verschwinden).
-    const maxLines=Math.max(1, Math.floor((ph-margin*2-pad*2)/lh));
-    const wrap=(cells)=>cells.map((c,i)=>{ let l=doc.splitTextToSize(String(c==null?'':c),colW[i]-pad*2); if(l.length>maxLines){ l=l.slice(0,maxLines); l[maxLines-1]='…'; } return l; });
-    const rowH=(lines)=>Math.max(1,...lines.map(l=>l.length))*lh+pad*2;
-    const draw=(cells,bold,fill)=>{
-      doc.setFont(undefined,bold?'bold':'normal');
-      const lines=wrap(cells); const h=rowH(lines);
-      if(y+h>ph-margin){ doc.addPage(); y=margin; draw(headers,true,240); doc.setFont(undefined,bold?'bold':'normal'); }
-      let x=margin;
-      for(let i=0;i<cells.length;i++){
-        if(fill!=null){ doc.setFillColor(fill); doc.rect(x,y,colW[i],h,'F'); }
-        doc.setDrawColor(205); doc.rect(x,y,colW[i],h);
-        doc.text(lines[i],x+pad,y+pad+lh-1);
-        x+=colW[i];
-      }
-      y+=h;
-    };
-    draw(headers,true,240);
-    for(const r of rows) draw(r,false,null);
-    return y;
-  }
+  // Eindeutige Quellenliste (Datei — Fundstelle) fuer das Quellenverzeichnis.
+  function sourceListItems(items){ const seen=new Set(); const out=[]; for(const it of (items||[])){ const key=(it.file||'')+'|'+(it.ref||''); if(seen.has(key))continue; seen.add(key); out.push((it.file||'')+(it.ref?' — '+it.ref:'')); } return out; }
 
   // Blob-Erzeugung fuer alle drei Formate – wird von Downloads UND Live-Refresh genutzt.
   async function makeExportBlob(fmt, data){
@@ -1559,32 +1528,29 @@
     }
 
     if(fmt==='pdf'){
-      await loadScript('vendor/jspdf.umd.min.js'); const {jsPDF}=window.jspdf; const doc=new jsPDF(); let y=18;
-      doc.setFontSize(16); doc.text(data.title,14,y); y+=8;
-      doc.setFontSize(10); doc.setTextColor(90); const pl=doc.splitTextToSize(data.params,182); doc.text(pl,14,y); y+=pl.length*5+4; doc.setTextColor(20);
-      if(data.summary){ doc.setFontSize(11); const s=doc.splitTextToSize(data.summary,182); doc.text(s,14,y); y+=s.length*5+8; }
-      doc.setFontSize(12); doc.setFont(undefined,'bold'); doc.text(srcHead,14,y); y+=6; doc.setFont(undefined,'normal');
-      pdfTable(doc, t.headers, t.rows, t.widths, y);
+      // Dokument-Layout: je Fundstelle eine Überschrift (Quelle) und darunter der
+      // gefundene Text, mit Abständen. Am Ende das Quellenverzeichnis.
+      await loadScript('vendor/jspdf.umd.min.js'); const {jsPDF}=window.jspdf; const doc=new jsPDF();
+      const M=14, W=doc.internal.pageSize.getWidth()-M*2, PH=doc.internal.pageSize.getHeight();
+      let y=18;
+      const para=(text,{size=11,bold=false,color=20,gap=4,indent=0}={})=>{ doc.setFontSize(size); doc.setFont(undefined,bold?'bold':'normal'); doc.setTextColor(color); const lh=size*0.42+1; for(const ln of doc.splitTextToSize(String(text==null?'':text), W-indent)){ if(y+lh>PH-M){ doc.addPage(); y=M; } doc.text(ln, M+indent, y+lh-1); y+=lh; } y+=gap; doc.setTextColor(20); };
+      para(data.title,{size:16,bold:true,gap:2});
+      para(data.params,{size:10,color:90,gap:7});
+      if(data.summary){ para(de?'Zusammenfassung':'Summary',{size:13,bold:true,gap:2}); for(const blk of String(data.summary).split(/\n{2,}/)) para(blk,{gap:5}); }
+      else { for(const it of data.items){ if(y+16>PH-M){ doc.addPage(); y=M; } para(`${it.file}${it.ref?' — '+it.ref:''}`,{size:12,bold:true,gap:1}); para((it.text||it.snippet||'').slice(0,4000),{color:60,gap:8}); } }
+      const src=sourceListItems(data.items);
+      if(src.length){ para(de?'Quellenverzeichnis':'Source list',{size:13,bold:true,gap:2}); src.forEach((s,i)=>para(`${i+1}. ${s}`,{size:10,color:60,gap:1})); }
       return doc.output('blob');
     }
 
+    // DOCX – gleiches Dokument-Layout wie PDF.
     await loadScript('vendor/docx.umd.js'); const D=window.docx;
-    const border={style:D.BorderStyle.SINGLE,size:2,color:'CCCCCC'};
-    const cellBorders={top:border,bottom:border,left:border,right:border};
-    const shade=D.ShadingType?{type:D.ShadingType.CLEAR,color:'auto',fill:'EFEFEF'}:undefined;
-    const cell=(text,i,head)=>new D.TableCell({
-      width:{size:Math.round(t.widths[i]*100),type:D.WidthType.PERCENTAGE},
-      borders:cellBorders,
-      shading:head?shade:undefined,
-      children:[new D.Paragraph({children:[new D.TextRun({text:String(text==null?'':text), bold:!!head})]})]
-    });
-    const headRow=new D.TableRow({tableHeader:true, children:t.headers.map((h,i)=>cell(h,i,true))});
-    const dataRows=t.rows.map(r=>new D.TableRow({children:r.map((c,i)=>cell(c,i,false))}));
-    const table=new D.Table({width:{size:100,type:D.WidthType.PERCENTAGE}, rows:[headRow,...dataRows]});
-    const kids=[ new D.Paragraph({text:data.title, heading:D.HeadingLevel.HEADING_1}), new D.Paragraph({text:data.params, spacing:{after:200}}) ];
-    if(data.summary) kids.push(new D.Paragraph({text:data.summary, spacing:{after:200}}));
-    kids.push(new D.Paragraph({text:srcHead, heading:D.HeadingLevel.HEADING_2, spacing:{before:120,after:120}}));
-    kids.push(table);
+    const kids=[ new D.Paragraph({text:data.title, heading:D.HeadingLevel.HEADING_1}),
+                 new D.Paragraph({children:[new D.TextRun({text:data.params, color:'777777'})], spacing:{after:240}}) ];
+    if(data.summary){ kids.push(new D.Paragraph({text:(de?'Zusammenfassung':'Summary'), heading:D.HeadingLevel.HEADING_2, spacing:{before:120,after:120}})); for(const blk of String(data.summary).split(/\n{2,}/)) kids.push(new D.Paragraph({text:blk, spacing:{after:160}})); }
+    else { for(const it of data.items){ kids.push(new D.Paragraph({text:`${it.file}${it.ref?' — '+it.ref:''}`, heading:D.HeadingLevel.HEADING_3, spacing:{before:220,after:60}})); kids.push(new D.Paragraph({text:(it.text||it.snippet||'').slice(0,8000), spacing:{after:120}})); } }
+    const src=sourceListItems(data.items);
+    if(src.length){ kids.push(new D.Paragraph({text:(de?'Quellenverzeichnis':'Source list'), heading:D.HeadingLevel.HEADING_2, spacing:{before:260,after:120}})); src.forEach((s,i)=>kids.push(new D.Paragraph({text:`${i+1}. ${s}`, spacing:{after:40}}))); }
     const docx=new D.Document({sections:[{children:kids}]});
     return await D.Packer.toBlob(docx);
   }
@@ -1607,7 +1573,7 @@
     const stand=(de?'Stand: ':'As of: ')+new Date().toLocaleString(de?'de-DE':'en-GB');
     if(def.kind==='hits'){
       const {hits}=await searchArchive(def.search||{});
-      const items=hits.map(h=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)}));
+      const items=hits.map(h=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), text:h.text, tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)}));
       return { title:de?'Suchbericht':'Search report', params:(de?'Suchbegriff: ':'Query: ')+'"'+(def.search&&def.search.q||'')+'" · '+items.length+' '+tr('hits')+' · '+stand, summary:'', items };
     }
     // Zusammenfassung
