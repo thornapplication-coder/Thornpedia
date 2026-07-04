@@ -586,7 +586,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.5';
+  const APP_VERSION = '1.0.6';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1111,6 +1111,12 @@
     const win=(start>0?'…':'')+text.slice(start,end)+(end<text.length?'…':'');
     return highlightEscape(win, terms);
   }
+  // Gefalteter Text (fold) wird pro Texteinheit nur EINMAL berechnet und im
+  // Speicher gecacht (WeakMap → kein Persistieren, keine Format-Aenderung, gibt
+  // Speicher frei sobald der Index-Eintrag verworfen wird). Bei grossen Archiven
+  // war das wiederholte Falten des gesamten Korpus der Haupt-Flaschenhals.
+  const _foldCache=new WeakMap();
+  function foldUnit(u){ let f=_foldCache.get(u); if(f===undefined){ f=fold(u.text); _foldCache.set(u,f); } return f; }
   // Kern der Suche – arbeitet mit expliziten Parametern, damit auch Live-Exporte
   // dieselbe Suche jederzeit reproduzieren koennen.
   async function searchArchive(p){
@@ -1127,7 +1133,7 @@
       if(p.to&&c.importedAt&&c.importedAt.slice(0,10)>p.to)continue;
       const doc=state.indexCache.get(c.id); if(!doc)continue;
       for(const u of (doc.units||[])){
-        const ftext=fold(u.text);
+        const ftext=foldUnit(u);
         // UND-Suche: jedes Wort und jede Phrase muss vorkommen
         let score=0, ok=true;
         for(const t of qy.terms){ const n=countOcc(ftext,t.f); if(!n){ok=false;break;} score+=n; }
