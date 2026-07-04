@@ -1,0 +1,15 @@
+{
+  "name": "wissensarchiv-tests",
+  "private": true,
+  "type": "module",
+  "description": "End-to-End-Tests fuer das Wissensarchiv (Playwright/Chromium)",
+  "scripts": {
+    "test": "node run.mjs"
+  },
+  "dependencies": {
+    "docx": "^8.5.0",
+    "jspdf": "^2.5.1",
+    "playwright": "^1.49.0",
+    "xlsx": "^0.18.5"
+  }
+}
