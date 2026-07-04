@@ -6,7 +6,7 @@
  *  Worker-Kontext liesse sich sein Worker-Pfad nicht aufloesen.)
  *
  * Ergebnis je Dokument: { kind, scanned, units:[{ref, text}] }
- *   ref bei Excel : { sheet, cell }
+ *   ref bei Excel : { sheet, row }   (eine Fundstelle je Tabellenzeile)
  *   ref bei Text  : { section }
  */
 /* global importScripts, mammoth, XLSX */
@@ -17,6 +17,16 @@ importScripts(
 );
 
 const norm = (s) => String(s).replace(/\s+/g, ' ').trim();
+
+// Robuste Text-Dekodierung: BOM entfernen, UTF-8 strikt versuchen, sonst auf
+// Windows-1252 (Latin-1) zurueckfallen – so bleiben Umlaute in CSV/TXT/MD, die
+// unter Windows/Excel oft nicht als UTF-8 exportiert werden, erhalten.
+function decodeText(buffer) {
+  let b = new Uint8Array(buffer);
+  if (b.length >= 3 && b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF) b = b.subarray(3);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(b); }
+  catch (e) { try { return new TextDecoder('windows-1252').decode(b); } catch (e2) { return new TextDecoder('utf-8').decode(b); } }
+}
 
 async function parseDocx(buffer) {
   const res = await mammoth.extractRawText({ arrayBuffer: buffer });
@@ -31,40 +41,46 @@ async function parseDocx(buffer) {
 function parseSheet(buffer, ext) {
   let wb;
   if (ext === 'csv') {
-    const text = new TextDecoder('utf-8').decode(new Uint8Array(buffer));
+    const text = decodeText(buffer);
     wb = XLSX.read(text, { type: 'string' });
   } else {
     wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
   }
+  // ZEILENBASIERT: je Tabellenzeile eine Fundstelle (Text = alle nicht-leeren
+  // Zellen der Zeile). Das liefert lesbare, listenartige Suchtreffer statt
+  // isolierter Einzelzellen. ref = { sheet, row } (1-basiert).
   const units = [];
-  const CAP = 200000;      // max. erfasste (nicht-leere) Zellen
-  const SCAN_CAP = 5000000; // max. besuchte Zellen – begrenzt auch aufgeblaehte !ref-Bereiche
+  const CAP = 200000;       // max. erfasste (nicht-leere) Zeilen
+  const SCAN_CAP = 5000000; // max. besuchte Zellen – begrenzt aufgeblaehte !ref-Bereiche
   let scanned = 0;
   for (const sheetName of wb.SheetNames) {
     const ws = wb.Sheets[sheetName];
     if (!ws || !ws['!ref']) continue;
     const range = XLSX.utils.decode_range(ws['!ref']);
     for (let R = range.s.r; R <= range.e.r; R++) {
+      const cells = [];
       for (let C = range.s.c; C <= range.e.c; C++) {
         // Auch die reine Iteration deckeln: eine kaputte/boesartige Datei kann
         // ein riesiges !ref (z.B. A1:XFD1048576) deklarieren und wuerde sonst
         // den Worker praktisch endlos blockieren.
         if (++scanned > SCAN_CAP) return { kind: 'sheet', scanned: false, units, truncated: true };
-        const addr = XLSX.utils.encode_cell({ r: R, c: C });
-        const cell = ws[addr];
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
         if (!cell) continue;
         const val = cell.w != null ? cell.w : cell.v;
-        if (val === undefined || val === null || val === '') continue;
-        units.push({ ref: { sheet: sheetName, cell: addr }, text: norm(val) });
-        if (units.length >= CAP) return { kind: 'sheet', scanned: false, units, truncated: true };
+        if (val === undefined || val === null) continue;
+        const v = norm(val); if (!v) continue;
+        cells.push(v);
       }
+      if (!cells.length) continue;
+      units.push({ ref: { sheet: sheetName, row: R + 1 }, text: cells.join('  ·  ') });
+      if (units.length >= CAP) return { kind: 'sheet', scanned: false, units, truncated: true };
     }
   }
   return { kind: 'sheet', scanned: false, units };
 }
 
 function parseText(buffer) {
-  const text = new TextDecoder('utf-8').decode(new Uint8Array(buffer));
+  const text = decodeText(buffer);
   const blocks = text.split(/\n{2,}/).map((s) => norm(s)).filter(Boolean);
   const units = blocks.map((t, i) => ({ ref: { section: i + 1 }, text: t }));
   return { kind: 'text', scanned: false, units };

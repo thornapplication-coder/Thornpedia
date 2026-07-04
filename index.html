@@ -117,9 +117,10 @@
     .chip{border:1px solid var(--line);background:var(--panel);color:var(--text-muted);border-radius:16px;padding:4px 11px;font-size:12px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
     .chip.on{background:var(--primary);color:#fff;border-color:var(--primary)}
     .chip.tag{background:var(--surface-accent);color:var(--primary);border-color:transparent;cursor:default}
-    .chip.tag .x{cursor:pointer;opacity:.7}
+    .chip.tag .x{cursor:pointer;opacity:.7;border:0;background:transparent;color:inherit;font:inherit;padding:0 2px;line-height:1}
     .chip.tag .x:hover{opacity:1}
-    .switch{position:relative;width:42px;height:24px;background:var(--line);border-radius:12px;transition:.2s;flex:none;border:0}
+    .icon-btn.active{background:var(--surface-accent);color:var(--primary);border-color:transparent}
+    .switch{position:relative;width:42px;height:24px;background:var(--line);border-radius:12px;transition:.2s;flex:none;border:0;padding:0;cursor:pointer}
     .switch.on{background:var(--primary)}
     .switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
     .switch.on::after{left:21px}
@@ -146,7 +147,7 @@
     .rowmenu{position:relative}
     .rowmenu-btn{border:0;background:transparent;color:var(--text-muted);font-size:18px;padding:2px 8px;border-radius:6px}
     .rowmenu-btn:hover{background:var(--bg-alt)}
-    .menu{position:absolute;right:0;top:100%;z-index:20;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);min-width:190px;padding:6px;display:none}
+    .menu{position:absolute;right:0;top:100%;z-index:50;background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);min-width:190px;padding:6px;display:none}
     .menu.show{display:block}
     .menu button{display:flex;gap:9px;align-items:center;width:100%;text-align:left;border:0;background:transparent;color:var(--text);padding:8px 10px;border-radius:6px;font-size:13px}
     .menu button:hover{background:var(--bg-alt)}
@@ -295,6 +296,7 @@
     <div class="seg" id="lang-seg" title="Sprache / Language">
       <button data-lang="de">DE</button><button data-lang="en">EN</button>
     </div>
+    <button class="icon-btn" id="settings-btn" title="Einstellungen" aria-label="Einstellungen" data-i18n-title="nav-set">⚙️</button>
     <button class="icon-btn" id="refresh-btn" title="Neu laden" aria-label="Neu laden" data-i18n-title="refresh-title">🔄</button>
     <button class="icon-btn" id="theme-btn" title="Theme wechseln" aria-label="Theme wechseln" data-i18n-title="theme-title">🌓</button>
   </header>
@@ -305,10 +307,10 @@
     <button class="nav-item" data-view="search"><span class="ic">🔎</span><span class="txt" data-i18n="nav-search">Suche</span></button>
     <button class="nav-item" data-view="doc" id="nav-doc" style="display:none"><span class="ic">📄</span><span class="txt" data-i18n="nav-doc">Fundstelle</span></button>
     <button class="nav-item" data-view="summary"><span class="ic">✨</span><span class="txt" data-i18n="nav-sum">Zusammenfassung</span></button>
-    <button class="nav-item" data-view="backup"><span class="ic">💾</span><span class="txt" data-i18n="nav-backup">Backup</span></button>
-    <button class="nav-item" data-view="settings"><span class="ic">⚙️</span><span class="txt" data-i18n="nav-set">Einstellungen</span></button>
     <div class="nav-label" data-i18n="nav-actions">Aktionen</div>
     <button class="nav-item" data-view="import"><span class="ic">⬆️</span><span class="txt" data-i18n="nav-import">Importieren</span></button>
+    <button class="nav-item" data-view="exporte"><span class="ic">📤</span><span class="txt" data-i18n="nav-exporte">Exporte</span></button>
+    <button class="nav-item" data-view="backup"><span class="ic">💾</span><span class="txt" data-i18n="nav-backup">Backup</span></button>
     <div class="sidebar-foot">
       <div class="storage-ok"><span class="dot"></span> <span data-i18n="foot-connected">Ordner verbunden</span></div>
       <div style="margin-top:4px;opacity:.85" id="foot-path">—</div>
@@ -330,7 +332,19 @@
     <!-- ===== Suche ===== -->
     <section class="view" id="view-search">
       <div class="page-head"><div><h2 data-i18n="nav-search">Suche</h2><p data-i18n="search-p">Volltext über alle Indizes · Originale werden dabei nie geladen.</p></div></div>
-      <div class="top-search" style="max-width:none;margin-bottom:18px">🔎 <input id="search-input" placeholder="Suchbegriff…" data-i18n-ph="search-ph2" style="font-size:14px"><button class="btn sm" id="search-btn" data-i18n="do-search">Suchen</button></div>
+      <div class="top-search" style="max-width:none;margin-bottom:10px">🔎 <input id="search-input" placeholder="Suchbegriff…" data-i18n-ph="search-ph2" style="font-size:14px"><button class="btn sm" id="search-btn" data-i18n="do-search">Suchen</button></div>
+      <div class="row" style="gap:14px;margin-bottom:18px;flex-wrap:wrap;align-items:center">
+        <div class="seg" id="search-mode" style="border-radius:8px" role="group" data-i18n-title="sm-title">
+          <button class="on" data-smode="text" data-i18n="sm-text">Volltext</button>
+          <button data-smode="exact" data-i18n="sm-exact">Genauer Wortlaut</button>
+          <button data-smode="ask" data-i18n="sm-ask">Frage (KI)</button>
+        </div>
+        <div class="seg" id="search-scope" style="border-radius:8px" role="group" data-i18n-title="sc-title">
+          <button class="on" data-sscope="all" data-i18n="sc-all">Alle Dokumente</button>
+          <button data-sscope="selected" data-i18n="sc-selected">Nur markierte</button>
+        </div>
+        <span id="search-scope-hint" style="color:var(--text-muted);font-size:12px"></span>
+      </div>
       <div class="search-layout">
         <aside class="panel panel-pad">
           <div class="filter-group">
@@ -433,12 +447,17 @@
           <div class="dropzone" id="backup-drop" style="margin-top:12px;padding:22px"><div style="font-size:24px">⬆️</div><div data-i18n="backup-drop">Backup-ZIP hierher ziehen oder klicken</div></div>
         </div>
       </div>
-      <div class="panel panel-pad" style="margin-top:16px;max-width:900px">
+    </section>
+
+    <!-- ===== Exporte (Live-Exporte) ===== -->
+    <section class="view" id="view-exporte">
+      <div class="page-head"><div><h2 data-i18n="nav-exporte">Exporte</h2><p data-i18n="exp-live-p2">Gespeicherte Exporte (Suchberichte & Zusammenfassungen). Jeder Eintrag wird bei Änderungen am Archiv automatisch neu erzeugt und liegt in /exports.</p></div></div>
+      <div class="panel panel-pad" style="max-width:900px">
         <div class="row" style="justify-content:space-between;margin-bottom:6px">
           <h4 data-i18n="exp-live-h">Live-Exporte</h4>
           <div class="row">
             <button class="btn sm neutral" id="exp-refresh-all">🔄 <span data-i18n="exp-refresh">Jetzt aktualisieren</span></button>
-            <span class="switch on" id="sw-autoexp" role="switch" tabindex="0"></span> <span data-i18n="exp-auto">Automatisch aktualisieren</span>
+            <button class="switch on" id="sw-autoexp" role="switch" aria-checked="true" data-i18n-title="exp-auto"></button> <span data-i18n="exp-auto">Automatisch aktualisieren</span>
           </div>
         </div>
         <p style="color:var(--text-muted);font-size:12px;margin:0 0 10px" data-i18n="exp-live-p">Jeder Export wird hier registriert und bei jeder Änderung am Archiv (Import, Löschen, Tags …) automatisch neu erzeugt – die Dateien in /exports sind damit immer aktuell.</p>
@@ -509,7 +528,14 @@
         </div>
         <div class="panel panel-pad">
           <h4 style="margin-bottom:6px" data-i18n="set-about">Über</h4>
-          <p style="color:var(--text-muted);margin:0" data-i18n="set-about-p">Wissensarchiv · Keine Konten, kein Server – deine Daten bleiben bei dir.</p>
+          <p style="color:var(--text-muted);margin:0 0 4px" data-i18n="set-about-p">Wissensarchiv · Keine Konten, kein Server – deine Daten bleiben bei dir.</p>
+          <p style="color:var(--text-muted);margin:0 0 12px;font-size:12px" id="about-version"></p>
+          <div style="border-top:1px solid var(--line);padding-top:12px;line-height:1.65">
+            <p style="margin:0 0 10px">Thornpedia ist eine digitale Wissensplattform für die zivile Luftfahrt, die zur Unterstützung von Aus- und Weiterbildungsmaßnahmen im EASA-regulierten Flugbetrieb entwickelt wurde. Sie dient als zentrale Informationsquelle für flugbetriebliche, technische und regulatorische Themen und unterstützt einen strukturierten, standardisierten sowie nachhaltigen Wissenstransfer.</p>
+            <p style="margin:0 0 10px">Die Plattform stellt fundierte Informationen zu Luftfahrzeugen, Flugzeugsystemen, Betriebsverfahren, Performance, Navigation, Meteorologie, Human Factors sowie den geltenden EASA-Regularien bereit. Thornpedia unterstützt Pilotinnen und Piloten, Fluglehrende, Prüfer sowie Trainingsverantwortliche bei der Vorbereitung, Durchführung und Nachbereitung von Ausbildungs- und Qualifizierungsmaßnahmen.</p>
+            <p style="margin:0 0 10px">Zur effizienten Aufbereitung umfangreicher Fachinformationen nutzt Thornpedia moderne Verfahren der Künstlichen Intelligenz. Diese werden eingesetzt, um Inhalte zu analysieren, zusammenzufassen und übersichtlich darzustellen. Dadurch können relevante Informationen schneller erfasst werden, ohne den fachlichen Kontext aus dem Blick zu verlieren.</p>
+            <p style="margin:0">Ziel ist es, komplexe Fachinhalte verständlich und praxisnah aufzubereiten, den selbstständigen Wissenserwerb zu fördern und einen einheitlichen Ausbildungsstandard im Einklang mit den Anforderungen der EASA zu unterstützen.</p>
+          </div>
         </div>
       </div>
     </section>
@@ -591,7 +617,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.8';
+  const APP_VERSION = '1.0.0';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -618,7 +644,7 @@
     indexCache:new Map(),       // id -> vollständiges Index-Objekt
     lastHits:[],                // letzte Suchtreffer
     lib:{ sort:'importedAt', dir:'desc', type:'all', tag:null, q:'' , selected:new Set() },
-    search:{ q:'', types:new Set(SUPPORTED.map(typeOf)), from:'', to:'', tag:null, selected:new Set() },
+    search:{ q:'', types:new Set(SUPPORTED.map(typeOf)), from:'', to:'', tag:null, selected:new Set(), mode:'text', scope:'all' },
     curDoc:null,                // {doc, ref, terms, page}
     pdfView:{docId:null,pdf:null}, // gecachtes PDF.js-Dokument fuer den Viewer
     _renderSeq:0, _renderTask:null,
@@ -659,12 +685,18 @@
     'ob-sub':['Deine persönliche, offline-fähige Wissensdatenbank. Wähle einen Ordner auf der Festplatte – dort werden alle Originaldateien, der Suchindex und deine Metadaten als echte Dateien gespeichert. Das übersteht auch das Löschen von Browser-Daten.','Your personal, offline-capable knowledge base. Choose a folder on disk – all original files, the search index and your metadata are stored there as real files. This survives clearing your browser data.'],
     'ob-yourfolder':['Dein Ordner','Your folder'],'ob-d1':['– Originaldateien','– original files'],'ob-d2':['– ein JSON-Index pro Dokument','– one JSON index per document'],'ob-d3':['– Tags, Notizen, Einstellungen, API-Key','– tags, notes, settings, API key'],'ob-d4':['– Berichte & Backups','– reports & backups'],
     'ob-choose':['Ordner wählen','Choose folder'],'ob-browser':['Erfordert Chrome oder Edge (Desktop).','Requires Chrome or Edge (desktop).'],
-    'nav-nav':['Navigation','Navigation'],'nav-actions':['Aktionen','Actions'],'nav-lib':['Bibliothek','Library'],'nav-search':['Suche','Search'],'nav-doc':['Fundstelle','Source view'],'nav-sum':['Zusammenfassung','Summary'],'nav-backup':['Backup','Backup'],'nav-set':['Einstellungen','Settings'],'nav-import':['Importieren','Import'],
+    'nav-nav':['Navigation','Navigation'],'nav-actions':['Aktionen','Actions'],'nav-lib':['Bibliothek','Library'],'nav-search':['Suche','Search'],'nav-doc':['Fundstelle','Source view'],'nav-sum':['Zusammenfassung','Summary'],'nav-backup':['Backup','Backup'],'nav-set':['Einstellungen','Settings'],'nav-import':['Importieren','Import'],'nav-exporte':['Exporte','Exports'],
     'foot-connected':['Ordner verbunden','Folder connected'],
     'lib-h':['Bibliothek','Library'],'lib-p':['Alle Dokumente an einem Ort.','All your documents in one place.'],
     'lib-empty-h':['Noch keine Dokumente','No documents yet'],'lib-empty-p':['Importiere Dateien per Drag & Drop, Dateiauswahl oder ganzem Ordner.','Import files via drag & drop, file picker or a whole folder.'],
     'search-p':['Volltext über alle Indizes · Originale werden dabei nie geladen.','Full-text across all indexes · originals are never loaded.'],
     'search-ph':['Volltextsuche über alle Dokumente…','Full-text search across all documents…'],'search-ph2':['Suchbegriff…','Search term…'],'do-search':['Suchen','Search'],
+    'sm-text':['Volltext','Full text'],'sm-exact':['Genauer Wortlaut','Exact wording'],'sm-ask':['Frage (KI)','Ask (AI)'],'sm-title':['Such-Modus','Search mode'],
+    'sc-all':['Alle Dokumente','All documents'],'sc-selected':['Nur markierte','Selected only'],'sc-title':['Suchbereich','Search scope'],
+    'scope-none':['Es sind keine Dokumente markiert. Setze in der Bibliothek Haken bei den gewünschten Dokumenten.','No documents are selected. Tick the documents you want in the library.'],
+    'ask-nokey':['Für die KI-Frage wird ein Claude-API-Key benötigt (Einstellungen).','The AI question needs a Claude API key (Settings).'],
+    'ask-working':['Antwort wird erstellt …','Generating answer …'],
+    'ask-nodocs':['Keine passenden Dokumente gefunden.','No matching documents found.'],
     'f-type':['Dateityp','File type'],'f-date':['Zeitraum (Import)','Date range (import)'],'f-tags':['Tags / Kategorien','Tags / categories'],'f-reset':['Filter zurücksetzen','Reset filters'],
     'select-all':['Alle wählen','Select all'],'sum-selected':['Ausgewählte zusammenfassen','Summarize selected'],'export':['Export','Export'],
     'doc-original':['Original','Original'],'reindex':['Neu-Indexieren','Re-index'],
@@ -695,13 +727,14 @@
     'hits':['Treffer','hits'],'no-hits':['Keine Treffer.','No results.'],'type-search-hint':['Gib oben einen Suchbegriff ein.','Type a search term above.'],
     'open-hit':['Fundstelle öffnen →','Open source →'],'doc-note-l':['Notiz','Note'],'doc-info':['Dokument-Info','Document info'],
     'scan-warn':['Dieses PDF hat keine Textebene (gescannt) und ist noch nicht durchsuchbar. Mit „Text erkennen (OCR)" wird der Text lokal auf deinem Gerät erkannt – es werden keine Daten hochgeladen.','This PDF has no text layer (scanned) and is not searchable yet. Use “Recognize text (OCR)” to extract the text locally on your device – nothing is uploaded.'],
-    'page':['Seite','Page'],'section':['Abschnitt','Section'],'sheet':['Blatt','Sheet'],'cell':['Zelle','Cell'],
+    'page':['Seite','Page'],'section':['Abschnitt','Section'],'sheet':['Blatt','Sheet'],'cell':['Zelle','Cell'],'row':['Zeile','Row'],
     'rename-t':['Umbenennen','Rename'],'rename-l':['Neuer Name','New name'],'tag-t':['Tag hinzufügen','Add tag'],'tag-l':['Tag-Name','Tag name'],'note-t':['Notiz bearbeiten','Edit note'],'note-l':['Notiz','Note'],
     'ob-sub-opfs':['Deine persönliche, offline-fähige Wissensdatenbank. Auf diesem Gerät speichert die App alle Daten sicher in ihrem eigenen App-Speicher (iPhone/iPad erlauben keinen direkten Ordnerzugriff). Erstelle regelmäßig Backup-ZIPs, um deine Daten zu sichern oder auf einen anderen Rechner umzuziehen.','Your personal, offline-capable knowledge base. On this device the app stores all data in its own app storage (iPhone/iPad do not allow direct folder access). Create backup ZIPs regularly to secure your data or move it to another computer.'],
     'ob-start':['Loslegen','Get started'],
     'ob-note-opfs':['Tipp: Über „Teilen → Zum Home-Bildschirm" wird das Wissensarchiv zur App und läuft offline.','Tip: use “Share → Add to Home Screen” to install the archive as an app that works offline.'],
     'opfs-hint':['Auf diesem Gerät liegen die Daten im App-Speicher des Browsers. Erstelle regelmäßig Backup-ZIPs – wenn Website-Daten gelöscht werden, wäre das Archiv sonst weg.','On this device data lives in the browser’s app storage. Create backup ZIPs regularly – clearing site data would otherwise delete the archive.'],
     'exp-live-h':['Live-Exporte','Live exports'],
+    'exp-live-p2':['Gespeicherte Exporte (Suchberichte & Zusammenfassungen). Jeder Eintrag wird bei Änderungen am Archiv automatisch neu erzeugt und liegt in /exports.','Saved exports (search reports & summaries). Each entry is regenerated automatically on archive changes and stored in /exports.'],
     'exp-refresh':['Jetzt aktualisieren','Refresh now'],
     'exp-auto':['Automatisch aktualisieren','Refresh automatically'],
     'exp-live-p':['Jeder Export wird hier registriert und bei jeder Änderung am Archiv (Import, Löschen, Tags …) automatisch neu erzeugt – die Dateien in /exports sind damit immer aktuell.','Every export is registered here and regenerated automatically whenever the archive changes (import, delete, tags …) – the files in /exports stay current at all times.'],
@@ -857,6 +890,9 @@
       const st=$('.st',row), bar=$('.progress',row), fill=$('.progress>span',row), icon=$('.stat-icon',row);
       const setSt=(t)=>st.textContent=t;
       try{
+        // Sehr grosse Dateien nicht vollstaendig in den Speicher laden (haengt schwache Geraete).
+        const MAX_FILE=150*1024*1024;
+        if(file.size>MAX_FILE){ setSt(de()?`zu groß (> ${Math.round(MAX_FILE/1048576)} MB) – übersprungen`:`too large (> ${Math.round(MAX_FILE/1048576)} MB) – skipped`); icon.textContent='⏭'; skipped++; continue; }
         const buffer=await file.arrayBuffer();
         const hash=await sha256(buffer);
         // Duplikat: gleicher Name ODER gleicher Inhalt
@@ -941,7 +977,7 @@
     wireLibrary(el, rows);
   }
   function rowHtml(r, checked){
-    const tags=(r.tags||[]).map(t=>`<span class="chip tag">${esc(t)}</span>`).join(' ')||'<span style="color:var(--text-muted)">—</span>';
+    const tags=(r.tags||[]).map(t=>`<span class="chip tag">${esc(t)}<button class="x" data-rmtag="${esc(t)}" data-rmid="${esc(r.id)}" aria-label="${(state.settings.lang==='de'?'Tag entfernen: ':'Remove tag: ')+esc(t)}">✕</button></span>`).join(' ')||'<span style="color:var(--text-muted)">—</span>';
     const status=r.scanned?`<span class="badge-scan">⚠ ${state.settings.lang==='de'?'Gescannt':'Scanned'}</span>`:(r.ocr?`<span style="color:var(--good)">● OCR</span>`:`<span style="color:var(--good)">● ${state.settings.lang==='de'?'indexiert':'indexed'}</span>`);
     const meta=r.type==='pdf'&&r.pageCount?`${r.pageCount} ${tr('page')}`:`${r.unitCount} ${state.settings.lang==='de'?'Fundstellen':'units'}`;
     return `<tr class="${checked?'sel':''}" data-id="${esc(r.id)}">
@@ -975,10 +1011,22 @@
     $$('th.sortable',el).forEach(th=>th.onclick=()=>{ const k=th.dataset.sort; if(state.lib.sort===k)state.lib.dir=state.lib.dir==='asc'?'desc':'asc'; else{state.lib.sort=k;state.lib.dir=k==='name'?'asc':'desc';} renderLibrary(); });
     const selall=$('#lib-selall',el); if(selall)selall.onchange=()=>{ if(selall.checked)rows.forEach(r=>state.lib.selected.add(r.id)); else state.lib.selected.clear(); renderLibrary(); };
     $$('.rowsel',el).forEach(cb=>cb.onchange=()=>{ const id=cb.closest('tr').dataset.id; if(cb.checked)state.lib.selected.add(id); else state.lib.selected.delete(id); renderLibrary(); });
-    $$('[data-menu]',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const m=$('#menu-'+b.dataset.menu); const open=m.classList.contains('show'); $$('.menu.show').forEach(x=>x.classList.remove('show')); if(!open)m.classList.add('show'); });
+    $$('.chip.tag .x',el).forEach(x=>x.onclick=async(e)=>{ e.stopPropagation(); await removeTag(x.dataset.rmid, x.dataset.rmtag); });
+    $$('[data-menu]',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const m=$('#menu-'+b.dataset.menu); const open=m.classList.contains('show'); $$('.menu.show').forEach(x=>x.classList.remove('show')); if(!open){ m.classList.add('show'); positionMenu(m,b); } });
     $$('.menu button',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.closest('.menu').id.replace('menu-',''); $$('.menu.show').forEach(x=>x.classList.remove('show')); docAction(b.dataset.act, id); });
     const bt=$('#batch-tag',el); if(bt)bt.onclick=()=>batchTag(); const bd=$('#batch-del',el); if(bd)bd.onclick=()=>batchDelete(); const bc=$('#batch-clear',el); if(bc)bc.onclick=()=>{state.lib.selected.clear();renderLibrary();};
     $$('.fname',el).forEach(f=>{ const tr_=f.closest('tr'); if(tr_)f.style.cursor='pointer', f.onclick=()=>openDoc(tr_.dataset.id); });
+  }
+  // Verankert das Zeilen-Menue per fixer Positionierung am Button, damit es nicht
+  // vom scrollenden Tabellen-Container (overflow) abgeschnitten wird.
+  function positionMenu(m, btn){
+    const r=btn.getBoundingClientRect();
+    const menuW=Math.max(190, m.offsetWidth||200);
+    const menuH=m.offsetHeight||300;
+    m.style.position='fixed';
+    m.style.left=Math.max(8, Math.min(r.right-menuW, window.innerWidth-menuW-8))+'px';
+    if(r.bottom+menuH+8>window.innerHeight && r.top-menuH-4>8){ m.style.top=(r.top-menuH-4)+'px'; }
+    else { m.style.top=(r.bottom+4)+'px'; }
   }
   document.addEventListener('click',()=>$$('.menu.show').forEach(x=>x.classList.remove('show')));
 
@@ -1059,6 +1107,10 @@
   }
 
   async function batchTag(){ promptDlg('tag','', async(v)=>{ v=(v||'').trim(); if(!v)return; for(const id of state.lib.selected){ const doc=await getIndex(id).catch(()=>null); if(!doc)continue; doc.tags=doc.tags||[]; if(!doc.tags.includes(v))doc.tags.push(v); await writeIndex(doc); updateCatalogEntry(doc); } await saveCatalog(); renderLibrary(); renderFilters(); toast('OK','ok'); }); }
+  // Entfernt ein Tag von einem Dokument (Tags sind damit verwaltbar: hinzufuegen ueber
+  // das Zeilenmenue, entfernen ueber das ✕ am Tag). Verschwindet ein Tag dadurch ganz,
+  // wird es auch aus den aktiven Filtern entfernt.
+  async function removeTag(id, tag){ const doc=await getIndex(id).catch(()=>null); if(!doc)return; doc.tags=(doc.tags||[]).filter(t=>t!==tag); await writeIndex(doc); updateCatalogEntry(doc); await saveCatalog(); const gone=!allTags().includes(tag); if(gone){ if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; } renderLibrary(); renderFilters(); }
   async function batchDelete(){ if(!confirm((state.settings.lang==='de'?'Ausgewählte löschen? ':'Delete selected? ')+state.lib.selected.size)){return;} for(const id of Array.from(state.lib.selected)) await deleteDoc(id,true); await saveCatalog(); renderLibrary(); renderFilters(); renderBackupStats(); toast(state.settings.lang==='de'?'Gelöscht.':'Deleted.'); }
 
   // ---------- Suche ----------
@@ -1125,17 +1177,23 @@
   // Kern der Suche – arbeitet mit expliziten Parametern, damit auch Live-Exporte
   // dieselbe Suche jederzeit reproduzieren koennen.
   async function searchArchive(p){
-    const qy=parseQuery(p.q||'');
+    // „Genauer Wortlaut": die gesamte Eingabe als EINE zusammenhaengende Phrase.
+    const qy = (p.exact && (p.q||'').trim())
+      ? { terms:[], phrases:[{ raw:p.q.trim(), f:fold(p.q) }] }
+      : parseQuery(p.q||'');
     const needles=[...qy.terms.map(t=>t.raw), ...qy.phrases.map(t=>t.raw)];
     if(!qy.terms.length&&!qy.phrases.length) return {terms:[], hits:[]};
     await loadAllIndexes();
     const types=p.types&&p.types.length?new Set(p.types):null;
+    // Suchbereich: optionale Einschraenkung auf bestimmte Dokument-IDs (markierte).
+    const idset=(p.ids&&p.ids.length)?new Set(p.ids):null;
     const hits=[];
     const allNeedles=[...qy.terms, ...qy.phrases];
     // Wortgrenzen-Regex je Begriff EINMAL vorkompilieren (Praezisions-Ranking).
     const esc2=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     for(const nd of allNeedles){ nd.re=new RegExp('(^|[^a-z0-9])'+esc2(nd.f)+'([^a-z0-9]|$)'); }
     for(const c of state.catalog){
+      if(idset&&!idset.has(c.id))continue;
       if(types&&!types.has(c.type))continue;
       if(p.tag&&!(c.tags||[]).includes(p.tag))continue;
       if(p.from&&c.importedAt&&c.importedAt.slice(0,10)<p.from)continue;
@@ -1166,18 +1224,58 @@
     hits.sort((a,b)=>b.score-a.score);
     return {terms:needles, hits};
   }
-  function currentSearchParams(){ return {q:state.search.q, types:Array.from(state.search.types), from:state.search.from, to:state.search.to, tag:state.search.tag}; }
+  function currentSearchParams(){ return {q:state.search.q, types:Array.from(state.search.types), from:state.search.from, to:state.search.to, tag:state.search.tag, exact:state.search.mode==='exact', ids: state.search.scope==='selected'? Array.from(state.lib.selected) : null }; }
   async function runSearch(){
     const q=$('#search-input').value.trim(); state.search.q=q;
     const resEl=$('#search-results'); state.search.selected.clear();
     if(!q){ resEl.innerHTML=`<div class="empty"><div class="big">🔎</div><p>${tr('type-search-hint')}</p></div>`; $('#search-count').textContent='—'; return; }
+    if(state.search.scope==='selected' && !state.lib.selected.size){ resEl.innerHTML=`<div class="empty"><div class="big">☑</div><p>${tr('scope-none')}</p></div>`; $('#search-count').textContent='—'; return; }
+    if(state.search.mode==='ask'){ await askQuestion(q); return; }
     resEl.innerHTML=`<div class="empty"><span class="busy"></span></div>`;
     const {terms,hits}=await searchArchive(currentSearchParams());
     state.lastHits=hits; state.search.terms=terms;
     renderSearchResults();
   }
-  function refLabel(ref){ if(!ref)return ''; if(ref.page!=null)return `${tr('page')} ${ref.page}`; if(ref.sheet!=null)return `${tr('sheet')} „${ref.sheet}"${ref.cell?` · ${tr('cell')} ${ref.cell}`:''}`; if(ref.section!=null)return `${tr('section')} ${ref.section}`; return ''; }
+  // Einfache Stichwort-Retrieval fuer die KI-Frage: Dokumente nach Anzahl passender
+  // Fragewoerter ranken (ODER), begrenzt die an die API gesendete Textmenge.
+  const STOP=new Set('der die das und oder in im am zur zum ein eine einen eines dem den des mit von vom fur für auf ist sind war waren wie was wo wer welche welcher alles über uber about the a an of to in on for is are what which where who all and or with from find finde raus mir mich'.split(/\s+/));
+  function retrieveDocs(q, max){
+    const words=[...new Set(fold(q).split(/[^a-z0-9]+/).filter(w=>w.length>=3 && !STOP.has(w)))];
+    if(!words.length) return state.catalog.slice(0,max).map(c=>c.id);
+    const scored=[];
+    for(const c of state.catalog){ const doc=state.indexCache.get(c.id); if(!doc)continue; let s=0; for(const u of (doc.units||[])){ const f=foldUnit(u); for(const w of words){ if(f.includes(w))s++; } } if(s)scored.push({id:c.id,s}); }
+    scored.sort((a,b)=>b.s-a.s);
+    return scored.slice(0,max).map(x=>x.id);
+  }
+  async function askQuestion(q){
+    const resEl=$('#search-results'); $('#search-count').textContent='';
+    if(!state.apiKey){ resEl.innerHTML=`<div class="empty"><div class="big">🤖</div><p>${tr('ask-nokey')}</p><button class="btn sm" data-view-jump="settings" style="margin-top:8px">⚙️ ${tr('nav-set')}</button></div>`; wireJump(resEl); return; }
+    resEl.innerHTML=`<div class="empty"><span class="busy"></span> <span style="margin-left:8px">${tr('ask-working')}</span></div>`;
+    await loadAllIndexes();
+    let ids = state.search.scope==='selected' ? Array.from(state.lib.selected) : retrieveDocs(q, 12);
+    if(!ids.length){ resEl.innerHTML=`<div class="empty"><p>${tr('ask-nodocs')}</p></div>`; return; }
+    try{
+      const ans=await claudeAnswer(q, ids);
+      resEl.innerHTML=`<div class="panel panel-pad"><div class="r-title" style="font-weight:600;margin-bottom:10px">🤖 ${esc(q)}</div><div class="section-text" style="max-height:none">${esc(ans.text)}</div>${sourceListHtml(ans.picked, ans.sources)}</div>`;
+    }catch(e){ resEl.innerHTML=`<div class="empty"><p style="color:var(--danger)">${esc(e.message)}</p></div>`; }
+  }
+  async function claudeAnswer(q, ids){
+    if(!navigator.onLine) throw new Error(state.settings.lang==='de'?'Keine Internetverbindung.':'No internet connection.');
+    let corpus=''; const sources=[]; const LIMIT=60000;
+    for(const id of ids){ const doc=await getIndex(id); sources.push(doc); corpus+=`\n\n### ${doc.name}\n`; for(const u of (doc.units||[])){ corpus+=`[${refLabel(u.ref)}] ${u.text}\n`; if(corpus.length>LIMIT)break; } if(corpus.length>LIMIT){ corpus=corpus.slice(0,LIMIT); break; } }
+    const lang=state.settings.lang==='de'?'Deutsch':'English';
+    const prompt=`Beantworte die folgende Frage AUSSCHLIESSLICH anhand der bereitgestellten Dokumentauszüge, auf ${lang}. Wenn die Auszüge die Antwort nicht enthalten, sage das ehrlich. Verweise im Text auf die betreffenden Dateinamen/Fundstellen.\n\nFrage: ${q}\n\nDokumentauszüge:${corpus}`;
+    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, body:JSON.stringify({model:'claude-opus-4-8',max_tokens:1500,messages:[{role:'user',content:prompt}]}) });
+    if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('API '+r.status+': '+t.slice(0,200)); }
+    const data=await r.json(); const text=(data.content||[]).map(c=>c.text||'').join('\n').trim();
+    const picked=sources.map(d=>({docId:d.id, name:d.name, ref: d.pageCount ? {page:(d.pageCount>1?('1–'+d.pageCount):1)} : null}));
+    return {text, sources, picked};
+  }
+  function refLabel(ref){ if(!ref)return ''; if(ref.page!=null)return `${tr('page')} ${ref.page}`; if(ref.sheet!=null)return `${tr('sheet')} „${ref.sheet}"${ref.row!=null?` · ${tr('row')} ${ref.row}`:(ref.cell?` · ${tr('cell')} ${ref.cell}`:'')}`; if(ref.section!=null)return `${tr('section')} ${ref.section}`; return ''; }
   function renderSearchResults(){
+    // Im KI-Frage-Modus verwaltet askQuestion die Ergebnisliste selbst – nicht
+    // mit (veralteten) Volltext-Treffern ueberschreiben (z. B. bei Sprachwechsel).
+    if(state.search.mode==='ask')return;
     const resEl=$('#search-results'); if(!resEl)return; const hits=state.lastHits; const terms=state.search.terms||[];
     if(!state.search.q){ resEl.innerHTML=`<div class="empty"><div class="big">🔎</div><p>${tr('type-search-hint')}</p></div>`; $('#search-count').textContent='—'; return; }
     $('#search-count').textContent=`${hits.length} ${tr('hits')}`;
@@ -1196,6 +1294,15 @@
     const ftg=$('#filter-tags'); if(ftg) ftg.innerHTML=allTags().map(t=>`<span class="chip ${state.search.tag===t?'on':''}" data-stag="${esc(t)}">${esc(t)}</span>`).join(' ')||`<span style="color:var(--text-muted);font-size:12px">${state.settings.lang==='de'?'Keine Tags':'No tags'}</span>`;
     if(ft)$$('[data-ftype]',ft).forEach(cb=>cb.onchange=()=>{ if(cb.checked)state.search.types.add(cb.dataset.ftype); else state.search.types.delete(cb.dataset.ftype); if(state.search.q)runSearch(); });
     if(ftg)$$('[data-stag]',ftg).forEach(c=>c.onclick=()=>{ state.search.tag=state.search.tag===c.dataset.stag?null:c.dataset.stag; renderFilters(); if(state.search.q)runSearch(); });
+    syncSearchControls();
+  }
+  // Haelt Such-Modus/-Bereich-Umschalter, Eingabe-Platzhalter und Markiert-Hinweis synchron.
+  function syncSearchControls(){
+    const de=state.settings.lang==='de';
+    $$('#search-mode button').forEach(b=>{ const on=b.dataset.smode===state.search.mode; b.classList.toggle('on',on); b.setAttribute('aria-pressed', on?'true':'false'); });
+    $$('#search-scope button').forEach(b=>{ const on=b.dataset.sscope===state.search.scope; b.classList.toggle('on',on); b.setAttribute('aria-pressed', on?'true':'false'); });
+    const inp=$('#search-input'); if(inp) inp.placeholder = state.search.mode==='ask' ? (de?'Frage stellen, z. B. „Was steht zu Mietverträgen?"':'Ask a question, e.g. "What do the docs say about lease agreements?"') : (state.search.mode==='exact' ? (de?'Genauer Wortlaut …':'Exact wording …') : (de?'Suchbegriff…':'Search term…'));
+    const hint=$('#search-scope-hint'); if(hint) hint.textContent = state.search.scope==='selected' ? (state.lib.selected.size ? (state.lib.selected.size+' '+(de?'markiert (in der Bibliothek)':'selected (in library)')) : (de?'Keine Dokumente markiert – bitte in der Bibliothek Haken setzen.':'No documents selected – tick them in the library.')) : '';
   }
 
   // ---------- Fundstelle ----------
@@ -1232,7 +1339,10 @@
         units=all.slice(offset, offset+CAPV);
         capNote=`<div class="notice info" style="margin-bottom:10px"><span>ℹ️</span><span>${state.settings.lang==='de'?`Zeige ${offset+1}–${offset+units.length} von ${all.length} Abschnitten (Ausschnitt um die Fundstelle).`:`Showing ${offset+1}–${offset+units.length} of ${all.length} sections (window around the hit).`}</span></div>`;
       }
-      const body=units.map((u,j)=>{ const isHit=(offset+j)===hitIdx; const txt=isHit&&terms.length?snippetFull(u.text,terms):esc(u.text); return `<div style="margin-bottom:10px${isHit?';background:var(--surface-accent);padding:8px;border-radius:6px':''}"><div class="fmeta">${esc(refLabel(u.ref))}</div>${txt}</div>`; }).join('') || `<p style="color:var(--text-muted)">${state.settings.lang==='de'?'Kein extrahierbarer Text.':'No extractable text.'}</p>`;
+      // Word/Text fliessen als zusammenhaengender Text (Label nur an der Fundstelle);
+      // Excel-Zeilen behalten ihr Zeilen-Label (listenartig).
+      const showLabel=(u,isHit)=>isHit||doc.type==='xlsx'||doc.type==='csv';
+      const body=units.map((u,j)=>{ const isHit=(offset+j)===hitIdx; const txt=isHit&&terms.length?snippetFull(u.text,terms):esc(u.text); const label=showLabel(u,isHit)?`<div class="fmeta">${esc(refLabel(u.ref))}</div>`:''; return `<div style="margin-bottom:10px${isHit?';background:var(--surface-accent);padding:8px;border-radius:6px':''}">${label}${txt}</div>`; }).join('') || `<p style="color:var(--text-muted)">${state.settings.lang==='de'?'Kein extrahierbarer Text.':'No extractable text.'}</p>`;
       main.innerHTML=`${capNote}<div class="section-text">${body}</div>`;
       const hit=main.querySelector('[style*="surface-accent"]'); if(hit)hit.scrollIntoView({block:'center'});
     }
@@ -1377,7 +1487,7 @@
     // kind: 'hits' | 'summary'
     if(kind==='summary'&&state.lastSummary){ const s=state.lastSummary; return { title:s.title, params:(state.settings.lang==='de'?'Modus: ':'Mode: ')+(s.mode==='ai'?'Claude API':(state.settings.lang==='de'?'Extraktiv':'Extractive')), summary:s.text, items:(s.picked||[]).map(p=>({file:p.name,ref:refLabel(p.ref),snippet:'',tags:'',date:''})) }; }
     const idxs = state.search.selected.size? Array.from(state.search.selected): state.lastHits.map((_,i)=>i);
-    const items=idxs.map(i=>state.lastHits[i]).filter(Boolean).map(h=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)}));
+    const items=idxs.map(i=>state.lastHits[i]).filter(Boolean).map(h=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), text:h.text, tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)}));
     return { title:(state.settings.lang==='de'?'Suchbericht':'Search report'), params:(state.settings.lang==='de'?'Suchbegriff: ':'Query: ')+'"'+state.search.q+'" · '+items.length+' '+tr('hits'), summary:'', items };
   }
   // Gemeinsames Tabellen-Modell: eine Zeile je Fundstelle/Quelle, damit XLSX,
@@ -1405,39 +1515,8 @@
     return { headers, rows, widths:widths.map(w=>w/total) };
   }
 
-  // Zeichnet eine umbrochene, umrandete Tabelle im PDF (jsPDF, ohne AutoTable-Plugin):
-  // Kopfzeile wird bei jedem Seitenumbruch wiederholt.
-  function pdfTable(doc, headers, rows, widths, startY){
-    const margin=14, pad=1.8, lh=4.2, fs=9;
-    const pw=doc.internal.pageSize.getWidth(), ph=doc.internal.pageSize.getHeight();
-    const usable=pw-margin*2;
-    const colW=widths.map(w=>Math.max(12,w*usable));
-    // Nach dem Mindestbreiten-Clamp normalisieren, damit die Spaltensumme nie den Rand ueberschreitet.
-    const sumW=colW.reduce((a,b)=>a+b,0); if(sumW>usable){ const f=usable/sumW; for(let i=0;i<colW.length;i++)colW[i]*=f; }
-    doc.setFontSize(fs);
-    let y=startY;
-    // Eine einzelne Zelle kann nie hoeher als eine Seite werden: ueberlange Texte
-    // werden begrenzt und mit „…" markiert (statt am Seitenende abgeschnitten zu verschwinden).
-    const maxLines=Math.max(1, Math.floor((ph-margin*2-pad*2)/lh));
-    const wrap=(cells)=>cells.map((c,i)=>{ let l=doc.splitTextToSize(String(c==null?'':c),colW[i]-pad*2); if(l.length>maxLines){ l=l.slice(0,maxLines); l[maxLines-1]='…'; } return l; });
-    const rowH=(lines)=>Math.max(1,...lines.map(l=>l.length))*lh+pad*2;
-    const draw=(cells,bold,fill)=>{
-      doc.setFont(undefined,bold?'bold':'normal');
-      const lines=wrap(cells); const h=rowH(lines);
-      if(y+h>ph-margin){ doc.addPage(); y=margin; draw(headers,true,240); doc.setFont(undefined,bold?'bold':'normal'); }
-      let x=margin;
-      for(let i=0;i<cells.length;i++){
-        if(fill!=null){ doc.setFillColor(fill); doc.rect(x,y,colW[i],h,'F'); }
-        doc.setDrawColor(205); doc.rect(x,y,colW[i],h);
-        doc.text(lines[i],x+pad,y+pad+lh-1);
-        x+=colW[i];
-      }
-      y+=h;
-    };
-    draw(headers,true,240);
-    for(const r of rows) draw(r,false,null);
-    return y;
-  }
+  // Eindeutige Quellenliste (Datei — Fundstelle) fuer das Quellenverzeichnis.
+  function sourceListItems(items){ const seen=new Set(); const out=[]; for(const it of (items||[])){ const key=(it.file||'')+'|'+(it.ref||''); if(seen.has(key))continue; seen.add(key); out.push((it.file||'')+(it.ref?' — '+it.ref:'')); } return out; }
 
   // Blob-Erzeugung fuer alle drei Formate – wird von Downloads UND Live-Refresh genutzt.
   async function makeExportBlob(fmt, data){
@@ -1461,32 +1540,29 @@
     }
 
     if(fmt==='pdf'){
-      await loadScript('vendor/jspdf.umd.min.js'); const {jsPDF}=window.jspdf; const doc=new jsPDF(); let y=18;
-      doc.setFontSize(16); doc.text(data.title,14,y); y+=8;
-      doc.setFontSize(10); doc.setTextColor(90); const pl=doc.splitTextToSize(data.params,182); doc.text(pl,14,y); y+=pl.length*5+4; doc.setTextColor(20);
-      if(data.summary){ doc.setFontSize(11); const s=doc.splitTextToSize(data.summary,182); doc.text(s,14,y); y+=s.length*5+8; }
-      doc.setFontSize(12); doc.setFont(undefined,'bold'); doc.text(srcHead,14,y); y+=6; doc.setFont(undefined,'normal');
-      pdfTable(doc, t.headers, t.rows, t.widths, y);
+      // Dokument-Layout: je Fundstelle eine Überschrift (Quelle) und darunter der
+      // gefundene Text, mit Abständen. Am Ende das Quellenverzeichnis.
+      await loadScript('vendor/jspdf.umd.min.js'); const {jsPDF}=window.jspdf; const doc=new jsPDF();
+      const M=14, W=doc.internal.pageSize.getWidth()-M*2, PH=doc.internal.pageSize.getHeight();
+      let y=18;
+      const para=(text,{size=11,bold=false,color=20,gap=4,indent=0}={})=>{ doc.setFontSize(size); doc.setFont(undefined,bold?'bold':'normal'); doc.setTextColor(color); const lh=size*0.42+1; for(const ln of doc.splitTextToSize(String(text==null?'':text), W-indent)){ if(y+lh>PH-M){ doc.addPage(); y=M; } doc.text(ln, M+indent, y+lh-1); y+=lh; } y+=gap; doc.setTextColor(20); };
+      para(data.title,{size:16,bold:true,gap:2});
+      para(data.params,{size:10,color:90,gap:7});
+      if(data.summary){ para(de?'Zusammenfassung':'Summary',{size:13,bold:true,gap:2}); for(const blk of String(data.summary).split(/\n{2,}/)) para(blk,{gap:5}); }
+      else { for(const it of data.items){ if(y+16>PH-M){ doc.addPage(); y=M; } para(`${it.file}${it.ref?' — '+it.ref:''}`,{size:12,bold:true,gap:1}); para((it.text||it.snippet||'').slice(0,4000),{color:60,gap:8}); } }
+      const src=sourceListItems(data.items);
+      if(src.length){ para(de?'Quellenverzeichnis':'Source list',{size:13,bold:true,gap:2}); src.forEach((s,i)=>para(`${i+1}. ${s}`,{size:10,color:60,gap:1})); }
       return doc.output('blob');
     }
 
+    // DOCX – gleiches Dokument-Layout wie PDF.
     await loadScript('vendor/docx.umd.js'); const D=window.docx;
-    const border={style:D.BorderStyle.SINGLE,size:2,color:'CCCCCC'};
-    const cellBorders={top:border,bottom:border,left:border,right:border};
-    const shade=D.ShadingType?{type:D.ShadingType.CLEAR,color:'auto',fill:'EFEFEF'}:undefined;
-    const cell=(text,i,head)=>new D.TableCell({
-      width:{size:Math.round(t.widths[i]*100),type:D.WidthType.PERCENTAGE},
-      borders:cellBorders,
-      shading:head?shade:undefined,
-      children:[new D.Paragraph({children:[new D.TextRun({text:String(text==null?'':text), bold:!!head})]})]
-    });
-    const headRow=new D.TableRow({tableHeader:true, children:t.headers.map((h,i)=>cell(h,i,true))});
-    const dataRows=t.rows.map(r=>new D.TableRow({children:r.map((c,i)=>cell(c,i,false))}));
-    const table=new D.Table({width:{size:100,type:D.WidthType.PERCENTAGE}, rows:[headRow,...dataRows]});
-    const kids=[ new D.Paragraph({text:data.title, heading:D.HeadingLevel.HEADING_1}), new D.Paragraph({text:data.params, spacing:{after:200}}) ];
-    if(data.summary) kids.push(new D.Paragraph({text:data.summary, spacing:{after:200}}));
-    kids.push(new D.Paragraph({text:srcHead, heading:D.HeadingLevel.HEADING_2, spacing:{before:120,after:120}}));
-    kids.push(table);
+    const kids=[ new D.Paragraph({text:data.title, heading:D.HeadingLevel.HEADING_1}),
+                 new D.Paragraph({children:[new D.TextRun({text:data.params, color:'777777'})], spacing:{after:240}}) ];
+    if(data.summary){ kids.push(new D.Paragraph({text:(de?'Zusammenfassung':'Summary'), heading:D.HeadingLevel.HEADING_2, spacing:{before:120,after:120}})); for(const blk of String(data.summary).split(/\n{2,}/)) kids.push(new D.Paragraph({text:blk, spacing:{after:160}})); }
+    else { for(const it of data.items){ kids.push(new D.Paragraph({text:`${it.file}${it.ref?' — '+it.ref:''}`, heading:D.HeadingLevel.HEADING_3, spacing:{before:220,after:60}})); kids.push(new D.Paragraph({text:(it.text||it.snippet||'').slice(0,8000), spacing:{after:120}})); } }
+    const src=sourceListItems(data.items);
+    if(src.length){ kids.push(new D.Paragraph({text:(de?'Quellenverzeichnis':'Source list'), heading:D.HeadingLevel.HEADING_2, spacing:{before:260,after:120}})); src.forEach((s,i)=>kids.push(new D.Paragraph({text:`${i+1}. ${s}`, spacing:{after:40}}))); }
     const docx=new D.Document({sections:[{children:kids}]});
     return await D.Packer.toBlob(docx);
   }
@@ -1508,8 +1584,12 @@
     const de=state.settings.lang==='de';
     const stand=(de?'Stand: ':'As of: ')+new Date().toLocaleString(de?'de-DE':'en-GB');
     if(def.kind==='hits'){
+      // Auf „nur markierte" fixierte Exporte: existiert keines der gemerkten
+      // Dokumente mehr, als Fehler markieren (statt still einen leeren Bericht zu schreiben).
+      const pinned=def.search&&Array.isArray(def.search.ids)?def.search.ids:null;
+      if(pinned&&pinned.length&&!pinned.some(id=>state.catalog.some(c=>c.id===id))) throw new Error(de?'Markierte Quelldokumente nicht mehr vorhanden.':'Selected source documents no longer exist.');
       const {hits}=await searchArchive(def.search||{});
-      const items=hits.map(h=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)}));
+      const items=hits.map(h=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), text:h.text, tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)}));
       return { title:de?'Suchbericht':'Search report', params:(de?'Suchbegriff: ':'Query: ')+'"'+(def.search&&def.search.q||'')+'" · '+items.length+' '+tr('hits')+' · '+stand, summary:'', items };
     }
     // Zusammenfassung
@@ -1586,10 +1666,11 @@
     try{
       do{
         _expAgain=false;
-        for(const def of exportDefs){
+        for(const def of exportDefs.slice()){
           try{
             const data=await buildReportData(def);
             const blob=await makeExportBlob(def.fmt,data);
+            if(!exportDefs.includes(def)) continue; // waehrend des awaits geloescht -> keine Datei neu anlegen
             await writeExportFile(defFileName(def), blob, false);
             def.updatedAt=new Date().toISOString(); delete def.error;
           }catch(e){ def.error=e.message; }
@@ -1602,7 +1683,7 @@
 
   function renderExportsPanel(){
     const el=$('#exports-list'); if(!el)return; const de=state.settings.lang==='de';
-    const sw=$('#sw-autoexp'); if(sw)sw.classList.toggle('on', state.settings.autoExports!==false);
+    const sw=$('#sw-autoexp'); if(sw){ const onx=state.settings.autoExports!==false; sw.classList.toggle('on', onx); sw.setAttribute('aria-checked', onx?'true':'false'); }
     if(!exportDefs.length){ el.innerHTML=`<p style="color:var(--text-muted);font-size:13px;margin:0">${tr('exp-none')}</p>`; return; }
     el.innerHTML=exportDefs.map((d,i)=>{
       const what=d.kind==='hits'
@@ -1610,11 +1691,11 @@
         : (de?'Zusammenfassung':'Summary')+(d.source&&d.source.type==='query'?' „'+esc(d.source.search&&d.source.search.q||'')+'"':(d.source&&d.source.type==='all'?(de?' (gesamtes Archiv)':' (entire archive)'):''));
       const st=d.error?`<span style="color:var(--danger)">⚠ ${esc(d.error)}</span>`:(d.updatedAt?tr('exp-updated')+' '+new Date(d.updatedAt).toLocaleString(de?'de-DE':'en-GB'):'—');
       const ftCls=d.fmt==='xlsx'?'t-xlsx':d.fmt==='pdf'?'t-pdf':'t-docx';
-      return `<div class="queue-item"><span class="ftype ${ftCls}">${d.fmt.toUpperCase().slice(0,3)}</span><div class="qmain"><div class="fname">${esc(defFileName(d))}</div><div class="fmeta">${what} · ${st}</div></div><button class="btn sm ghost" data-expdl="${i}" title="${de?'Herunterladen':'Download'}">⬇</button><button class="btn sm ghost" data-exprf="${i}" title="${de?'Jetzt aktualisieren':'Refresh now'}">🔄</button><button class="btn sm ghost" data-exprm="${i}" title="${de?'Nicht mehr aktuell halten':'Stop keeping current'}">✕</button></div>`;
+      return `<div class="queue-item"><span class="ftype ${ftCls}">${d.fmt.toUpperCase().slice(0,3)}</span><div class="qmain"><div class="fname">${esc(defFileName(d))}</div><div class="fmeta">${what} · ${st}</div></div><button class="btn sm ghost" data-expdl="${i}" title="${de?'Herunterladen':'Download'}">⬇</button><button class="btn sm ghost" data-exprf="${i}" title="${de?'Jetzt aktualisieren':'Refresh now'}">🔄</button><button class="btn sm ghost danger" data-exprm="${i}" title="${de?'Export löschen':'Delete export'}">🗑</button></div>`;
     }).join('');
     $$('#exports-list [data-expdl]').forEach(b=>b.onclick=async()=>{ const d=exportDefs[+b.dataset.expdl]; try{ const f=await (await state.dirs.exports.getFileHandle(defFileName(d))).getFile(); download(f, defFileName(d)); }catch(e){ toast((de?'Datei fehlt – erst aktualisieren.':'File missing – refresh first.'),'err'); } });
     $$('#exports-list [data-exprf]').forEach(b=>b.onclick=async()=>{ const d=exportDefs[+b.dataset.exprf]; try{ const data=await buildReportData(d); const blob=await makeExportBlob(d.fmt,data); await writeExportFile(defFileName(d),blob,false); d.updatedAt=new Date().toISOString(); delete d.error; await saveExportDefs(); renderExportsPanel(); toast('OK','ok'); }catch(e){ d.error=e.message; await saveExportDefs(); renderExportsPanel(); } });
-    $$('#exports-list [data-exprm]').forEach(b=>b.onclick=async()=>{ exportDefs.splice(+b.dataset.exprm,1); await saveExportDefs(); renderExportsPanel(); });
+    $$('#exports-list [data-exprm]').forEach(b=>b.onclick=async()=>{ const i=+b.dataset.exprm; const d=exportDefs[i]; if(!confirm(de?'Diesen Export löschen?':'Delete this export?'))return; try{ await removeFile(state.dirs.exports, defFileName(d)); }catch(e){} exportDefs.splice(i,1); await saveExportDefs(); renderExportsPanel(); toast(de?'Export gelöscht.':'Export deleted.','ok'); });
   }
 
   // ---------- Backup ----------
@@ -1792,8 +1873,8 @@
   }
 
   // ---------- Navigation ----------
-  function switchView(view){ $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); $('.main').scrollTop=0;
-    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();} if(view==='summary')renderSumPicklist(); if(view==='backup'){renderBackupStats();renderExportsPanel();} }
+  function switchView(view){ $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); const gb=$('#settings-btn'); if(gb){ gb.classList.toggle('active', view==='settings'); gb.setAttribute('aria-pressed', view==='settings'?'true':'false'); } $('.main').scrollTop=0;
+    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();} if(view==='summary')renderSumPicklist(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; } }
 
   // ---------- Boot ----------
   function updateStorageLabels(){
@@ -1836,17 +1917,22 @@
     $('#refresh-btn').onclick=reloadApp;
     $('#btn-change-folder').onclick=pickFolder; $('#btn-disconnect').onclick=disconnect;
     $$('.nav-item').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+    $('#settings-btn').onclick=()=>switchView('settings');
+    // Statische „Sprung"-Buttons (z. B. „Importieren" im Bibliotheks-Kopf) global verdrahten.
+    $$('[data-view-jump]').forEach(b=>b.onclick=()=>switchView(b.dataset.viewJump));
     $$('#theme-seg button').forEach(b=>b.onclick=()=>{applyTheme(b.dataset.themeVal);persistSettings();});
     $$('#lang-seg button, #lang-seg2 button').forEach(b=>b.onclick=()=>{applyLang(b.dataset.lang);persistSettings();});
     // dlg-dup und dlg-prompt warten auf eine Antwort (Promise/Callback) – sie dürfen
     // nur über ihre eigenen Buttons geschlossen werden, sonst hängt der Aufrufer.
     const MODAL_LOCKED=new Set(['dlg-dup','dlg-prompt']);
     $$('.overlay').forEach(o=>o.onclick=(e)=>{ if(e.target===o&&!MODAL_LOCKED.has(o.id))o.classList.remove('show'); });
-    document.addEventListener('keydown',(e)=>{ if(e.key==='Escape')$$('.overlay.show').forEach(o=>{ if(!MODAL_LOCKED.has(o.id))o.classList.remove('show'); }); });
+    document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ $$('.overlay.show').forEach(o=>{ if(!MODAL_LOCKED.has(o.id))o.classList.remove('show'); }); $$('.menu.show').forEach(x=>x.classList.remove('show')); } });
 
     // Suche
     $('#search-btn').onclick=runSearch; $('#search-input').onkeydown=(e)=>{ if(e.key==='Enter')runSearch(); };
-    $('#top-search-input').onkeydown=(e)=>{ if(e.key==='Enter'){ $('#search-input').value=e.target.value; switchView('search'); runSearch(); } };
+    $('#top-search-input').onkeydown=(e)=>{ if(e.key==='Enter'){ $('#search-input').value=e.target.value; state.search.mode='text'; state.search.scope='all'; syncSearchControls(); switchView('search'); runSearch(); } };
+    $$('#search-mode button').forEach(b=>b.onclick=()=>{ state.search.mode=b.dataset.smode; syncSearchControls(); if(state.search.q)runSearch(); });
+    $$('#search-scope button').forEach(b=>b.onclick=()=>{ state.search.scope=b.dataset.sscope; syncSearchControls(); if(state.search.q)runSearch(); });
     $('#filter-from').onchange=(e)=>{state.search.from=e.target.value; if(state.search.q)runSearch();};
     $('#filter-to').onchange=(e)=>{state.search.to=e.target.value; if(state.search.q)runSearch();};
     $('#filter-reset').onclick=()=>{ state.search.types=new Set(SUPPORTED.map(typeOf)); state.search.tag=null; state.search.from=''; state.search.to=''; $('#filter-from').value=''; $('#filter-to').value=''; renderFilters(); if(state.search.q)runSearch(); };
