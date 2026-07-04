@@ -18,6 +18,16 @@ importScripts(
 
 const norm = (s) => String(s).replace(/\s+/g, ' ').trim();
 
+// Robuste Text-Dekodierung: BOM entfernen, UTF-8 strikt versuchen, sonst auf
+// Windows-1252 (Latin-1) zurueckfallen – so bleiben Umlaute in CSV/TXT/MD, die
+// unter Windows/Excel oft nicht als UTF-8 exportiert werden, erhalten.
+function decodeText(buffer) {
+  let b = new Uint8Array(buffer);
+  if (b.length >= 3 && b[0] === 0xEF && b[1] === 0xBB && b[2] === 0xBF) b = b.subarray(3);
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(b); }
+  catch (e) { try { return new TextDecoder('windows-1252').decode(b); } catch (e2) { return new TextDecoder('utf-8').decode(b); } }
+}
+
 async function parseDocx(buffer) {
   const res = await mammoth.extractRawText({ arrayBuffer: buffer });
   const paras = (res.value || '')
@@ -31,7 +41,7 @@ async function parseDocx(buffer) {
 function parseSheet(buffer, ext) {
   let wb;
   if (ext === 'csv') {
-    const text = new TextDecoder('utf-8').decode(new Uint8Array(buffer));
+    const text = decodeText(buffer);
     wb = XLSX.read(text, { type: 'string' });
   } else {
     wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
@@ -57,8 +67,9 @@ function parseSheet(buffer, ext) {
         const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
         if (!cell) continue;
         const val = cell.w != null ? cell.w : cell.v;
-        if (val === undefined || val === null || val === '') continue;
-        cells.push(norm(val));
+        if (val === undefined || val === null) continue;
+        const v = norm(val); if (!v) continue;
+        cells.push(v);
       }
       if (!cells.length) continue;
       units.push({ ref: { sheet: sheetName, row: R + 1 }, text: cells.join('  ·  ') });
@@ -69,7 +80,7 @@ function parseSheet(buffer, ext) {
 }
 
 function parseText(buffer) {
-  const text = new TextDecoder('utf-8').decode(new Uint8Array(buffer));
+  const text = decodeText(buffer);
   const blocks = text.split(/\n{2,}/).map((s) => norm(s)).filter(Boolean);
   const units = blocks.map((t, i) => ({ ref: { section: i + 1 }, text: t }));
   return { kind: 'text', scanned: false, units };

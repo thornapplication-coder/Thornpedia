@@ -117,9 +117,10 @@
     .chip{border:1px solid var(--line);background:var(--panel);color:var(--text-muted);border-radius:16px;padding:4px 11px;font-size:12px;display:inline-flex;align-items:center;gap:6px;cursor:pointer;user-select:none}
     .chip.on{background:var(--primary);color:#fff;border-color:var(--primary)}
     .chip.tag{background:var(--surface-accent);color:var(--primary);border-color:transparent;cursor:default}
-    .chip.tag .x{cursor:pointer;opacity:.7}
+    .chip.tag .x{cursor:pointer;opacity:.7;border:0;background:transparent;color:inherit;font:inherit;padding:0 2px;line-height:1}
     .chip.tag .x:hover{opacity:1}
-    .switch{position:relative;width:42px;height:24px;background:var(--line);border-radius:12px;transition:.2s;flex:none;border:0}
+    .icon-btn.active{background:var(--surface-accent);color:var(--primary);border-color:transparent}
+    .switch{position:relative;width:42px;height:24px;background:var(--line);border-radius:12px;transition:.2s;flex:none;border:0;padding:0;cursor:pointer}
     .switch.on{background:var(--primary)}
     .switch::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;transition:.2s}
     .switch.on::after{left:21px}
@@ -333,12 +334,12 @@
       <div class="page-head"><div><h2 data-i18n="nav-search">Suche</h2><p data-i18n="search-p">Volltext über alle Indizes · Originale werden dabei nie geladen.</p></div></div>
       <div class="top-search" style="max-width:none;margin-bottom:10px">🔎 <input id="search-input" placeholder="Suchbegriff…" data-i18n-ph="search-ph2" style="font-size:14px"><button class="btn sm" id="search-btn" data-i18n="do-search">Suchen</button></div>
       <div class="row" style="gap:14px;margin-bottom:18px;flex-wrap:wrap;align-items:center">
-        <div class="seg" id="search-mode" style="border-radius:8px" title="Such-Modus">
+        <div class="seg" id="search-mode" style="border-radius:8px" role="group" data-i18n-title="sm-title">
           <button class="on" data-smode="text" data-i18n="sm-text">Volltext</button>
           <button data-smode="exact" data-i18n="sm-exact">Genauer Wortlaut</button>
           <button data-smode="ask" data-i18n="sm-ask">Frage (KI)</button>
         </div>
-        <div class="seg" id="search-scope" style="border-radius:8px" title="Suchbereich">
+        <div class="seg" id="search-scope" style="border-radius:8px" role="group" data-i18n-title="sc-title">
           <button class="on" data-sscope="all" data-i18n="sc-all">Alle Dokumente</button>
           <button data-sscope="selected" data-i18n="sc-selected">Nur markierte</button>
         </div>
@@ -456,7 +457,7 @@
           <h4 data-i18n="exp-live-h">Live-Exporte</h4>
           <div class="row">
             <button class="btn sm neutral" id="exp-refresh-all">🔄 <span data-i18n="exp-refresh">Jetzt aktualisieren</span></button>
-            <span class="switch on" id="sw-autoexp" role="switch" tabindex="0"></span> <span data-i18n="exp-auto">Automatisch aktualisieren</span>
+            <button class="switch on" id="sw-autoexp" role="switch" aria-checked="true" data-i18n-title="exp-auto"></button> <span data-i18n="exp-auto">Automatisch aktualisieren</span>
           </div>
         </div>
         <p style="color:var(--text-muted);font-size:12px;margin:0 0 10px" data-i18n="exp-live-p">Jeder Export wird hier registriert und bei jeder Änderung am Archiv (Import, Löschen, Tags …) automatisch neu erzeugt – die Dateien in /exports sind damit immer aktuell.</p>
@@ -690,8 +691,8 @@
     'lib-empty-h':['Noch keine Dokumente','No documents yet'],'lib-empty-p':['Importiere Dateien per Drag & Drop, Dateiauswahl oder ganzem Ordner.','Import files via drag & drop, file picker or a whole folder.'],
     'search-p':['Volltext über alle Indizes · Originale werden dabei nie geladen.','Full-text across all indexes · originals are never loaded.'],
     'search-ph':['Volltextsuche über alle Dokumente…','Full-text search across all documents…'],'search-ph2':['Suchbegriff…','Search term…'],'do-search':['Suchen','Search'],
-    'sm-text':['Volltext','Full text'],'sm-exact':['Genauer Wortlaut','Exact wording'],'sm-ask':['Frage (KI)','Ask (AI)'],
-    'sc-all':['Alle Dokumente','All documents'],'sc-selected':['Nur markierte','Selected only'],
+    'sm-text':['Volltext','Full text'],'sm-exact':['Genauer Wortlaut','Exact wording'],'sm-ask':['Frage (KI)','Ask (AI)'],'sm-title':['Such-Modus','Search mode'],
+    'sc-all':['Alle Dokumente','All documents'],'sc-selected':['Nur markierte','Selected only'],'sc-title':['Suchbereich','Search scope'],
     'scope-none':['Es sind keine Dokumente markiert. Setze in der Bibliothek Haken bei den gewünschten Dokumenten.','No documents are selected. Tick the documents you want in the library.'],
     'ask-nokey':['Für die KI-Frage wird ein Claude-API-Key benötigt (Einstellungen).','The AI question needs a Claude API key (Settings).'],
     'ask-working':['Antwort wird erstellt …','Generating answer …'],
@@ -889,6 +890,9 @@
       const st=$('.st',row), bar=$('.progress',row), fill=$('.progress>span',row), icon=$('.stat-icon',row);
       const setSt=(t)=>st.textContent=t;
       try{
+        // Sehr grosse Dateien nicht vollstaendig in den Speicher laden (haengt schwache Geraete).
+        const MAX_FILE=150*1024*1024;
+        if(file.size>MAX_FILE){ setSt(de()?`zu groß (> ${Math.round(MAX_FILE/1048576)} MB) – übersprungen`:`too large (> ${Math.round(MAX_FILE/1048576)} MB) – skipped`); icon.textContent='⏭'; skipped++; continue; }
         const buffer=await file.arrayBuffer();
         const hash=await sha256(buffer);
         // Duplikat: gleicher Name ODER gleicher Inhalt
@@ -973,7 +977,7 @@
     wireLibrary(el, rows);
   }
   function rowHtml(r, checked){
-    const tags=(r.tags||[]).map(t=>`<span class="chip tag">${esc(t)}<span class="x" data-rmtag="${esc(t)}" data-rmid="${esc(r.id)}" title="${state.settings.lang==='de'?'Tag entfernen':'Remove tag'}">✕</span></span>`).join(' ')||'<span style="color:var(--text-muted)">—</span>';
+    const tags=(r.tags||[]).map(t=>`<span class="chip tag">${esc(t)}<button class="x" data-rmtag="${esc(t)}" data-rmid="${esc(r.id)}" aria-label="${(state.settings.lang==='de'?'Tag entfernen: ':'Remove tag: ')+esc(t)}">✕</button></span>`).join(' ')||'<span style="color:var(--text-muted)">—</span>';
     const status=r.scanned?`<span class="badge-scan">⚠ ${state.settings.lang==='de'?'Gescannt':'Scanned'}</span>`:(r.ocr?`<span style="color:var(--good)">● OCR</span>`:`<span style="color:var(--good)">● ${state.settings.lang==='de'?'indexiert':'indexed'}</span>`);
     const meta=r.type==='pdf'&&r.pageCount?`${r.pageCount} ${tr('page')}`:`${r.unitCount} ${state.settings.lang==='de'?'Fundstellen':'units'}`;
     return `<tr class="${checked?'sel':''}" data-id="${esc(r.id)}">
@@ -1225,8 +1229,8 @@
     const q=$('#search-input').value.trim(); state.search.q=q;
     const resEl=$('#search-results'); state.search.selected.clear();
     if(!q){ resEl.innerHTML=`<div class="empty"><div class="big">🔎</div><p>${tr('type-search-hint')}</p></div>`; $('#search-count').textContent='—'; return; }
-    if(state.search.mode==='ask'){ await askQuestion(q); return; }
     if(state.search.scope==='selected' && !state.lib.selected.size){ resEl.innerHTML=`<div class="empty"><div class="big">☑</div><p>${tr('scope-none')}</p></div>`; $('#search-count').textContent='—'; return; }
+    if(state.search.mode==='ask'){ await askQuestion(q); return; }
     resEl.innerHTML=`<div class="empty"><span class="busy"></span></div>`;
     const {terms,hits}=await searchArchive(currentSearchParams());
     state.lastHits=hits; state.search.terms=terms;
@@ -1269,6 +1273,9 @@
   }
   function refLabel(ref){ if(!ref)return ''; if(ref.page!=null)return `${tr('page')} ${ref.page}`; if(ref.sheet!=null)return `${tr('sheet')} „${ref.sheet}"${ref.row!=null?` · ${tr('row')} ${ref.row}`:(ref.cell?` · ${tr('cell')} ${ref.cell}`:'')}`; if(ref.section!=null)return `${tr('section')} ${ref.section}`; return ''; }
   function renderSearchResults(){
+    // Im KI-Frage-Modus verwaltet askQuestion die Ergebnisliste selbst – nicht
+    // mit (veralteten) Volltext-Treffern ueberschreiben (z. B. bei Sprachwechsel).
+    if(state.search.mode==='ask')return;
     const resEl=$('#search-results'); if(!resEl)return; const hits=state.lastHits; const terms=state.search.terms||[];
     if(!state.search.q){ resEl.innerHTML=`<div class="empty"><div class="big">🔎</div><p>${tr('type-search-hint')}</p></div>`; $('#search-count').textContent='—'; return; }
     $('#search-count').textContent=`${hits.length} ${tr('hits')}`;
@@ -1292,8 +1299,8 @@
   // Haelt Such-Modus/-Bereich-Umschalter, Eingabe-Platzhalter und Markiert-Hinweis synchron.
   function syncSearchControls(){
     const de=state.settings.lang==='de';
-    $$('#search-mode button').forEach(b=>b.classList.toggle('on', b.dataset.smode===state.search.mode));
-    $$('#search-scope button').forEach(b=>b.classList.toggle('on', b.dataset.sscope===state.search.scope));
+    $$('#search-mode button').forEach(b=>{ const on=b.dataset.smode===state.search.mode; b.classList.toggle('on',on); b.setAttribute('aria-pressed', on?'true':'false'); });
+    $$('#search-scope button').forEach(b=>{ const on=b.dataset.sscope===state.search.scope; b.classList.toggle('on',on); b.setAttribute('aria-pressed', on?'true':'false'); });
     const inp=$('#search-input'); if(inp) inp.placeholder = state.search.mode==='ask' ? (de?'Frage stellen, z. B. „Was steht zu Mietverträgen?"':'Ask a question, e.g. "What do the docs say about lease agreements?"') : (state.search.mode==='exact' ? (de?'Genauer Wortlaut …':'Exact wording …') : (de?'Suchbegriff…':'Search term…'));
     const hint=$('#search-scope-hint'); if(hint) hint.textContent = state.search.scope==='selected' ? (state.lib.selected.size ? (state.lib.selected.size+' '+(de?'markiert (in der Bibliothek)':'selected (in library)')) : (de?'Keine Dokumente markiert – bitte in der Bibliothek Haken setzen.':'No documents selected – tick them in the library.')) : '';
   }
@@ -1577,6 +1584,10 @@
     const de=state.settings.lang==='de';
     const stand=(de?'Stand: ':'As of: ')+new Date().toLocaleString(de?'de-DE':'en-GB');
     if(def.kind==='hits'){
+      // Auf „nur markierte" fixierte Exporte: existiert keines der gemerkten
+      // Dokumente mehr, als Fehler markieren (statt still einen leeren Bericht zu schreiben).
+      const pinned=def.search&&Array.isArray(def.search.ids)?def.search.ids:null;
+      if(pinned&&pinned.length&&!pinned.some(id=>state.catalog.some(c=>c.id===id))) throw new Error(de?'Markierte Quelldokumente nicht mehr vorhanden.':'Selected source documents no longer exist.');
       const {hits}=await searchArchive(def.search||{});
       const items=hits.map(h=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), text:h.text, tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)}));
       return { title:de?'Suchbericht':'Search report', params:(de?'Suchbegriff: ':'Query: ')+'"'+(def.search&&def.search.q||'')+'" · '+items.length+' '+tr('hits')+' · '+stand, summary:'', items };
@@ -1655,10 +1666,11 @@
     try{
       do{
         _expAgain=false;
-        for(const def of exportDefs){
+        for(const def of exportDefs.slice()){
           try{
             const data=await buildReportData(def);
             const blob=await makeExportBlob(def.fmt,data);
+            if(!exportDefs.includes(def)) continue; // waehrend des awaits geloescht -> keine Datei neu anlegen
             await writeExportFile(defFileName(def), blob, false);
             def.updatedAt=new Date().toISOString(); delete def.error;
           }catch(e){ def.error=e.message; }
@@ -1671,7 +1683,7 @@
 
   function renderExportsPanel(){
     const el=$('#exports-list'); if(!el)return; const de=state.settings.lang==='de';
-    const sw=$('#sw-autoexp'); if(sw)sw.classList.toggle('on', state.settings.autoExports!==false);
+    const sw=$('#sw-autoexp'); if(sw){ const onx=state.settings.autoExports!==false; sw.classList.toggle('on', onx); sw.setAttribute('aria-checked', onx?'true':'false'); }
     if(!exportDefs.length){ el.innerHTML=`<p style="color:var(--text-muted);font-size:13px;margin:0">${tr('exp-none')}</p>`; return; }
     el.innerHTML=exportDefs.map((d,i)=>{
       const what=d.kind==='hits'
@@ -1861,7 +1873,7 @@
   }
 
   // ---------- Navigation ----------
-  function switchView(view){ $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); $('.main').scrollTop=0;
+  function switchView(view){ $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); const gb=$('#settings-btn'); if(gb){ gb.classList.toggle('active', view==='settings'); gb.setAttribute('aria-pressed', view==='settings'?'true':'false'); } $('.main').scrollTop=0;
     if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();} if(view==='summary')renderSumPicklist(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; } }
 
   // ---------- Boot ----------
@@ -1914,11 +1926,11 @@
     // nur über ihre eigenen Buttons geschlossen werden, sonst hängt der Aufrufer.
     const MODAL_LOCKED=new Set(['dlg-dup','dlg-prompt']);
     $$('.overlay').forEach(o=>o.onclick=(e)=>{ if(e.target===o&&!MODAL_LOCKED.has(o.id))o.classList.remove('show'); });
-    document.addEventListener('keydown',(e)=>{ if(e.key==='Escape')$$('.overlay.show').forEach(o=>{ if(!MODAL_LOCKED.has(o.id))o.classList.remove('show'); }); });
+    document.addEventListener('keydown',(e)=>{ if(e.key==='Escape'){ $$('.overlay.show').forEach(o=>{ if(!MODAL_LOCKED.has(o.id))o.classList.remove('show'); }); $$('.menu.show').forEach(x=>x.classList.remove('show')); } });
 
     // Suche
     $('#search-btn').onclick=runSearch; $('#search-input').onkeydown=(e)=>{ if(e.key==='Enter')runSearch(); };
-    $('#top-search-input').onkeydown=(e)=>{ if(e.key==='Enter'){ $('#search-input').value=e.target.value; state.search.mode='text'; syncSearchControls(); switchView('search'); runSearch(); } };
+    $('#top-search-input').onkeydown=(e)=>{ if(e.key==='Enter'){ $('#search-input').value=e.target.value; state.search.mode='text'; state.search.scope='all'; syncSearchControls(); switchView('search'); runSearch(); } };
     $$('#search-mode button').forEach(b=>b.onclick=()=>{ state.search.mode=b.dataset.smode; syncSearchControls(); if(state.search.q)runSearch(); });
     $$('#search-scope button').forEach(b=>b.onclick=()=>{ state.search.scope=b.dataset.sscope; syncSearchControls(); if(state.search.q)runSearch(); });
     $('#filter-from').onchange=(e)=>{state.search.from=e.target.value; if(state.search.q)runSearch();};
