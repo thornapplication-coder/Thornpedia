@@ -6,7 +6,7 @@
  *  Worker-Kontext liesse sich sein Worker-Pfad nicht aufloesen.)
  *
  * Ergebnis je Dokument: { kind, scanned, units:[{ref, text}] }
- *   ref bei Excel : { sheet, cell }
+ *   ref bei Excel : { sheet, row }   (eine Fundstelle je Tabellenzeile)
  *   ref bei Text  : { section }
  */
 /* global importScripts, mammoth, XLSX */
@@ -36,28 +36,33 @@ function parseSheet(buffer, ext) {
   } else {
     wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
   }
+  // ZEILENBASIERT: je Tabellenzeile eine Fundstelle (Text = alle nicht-leeren
+  // Zellen der Zeile). Das liefert lesbare, listenartige Suchtreffer statt
+  // isolierter Einzelzellen. ref = { sheet, row } (1-basiert).
   const units = [];
-  const CAP = 200000;      // max. erfasste (nicht-leere) Zellen
-  const SCAN_CAP = 5000000; // max. besuchte Zellen – begrenzt auch aufgeblaehte !ref-Bereiche
+  const CAP = 200000;       // max. erfasste (nicht-leere) Zeilen
+  const SCAN_CAP = 5000000; // max. besuchte Zellen – begrenzt aufgeblaehte !ref-Bereiche
   let scanned = 0;
   for (const sheetName of wb.SheetNames) {
     const ws = wb.Sheets[sheetName];
     if (!ws || !ws['!ref']) continue;
     const range = XLSX.utils.decode_range(ws['!ref']);
     for (let R = range.s.r; R <= range.e.r; R++) {
+      const cells = [];
       for (let C = range.s.c; C <= range.e.c; C++) {
         // Auch die reine Iteration deckeln: eine kaputte/boesartige Datei kann
         // ein riesiges !ref (z.B. A1:XFD1048576) deklarieren und wuerde sonst
         // den Worker praktisch endlos blockieren.
         if (++scanned > SCAN_CAP) return { kind: 'sheet', scanned: false, units, truncated: true };
-        const addr = XLSX.utils.encode_cell({ r: R, c: C });
-        const cell = ws[addr];
+        const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
         if (!cell) continue;
         const val = cell.w != null ? cell.w : cell.v;
         if (val === undefined || val === null || val === '') continue;
-        units.push({ ref: { sheet: sheetName, cell: addr }, text: norm(val) });
-        if (units.length >= CAP) return { kind: 'sheet', scanned: false, units, truncated: true };
+        cells.push(norm(val));
       }
+      if (!cells.length) continue;
+      units.push({ ref: { sheet: sheetName, row: R + 1 }, text: cells.join('  ·  ') });
+      if (units.length >= CAP) return { kind: 'sheet', scanned: false, units, truncated: true };
     }
   }
   return { kind: 'sheet', scanned: false, units };

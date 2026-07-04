@@ -33,7 +33,7 @@ export async function run(base) {
     return window.WA.state.lastHits.map(h => ({ name: h.name, ref: h.ref }));
   });
   t.check('Suche findet 5 Treffer', s1.length === 5, 'hits='+s1.length);
-  t.check('Excel-Treffer mit Blatt+Zelle', s1.some(h => h.ref && h.ref.sheet === 'Fixkosten' && h.ref.cell === 'C2'));
+  t.check('Excel-Treffer mit Blatt+Zeile (zeilenbasiert)', s1.some(h => h.ref && h.ref.sheet === 'Fixkosten' && h.ref.row === 2));
 
   // Suche: Umlaut-Toleranz (kündigungsfrist == Kuendigungsfrist)
   const s2 = await page.evaluate(async () => {

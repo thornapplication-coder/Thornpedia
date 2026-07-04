@@ -726,7 +726,7 @@
     'hits':['Treffer','hits'],'no-hits':['Keine Treffer.','No results.'],'type-search-hint':['Gib oben einen Suchbegriff ein.','Type a search term above.'],
     'open-hit':['Fundstelle öffnen →','Open source →'],'doc-note-l':['Notiz','Note'],'doc-info':['Dokument-Info','Document info'],
     'scan-warn':['Dieses PDF hat keine Textebene (gescannt) und ist noch nicht durchsuchbar. Mit „Text erkennen (OCR)" wird der Text lokal auf deinem Gerät erkannt – es werden keine Daten hochgeladen.','This PDF has no text layer (scanned) and is not searchable yet. Use “Recognize text (OCR)” to extract the text locally on your device – nothing is uploaded.'],
-    'page':['Seite','Page'],'section':['Abschnitt','Section'],'sheet':['Blatt','Sheet'],'cell':['Zelle','Cell'],
+    'page':['Seite','Page'],'section':['Abschnitt','Section'],'sheet':['Blatt','Sheet'],'cell':['Zelle','Cell'],'row':['Zeile','Row'],
     'rename-t':['Umbenennen','Rename'],'rename-l':['Neuer Name','New name'],'tag-t':['Tag hinzufügen','Add tag'],'tag-l':['Tag-Name','Tag name'],'note-t':['Notiz bearbeiten','Edit note'],'note-l':['Notiz','Note'],
     'ob-sub-opfs':['Deine persönliche, offline-fähige Wissensdatenbank. Auf diesem Gerät speichert die App alle Daten sicher in ihrem eigenen App-Speicher (iPhone/iPad erlauben keinen direkten Ordnerzugriff). Erstelle regelmäßig Backup-ZIPs, um deine Daten zu sichern oder auf einen anderen Rechner umzuziehen.','Your personal, offline-capable knowledge base. On this device the app stores all data in its own app storage (iPhone/iPad do not allow direct folder access). Create backup ZIPs regularly to secure your data or move it to another computer.'],
     'ob-start':['Loslegen','Get started'],
@@ -1262,7 +1262,7 @@
     const picked=sources.map(d=>({docId:d.id, name:d.name, ref: d.pageCount ? {page:(d.pageCount>1?('1–'+d.pageCount):1)} : null}));
     return {text, sources, picked};
   }
-  function refLabel(ref){ if(!ref)return ''; if(ref.page!=null)return `${tr('page')} ${ref.page}`; if(ref.sheet!=null)return `${tr('sheet')} „${ref.sheet}"${ref.cell?` · ${tr('cell')} ${ref.cell}`:''}`; if(ref.section!=null)return `${tr('section')} ${ref.section}`; return ''; }
+  function refLabel(ref){ if(!ref)return ''; if(ref.page!=null)return `${tr('page')} ${ref.page}`; if(ref.sheet!=null)return `${tr('sheet')} „${ref.sheet}"${ref.row!=null?` · ${tr('row')} ${ref.row}`:(ref.cell?` · ${tr('cell')} ${ref.cell}`:'')}`; if(ref.section!=null)return `${tr('section')} ${ref.section}`; return ''; }
   function renderSearchResults(){
     const resEl=$('#search-results'); if(!resEl)return; const hits=state.lastHits; const terms=state.search.terms||[];
     if(!state.search.q){ resEl.innerHTML=`<div class="empty"><div class="big">🔎</div><p>${tr('type-search-hint')}</p></div>`; $('#search-count').textContent='—'; return; }
@@ -1327,7 +1327,10 @@
         units=all.slice(offset, offset+CAPV);
         capNote=`<div class="notice info" style="margin-bottom:10px"><span>ℹ️</span><span>${state.settings.lang==='de'?`Zeige ${offset+1}–${offset+units.length} von ${all.length} Abschnitten (Ausschnitt um die Fundstelle).`:`Showing ${offset+1}–${offset+units.length} of ${all.length} sections (window around the hit).`}</span></div>`;
       }
-      const body=units.map((u,j)=>{ const isHit=(offset+j)===hitIdx; const txt=isHit&&terms.length?snippetFull(u.text,terms):esc(u.text); return `<div style="margin-bottom:10px${isHit?';background:var(--surface-accent);padding:8px;border-radius:6px':''}"><div class="fmeta">${esc(refLabel(u.ref))}</div>${txt}</div>`; }).join('') || `<p style="color:var(--text-muted)">${state.settings.lang==='de'?'Kein extrahierbarer Text.':'No extractable text.'}</p>`;
+      // Word/Text fliessen als zusammenhaengender Text (Label nur an der Fundstelle);
+      // Excel-Zeilen behalten ihr Zeilen-Label (listenartig).
+      const showLabel=(u,isHit)=>isHit||doc.type==='xlsx'||doc.type==='csv';
+      const body=units.map((u,j)=>{ const isHit=(offset+j)===hitIdx; const txt=isHit&&terms.length?snippetFull(u.text,terms):esc(u.text); const label=showLabel(u,isHit)?`<div class="fmeta">${esc(refLabel(u.ref))}</div>`:''; return `<div style="margin-bottom:10px${isHit?';background:var(--surface-accent);padding:8px;border-radius:6px':''}">${label}${txt}</div>`; }).join('') || `<p style="color:var(--text-muted)">${state.settings.lang==='de'?'Kein extrahierbarer Text.':'No extractable text.'}</p>`;
       main.innerHTML=`${capNote}<div class="section-text">${body}</div>`;
       const hit=main.querySelector('[style*="surface-accent"]'); if(hit)hit.scrollIntoView({block:'center'});
     }
