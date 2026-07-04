@@ -485,7 +485,7 @@
         </div>
         <div class="panel panel-pad">
           <h4 style="margin-bottom:6px" data-i18n="set-api">Claude API (optional)</h4>
-          <p style="color:var(--text-muted);margin:0 0 12px" data-i18n="set-api-p">Für Online-Zusammenfassungen (Modell claude-sonnet-4-6). Wird lokal in /meta/apikey.txt gespeichert – nicht im Browser.</p>
+          <p style="color:var(--text-muted);margin:0 0 12px" data-i18n="set-api-p">Für Online-Zusammenfassungen (Modell claude-opus-4-8). Wird lokal in /meta/apikey.txt gespeichert – nicht im Browser.</p>
           <div class="field" style="margin-bottom:10px"><label>API-Key</label><input type="password" id="api-key" placeholder="sk-ant-…"></div>
           <div class="row"><button class="btn sm" id="api-save" data-i18n="save">Speichern</button><button class="btn sm neutral" id="api-test" data-i18n="api-test">Verbindung testen</button><span id="api-status"></span></div>
         </div>
@@ -586,7 +586,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.2';
+  const APP_VERSION = '1.0.3';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -675,7 +675,7 @@
     'imp-drop':['Dateien oder ganzen Ordner hierher ziehen','Drop files or a whole folder here'],'imp-files':['Dateien wählen','Choose files'],'imp-folder':['Ordner wählen','Choose folder'],
     'imp-queue':['Import-Warteschlange','Import queue'],'imp-uihint':['Die App bleibt während des Imports bedienbar. Große PDFs werden seitenweise verarbeitet.','The app stays usable during import. Large PDFs are processed page by page.'],
     'set-p':['Lokal gespeichert in /meta.','Stored locally in /meta.'],'set-appear':['Darstellung','Appearance'],'set-theme':['Theme','Theme'],'theme-auto':['Auto','Auto'],'theme-light':['Hell','Light'],'theme-dark':['Dunkel','Dark'],'set-lang':['Sprache / Language','Language / Sprache'],
-    'set-api':['Claude API (optional)','Claude API (optional)'],'set-api-p':['Für Online-Zusammenfassungen (Modell claude-sonnet-4-6). Wird lokal in /meta/apikey.txt gespeichert – nicht im Browser.','For online summaries (model claude-sonnet-4-6). Stored locally in /meta/apikey.txt – not in the browser.'],'api-test':['Verbindung testen','Test connection'],'save':['Speichern','Save'],
+    'set-api':['Claude API (optional)','Claude API (optional)'],'set-api-p':['Für Online-Zusammenfassungen (Modell claude-opus-4-8). Wird lokal in /meta/apikey.txt gespeichert – nicht im Browser.','For online summaries (model claude-opus-4-8). Stored locally in /meta/apikey.txt – not in the browser.'],'api-test':['Verbindung testen','Test connection'],'save':['Speichern','Save'],
     'set-storage':['Speicherort','Storage location'],'set-storage-p':['Alle Daten liegen als echte Dateien in diesem Ordner.','All data lives as real files in this folder.'],'set-change':['Ordner wechseln','Change folder'],'set-disconnect':['Trennen','Disconnect'],
     'set-offline':['Offline-Betrieb wird eingerichtet …','Setting up offline mode …'],'set-offline-on':['Offline-Betrieb aktiv (App als PWA installierbar).','Offline mode active (installable as a PWA).'],'set-offline-off':['Offline-Betrieb nicht verfügbar (nur über https/localhost).','Offline mode unavailable (needs https/localhost).'],
     'set-about':['Über','About'],'set-about-p':['Wissensarchiv v{v} · Keine Konten, kein Server – deine Daten bleiben bei dir.','Knowledge Archive v{v} · No accounts, no server – your data stays with you.'],
@@ -1298,7 +1298,7 @@
     for(const id of ids){ const doc=await getIndex(id); sources.push(doc); corpus+=`\n\n### ${doc.name}\n`; for(const u of (doc.units||[])){ corpus+=`[${refLabel(u.ref)}] ${u.text}\n`; if(corpus.length>LIMIT)break; } if(corpus.length>LIMIT){ corpus=corpus.slice(0,LIMIT); break; } }
     const lang=state.settings.lang==='de'?'Deutsch':'English';
     const prompt=`Fasse die folgenden Dokumente prägnant auf ${lang} zusammen. Nenne am Ende KEINE Quellen (die fügt die App hinzu). Nur die inhaltliche Zusammenfassung:\n${corpus}`;
-    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1024,messages:[{role:'user',content:prompt}]}) });
+    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, body:JSON.stringify({model:'claude-opus-4-8',max_tokens:1024,messages:[{role:'user',content:prompt}]}) });
     if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('API '+r.status+': '+t.slice(0,200)); }
     const data=await r.json(); const text=(data.content||[]).map(c=>c.text||'').join('\n').trim();
     // Quellenverzeichnis: jedes eingeflossene Dokument mit Seitenumfang (PDF) bzw. ohne Zusatz
@@ -1745,7 +1745,7 @@
 
     // API
     $('#api-save').onclick=async()=>{ await saveApiKey($('#api-key').value); toast('OK','ok'); };
-    $('#api-test').onclick=async()=>{ const st=$('#api-status'); st.innerHTML='<span class="busy"></span>'; try{ await saveApiKey($('#api-key').value); if(!state.apiKey)throw new Error(state.settings.lang==='de'?'Kein Key':'No key'); if(!navigator.onLine)throw new Error(state.settings.lang==='de'?'Offline':'Offline'); const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:16,messages:[{role:'user',content:'ping'}]})}); st.innerHTML=r.ok?'<span class="chip" style="color:var(--good)">● OK</span>':`<span class="chip" style="color:var(--danger)">● ${r.status}</span>`; }catch(e){ st.innerHTML=`<span class="chip" style="color:var(--danger)">● ${esc(e.message)}</span>`; } };
+    $('#api-test').onclick=async()=>{ const st=$('#api-status'); st.innerHTML='<span class="busy"></span>'; try{ await saveApiKey($('#api-key').value); if(!state.apiKey)throw new Error(state.settings.lang==='de'?'Kein Key':'No key'); if(!navigator.onLine)throw new Error(state.settings.lang==='de'?'Offline':'Offline'); const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-opus-4-8',max_tokens:16,messages:[{role:'user',content:'ping'}]})}); st.innerHTML=r.ok?'<span class="chip" style="color:var(--good)">● OK</span>':`<span class="chip" style="color:var(--danger)">● ${r.status}</span>`; }catch(e){ st.innerHTML=`<span class="chip" style="color:var(--danger)">● ${esc(e.message)}</span>`; } };
   }
   function openExport(kind){ const data=buildReportItems(kind); if(!data.items.length&&!data.summary){ toast(state.settings.lang==='de'?'Keine Treffer zum Exportieren.':'No results to export.','err'); return; } $('#exp-text').textContent=(state.settings.lang==='de'?`${data.items.length} Treffer werden exportiert.`:`${data.items.length} results will be exported.`); $('#dlg-export').classList.add('show'); }
 
