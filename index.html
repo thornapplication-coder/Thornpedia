@@ -2,6 +2,11 @@
 <html lang="de">
 <head>
   <meta charset="utf-8">
+  <!-- Defense-in-Depth: begrenzt Ausgehendes strikt. connect-src laesst NUR die
+       eigene Herkunft und die Claude-API zu – ein kompromittiertes vendor-Skript
+       koennte den API-Key nicht an einen fremden Host senden. 'wasm-unsafe-eval'
+       wird fuer PDF.js/Tesseract-WASM benoetigt. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: https://api.anthropic.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; manifest-src 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wissensarchiv</title>
   <meta name="description" content="Persönliche, offline-fähige Wissensdatenbank – alle Daten liegen als echte Dateien auf deiner Festplatte.">
@@ -586,7 +591,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.7';
+  const APP_VERSION = '1.0.8';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
