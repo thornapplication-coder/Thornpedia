@@ -973,7 +973,7 @@
     wireLibrary(el, rows);
   }
   function rowHtml(r, checked){
-    const tags=(r.tags||[]).map(t=>`<span class="chip tag">${esc(t)}</span>`).join(' ')||'<span style="color:var(--text-muted)">—</span>';
+    const tags=(r.tags||[]).map(t=>`<span class="chip tag">${esc(t)}<span class="x" data-rmtag="${esc(t)}" data-rmid="${esc(r.id)}" title="${state.settings.lang==='de'?'Tag entfernen':'Remove tag'}">✕</span></span>`).join(' ')||'<span style="color:var(--text-muted)">—</span>';
     const status=r.scanned?`<span class="badge-scan">⚠ ${state.settings.lang==='de'?'Gescannt':'Scanned'}</span>`:(r.ocr?`<span style="color:var(--good)">● OCR</span>`:`<span style="color:var(--good)">● ${state.settings.lang==='de'?'indexiert':'indexed'}</span>`);
     const meta=r.type==='pdf'&&r.pageCount?`${r.pageCount} ${tr('page')}`:`${r.unitCount} ${state.settings.lang==='de'?'Fundstellen':'units'}`;
     return `<tr class="${checked?'sel':''}" data-id="${esc(r.id)}">
@@ -1007,6 +1007,7 @@
     $$('th.sortable',el).forEach(th=>th.onclick=()=>{ const k=th.dataset.sort; if(state.lib.sort===k)state.lib.dir=state.lib.dir==='asc'?'desc':'asc'; else{state.lib.sort=k;state.lib.dir=k==='name'?'asc':'desc';} renderLibrary(); });
     const selall=$('#lib-selall',el); if(selall)selall.onchange=()=>{ if(selall.checked)rows.forEach(r=>state.lib.selected.add(r.id)); else state.lib.selected.clear(); renderLibrary(); };
     $$('.rowsel',el).forEach(cb=>cb.onchange=()=>{ const id=cb.closest('tr').dataset.id; if(cb.checked)state.lib.selected.add(id); else state.lib.selected.delete(id); renderLibrary(); });
+    $$('.chip.tag .x',el).forEach(x=>x.onclick=async(e)=>{ e.stopPropagation(); await removeTag(x.dataset.rmid, x.dataset.rmtag); });
     $$('[data-menu]',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const m=$('#menu-'+b.dataset.menu); const open=m.classList.contains('show'); $$('.menu.show').forEach(x=>x.classList.remove('show')); if(!open){ m.classList.add('show'); positionMenu(m,b); } });
     $$('.menu button',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.closest('.menu').id.replace('menu-',''); $$('.menu.show').forEach(x=>x.classList.remove('show')); docAction(b.dataset.act, id); });
     const bt=$('#batch-tag',el); if(bt)bt.onclick=()=>batchTag(); const bd=$('#batch-del',el); if(bd)bd.onclick=()=>batchDelete(); const bc=$('#batch-clear',el); if(bc)bc.onclick=()=>{state.lib.selected.clear();renderLibrary();};
@@ -1102,6 +1103,10 @@
   }
 
   async function batchTag(){ promptDlg('tag','', async(v)=>{ v=(v||'').trim(); if(!v)return; for(const id of state.lib.selected){ const doc=await getIndex(id).catch(()=>null); if(!doc)continue; doc.tags=doc.tags||[]; if(!doc.tags.includes(v))doc.tags.push(v); await writeIndex(doc); updateCatalogEntry(doc); } await saveCatalog(); renderLibrary(); renderFilters(); toast('OK','ok'); }); }
+  // Entfernt ein Tag von einem Dokument (Tags sind damit verwaltbar: hinzufuegen ueber
+  // das Zeilenmenue, entfernen ueber das ✕ am Tag). Verschwindet ein Tag dadurch ganz,
+  // wird es auch aus den aktiven Filtern entfernt.
+  async function removeTag(id, tag){ const doc=await getIndex(id).catch(()=>null); if(!doc)return; doc.tags=(doc.tags||[]).filter(t=>t!==tag); await writeIndex(doc); updateCatalogEntry(doc); await saveCatalog(); const gone=!allTags().includes(tag); if(gone){ if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; } renderLibrary(); renderFilters(); }
   async function batchDelete(){ if(!confirm((state.settings.lang==='de'?'Ausgewählte löschen? ':'Delete selected? ')+state.lib.selected.size)){return;} for(const id of Array.from(state.lib.selected)) await deleteDoc(id,true); await saveCatalog(); renderLibrary(); renderFilters(); renderBackupStats(); toast(state.settings.lang==='de'?'Gelöscht.':'Deleted.'); }
 
   // ---------- Suche ----------
@@ -1674,11 +1679,11 @@
         : (de?'Zusammenfassung':'Summary')+(d.source&&d.source.type==='query'?' „'+esc(d.source.search&&d.source.search.q||'')+'"':(d.source&&d.source.type==='all'?(de?' (gesamtes Archiv)':' (entire archive)'):''));
       const st=d.error?`<span style="color:var(--danger)">⚠ ${esc(d.error)}</span>`:(d.updatedAt?tr('exp-updated')+' '+new Date(d.updatedAt).toLocaleString(de?'de-DE':'en-GB'):'—');
       const ftCls=d.fmt==='xlsx'?'t-xlsx':d.fmt==='pdf'?'t-pdf':'t-docx';
-      return `<div class="queue-item"><span class="ftype ${ftCls}">${d.fmt.toUpperCase().slice(0,3)}</span><div class="qmain"><div class="fname">${esc(defFileName(d))}</div><div class="fmeta">${what} · ${st}</div></div><button class="btn sm ghost" data-expdl="${i}" title="${de?'Herunterladen':'Download'}">⬇</button><button class="btn sm ghost" data-exprf="${i}" title="${de?'Jetzt aktualisieren':'Refresh now'}">🔄</button><button class="btn sm ghost" data-exprm="${i}" title="${de?'Nicht mehr aktuell halten':'Stop keeping current'}">✕</button></div>`;
+      return `<div class="queue-item"><span class="ftype ${ftCls}">${d.fmt.toUpperCase().slice(0,3)}</span><div class="qmain"><div class="fname">${esc(defFileName(d))}</div><div class="fmeta">${what} · ${st}</div></div><button class="btn sm ghost" data-expdl="${i}" title="${de?'Herunterladen':'Download'}">⬇</button><button class="btn sm ghost" data-exprf="${i}" title="${de?'Jetzt aktualisieren':'Refresh now'}">🔄</button><button class="btn sm ghost danger" data-exprm="${i}" title="${de?'Export löschen':'Delete export'}">🗑</button></div>`;
     }).join('');
     $$('#exports-list [data-expdl]').forEach(b=>b.onclick=async()=>{ const d=exportDefs[+b.dataset.expdl]; try{ const f=await (await state.dirs.exports.getFileHandle(defFileName(d))).getFile(); download(f, defFileName(d)); }catch(e){ toast((de?'Datei fehlt – erst aktualisieren.':'File missing – refresh first.'),'err'); } });
     $$('#exports-list [data-exprf]').forEach(b=>b.onclick=async()=>{ const d=exportDefs[+b.dataset.exprf]; try{ const data=await buildReportData(d); const blob=await makeExportBlob(d.fmt,data); await writeExportFile(defFileName(d),blob,false); d.updatedAt=new Date().toISOString(); delete d.error; await saveExportDefs(); renderExportsPanel(); toast('OK','ok'); }catch(e){ d.error=e.message; await saveExportDefs(); renderExportsPanel(); } });
-    $$('#exports-list [data-exprm]').forEach(b=>b.onclick=async()=>{ exportDefs.splice(+b.dataset.exprm,1); await saveExportDefs(); renderExportsPanel(); });
+    $$('#exports-list [data-exprm]').forEach(b=>b.onclick=async()=>{ const i=+b.dataset.exprm; const d=exportDefs[i]; if(!confirm(de?'Diesen Export löschen?':'Delete this export?'))return; try{ await removeFile(state.dirs.exports, defFileName(d)); }catch(e){} exportDefs.splice(i,1); await saveExportDefs(); renderExportsPanel(); toast(de?'Export gelöscht.':'Export deleted.','ok'); });
   }
 
   // ---------- Backup ----------
