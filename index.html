@@ -291,7 +291,7 @@
       <button data-lang="de">DE</button><button data-lang="en">EN</button>
     </div>
     <button class="icon-btn" id="refresh-btn" title="Neu laden" aria-label="Neu laden" data-i18n-title="refresh-title">🔄</button>
-    <button class="icon-btn" id="theme-btn" title="Theme wechseln">🌓</button>
+    <button class="icon-btn" id="theme-btn" title="Theme wechseln" aria-label="Theme wechseln" data-i18n-title="theme-title">🌓</button>
   </header>
 
   <nav class="sidebar">
@@ -569,13 +569,13 @@
   </div>
 </div>
 
-<div id="toasts"></div>
+<div id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
 
 <!-- Update-Benachrichtigung: erscheint, wenn eine neue Version im Cache bereitliegt -->
 <div id="update-banner" role="alert">
   <span class="upd-msg">🎉 <span data-i18n="upd-text">Neue Version verfügbar</span></span>
   <button class="upd-apply" id="update-apply" data-i18n="upd-apply">Jetzt aktualisieren</button>
-  <button class="upd-x" id="update-dismiss" title="Später" aria-label="Später">×</button>
+  <button class="upd-x" id="update-dismiss" title="Später" aria-label="Später" data-i18n-title="upd-later">×</button>
 </div>
 
 <script>
@@ -586,7 +586,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.4';
+  const APP_VERSION = '1.0.5';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -709,8 +709,10 @@
     'lock-note':['Schließe den anderen Tab und klicke dann auf „Erneut versuchen".','Close the other tab, then click “Try again”.'],
     'ab-label':['Automatisches Backup','Automatic backup'],
     'refresh-title':['Neu laden','Reload'],
+    'theme-title':['Theme wechseln','Switch theme'],
     'upd-text':['Neue Version verfügbar','New version available'],
     'upd-apply':['Jetzt aktualisieren','Update now'],
+    'upd-later':['Später','Later'],
   };
   const tr = (key) => (I18N[key]||['',''])[state.settings.lang==='de'?0:1];
   function applyLang(lang){ state.settings.lang=lang; const i=lang==='de'?0:1; document.documentElement.lang=lang;
@@ -748,14 +750,28 @@
     catch(e){ state.settings={theme:'auto',lang:'de',autoExports:true,autoBackup:'weekly'}; await persistSettings(); }
     try{ state.apiKey=(await readFileText(state.dirs.meta,'apikey.txt')).trim(); }catch(e){ state.apiKey=''; }
   }
-  let _pt=null;
-  function persistSettings(){ return new Promise(res=>{ clearTimeout(_pt); _pt=setTimeout(async()=>{ try{ if(state.dirs.meta) await writeFile(state.dirs.meta,'settings.json',JSON.stringify(state.settings,null,2)); }catch(e){console.warn(e);} res(); },150); }); }
+  let _pt=null, _psWaiters=[];
+  // Alle offenen Promises werden beim tatsaechlichen Schreiben aufgeloest – auch
+  // die von zwischenzeitlich verworfenen (debounce-ueberholten) Aufrufen, damit
+  // ein `await persistSettings()` (z. B. in maybeAutoBackup) nie haengen bleibt.
+  function persistSettings(){ return new Promise(res=>{ _psWaiters.push(res); clearTimeout(_pt); _pt=setTimeout(async()=>{ const ws=_psWaiters; _psWaiters=[]; _pt=null; try{ if(state.dirs.meta) await writeFile(state.dirs.meta,'settings.json',JSON.stringify(state.settings,null,2)); }catch(e){console.warn(e);} ws.forEach(r=>r()); },150); }); }
   async function saveApiKey(k){ state.apiKey=k.trim(); await writeFile(state.dirs.meta,'apikey.txt',state.apiKey); }
 
   // ---------- Katalog & Index ----------
+  // Zaehlt Index-Dateien ohne sie zu parsen – guenstiger Konsistenz-Check.
+  async function countIndexFiles(){ let n=0; try{ for await(const [name,h] of state.dirs.index.entries()){ if(h.kind==='file'&&name.endsWith('.json')&&SAFE_ID.test(name.slice(0,-5)))n++; } }catch(e){} return n; }
   async function loadCatalog(){
-    try{ state.catalog=JSON.parse(await readFileText(state.dirs.meta,'catalog.json')); if(!Array.isArray(state.catalog))state.catalog=[]; }
-    catch(e){ state.catalog=await rebuildCatalog(); if(state.catalog.length)await saveCatalog(); }
+    let cat=null;
+    try{ const raw=JSON.parse(await readFileText(state.dirs.meta,'catalog.json')); if(Array.isArray(raw))cat=raw; }catch(e){}
+    // Selbstheilung: fehlender/ungueltiger Katalog ODER Abweichung zur Zahl der
+    // Index-Dateien (z. B. Absturz zwischen writeIndex und saveCatalog) -> aus
+    // den Index-Dateien neu aufbauen; die sind die eigentliche Quelle der Wahrheit.
+    if(cat===null || cat.length!==await countIndexFiles()){
+      state.catalog=await rebuildCatalog();
+      if(state.catalog.length || cat!==null) await saveCatalog();
+      return;
+    }
+    state.catalog=cat;
   }
   async function saveCatalog(){
     await writeFile(state.dirs.meta,'catalog.json',JSON.stringify(state.catalog,null,2));
@@ -978,7 +994,10 @@
     state.lastHits=state.lastHits.filter(h=>h.docId!==id); state.search.selected.clear();
     if(!silent)await saveCatalog(); updateCount(); }
   async function reindexDoc(doc){
-    try{ toast(state.settings.lang==='de'?'Neu-Indexierung…':'Re-indexing…'); const f=await (await state.dirs.originals.getFileHandle(doc.storedAs)).getFile(); const buffer=await f.arrayBuffer(); const res=await parseFile(doc.id, doc.ext, buffer, null); doc.units=res.units||[]; doc.scanned=!!res.scanned; doc.pageCount=res.pageCount||null; await writeIndex(doc); updateCatalogEntry(doc); await saveCatalog(); renderLibrary(); toast('OK','ok'); }catch(e){ toast('Fehler: '+e.message,'err'); }
+    try{ toast(state.settings.lang==='de'?'Neu-Indexierung…':'Re-indexing…'); const f=await (await state.dirs.originals.getFileHandle(doc.storedAs)).getFile(); const buffer=await f.arrayBuffer(); const res=await parseFile(doc.id, doc.ext, buffer, null);
+      // Waehrend des (langen) Neu-Indexierens geloescht? Dann nichts zurueckschreiben – sonst verwaiste Index-Datei.
+      if(!state.catalog.some(c=>c.id===doc.id)){ toast(state.settings.lang==='de'?'Dokument wurde inzwischen gelöscht.':'Document was deleted in the meantime.','err'); return; }
+      doc.units=res.units||[]; doc.scanned=!!res.scanned; doc.pageCount=res.pageCount||null; await writeIndex(doc); updateCatalogEntry(doc); await saveCatalog(); renderLibrary(); toast('OK','ok'); }catch(e){ toast((state.settings.lang==='de'?'Fehler: ':'Error: ')+e.message,'err'); }
   }
   // ---------- OCR (tesseract.js, komplett lokal aus vendor/) ----------
   let _ocrWorker=null, _ocrBusy=false;
@@ -1365,9 +1384,14 @@
     const pw=doc.internal.pageSize.getWidth(), ph=doc.internal.pageSize.getHeight();
     const usable=pw-margin*2;
     const colW=widths.map(w=>Math.max(12,w*usable));
+    // Nach dem Mindestbreiten-Clamp normalisieren, damit die Spaltensumme nie den Rand ueberschreitet.
+    const sumW=colW.reduce((a,b)=>a+b,0); if(sumW>usable){ const f=usable/sumW; for(let i=0;i<colW.length;i++)colW[i]*=f; }
     doc.setFontSize(fs);
     let y=startY;
-    const wrap=(cells)=>cells.map((c,i)=>doc.splitTextToSize(String(c==null?'':c),colW[i]-pad*2));
+    // Eine einzelne Zelle kann nie hoeher als eine Seite werden: ueberlange Texte
+    // werden begrenzt und mit „…" markiert (statt am Seitenende abgeschnitten zu verschwinden).
+    const maxLines=Math.max(1, Math.floor((ph-margin*2-pad*2)/lh));
+    const wrap=(cells)=>cells.map((c,i)=>{ let l=doc.splitTextToSize(String(c==null?'':c),colW[i]-pad*2); if(l.length>maxLines){ l=l.slice(0,maxLines); l[maxLines-1]='…'; } return l; });
     const rowH=(lines)=>Math.max(1,...lines.map(l=>l.length))*lh+pad*2;
     const draw=(cells,bold,fill)=>{
       doc.setFont(undefined,bold?'bold':'normal');
@@ -1595,7 +1619,7 @@
       const blob=await buildBackupBlob(); const name='wissensarchiv_backup_'+stamp()+'.zip';
       await saveToExports(name, blob); download(blob, name);
       toast(state.settings.lang==='de'?'Backup erstellt (in /exports und Download).':'Backup created (in /exports and download).','ok');
-    }catch(e){ console.error(e); toast('Backup-Fehler: '+e.message,'err'); }
+    }catch(e){ console.error(e); toast((state.settings.lang==='de'?'Backup-Fehler: ':'Backup error: ')+e.message,'err'); }
   }
 
   // ---------- Automatische Backups (taeglich/woechentlich, letzte 5 bleiben) ----------
@@ -1625,12 +1649,13 @@
     finally{ _abBusy=false; }
   }
   async function importBackup(file){
+    const de=state.settings.lang==='de';
+    let restored=false;
     try{
-      toast(state.settings.lang==='de'?'Backup wird eingelesen…':'Reading backup…');
+      toast(de?'Backup wird eingelesen…':'Reading backup…');
       await loadScript('vendor/jszip.min.js'); const zip=await window.JSZip.loadAsync(await file.arrayBuffer());
       const targets={originals:state.dirs.originals, index:state.dirs.index, meta:state.dirs.meta};
       const entries=Object.keys(zip.files);
-      const de=state.settings.lang==='de';
       // Nur meta-Dateien aus einer festen Whitelist zulassen; apikey.txt und
       // catalog.json werden NIE aus einem fremden ZIP uebernommen.
       const META_ALLOW=new Set(['settings.json','exports.json']);
@@ -1649,11 +1674,17 @@
         total+=content.byteLength; if(total>MAX_TOTAL){ throw new Error(de?'Backup ist zu groß.':'Backup too large.'); }
         await writeFile(targets[folder], fname, content);
       }
-      state.indexCache.clear(); state.catalog=await rebuildCatalog(); await saveCatalog(); await loadSettings(); await loadExportDefs();
-      updateCount(); applyTheme(state.settings.theme); applyLang(state.settings.lang);
-      renderLibrary(); renderFilters(); renderBackupStats(); renderExportsPanel(); updateStorageLabels();
-      toast((state.settings.lang==='de'?'Wiederhergestellt: ':'Restored: ')+state.catalog.length+(state.settings.lang==='de'?' Dokumente.':' documents.'),'ok');
-    }catch(e){ console.error(e); toast('Import-Fehler: '+e.message,'err'); }
+      restored=true;
+    }catch(e){ console.error(e); toast((state.settings.lang==='de'?'Import-Fehler: ':'Import error: ')+e.message,'err'); }
+    finally{
+      // Auch nach einem Abbruch bereits geschriebene Index-Dateien sichtbar machen –
+      // Katalog aus den Index-Dateien (Quelle der Wahrheit) neu aufbauen, nichts verwaist.
+      try{ state.indexCache.clear(); state.catalog=await rebuildCatalog(); await saveCatalog(); await loadSettings(); await loadExportDefs();
+        updateCount(); applyTheme(state.settings.theme); applyLang(state.settings.lang);
+        renderLibrary(); renderFilters(); renderBackupStats(); renderExportsPanel(); updateStorageLabels();
+      }catch(e2){ console.error(e2); }
+      if(restored) toast((state.settings.lang==='de'?'Wiederhergestellt: ':'Restored: ')+state.catalog.length+(state.settings.lang==='de'?' Dokumente.':' documents.'),'ok');
+    }
   }
 
   // ---------- Prompt-Dialog ----------
@@ -1851,7 +1882,9 @@
 
     if(mode==='opfs'){
       // iPhone/iPad & Browser ohne Ordnerzugriff: App-Speicher (OPFS), kein Picker noetig.
-      try{ if(navigator.storage.persist) navigator.storage.persist().catch(()=>{}); }catch(e){}
+      // Persistenz anfordern; wird sie verweigert, kann der Browser den App-Speicher
+      // raeumen -> deutlich zum Backup raten.
+      try{ if(navigator.storage&&navigator.storage.persist){ const persisted=await navigator.storage.persist(); if(!persisted) setTimeout(()=>toast(state.settings.lang==='de'?'App-Speicher ist nicht dauerhaft – erstelle regelmäßig ein Backup-ZIP!':'App storage is not persistent – create backup ZIPs regularly!','err'),2000); } }catch(e){}
       state.rootHandle=await navigator.storage.getDirectory();
       let seen=false; try{ seen=localStorage.getItem('wa.opfsSeen')==='1'; }catch(e){}
       if(seen){ await bootApp(); return; }
