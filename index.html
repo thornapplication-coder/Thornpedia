@@ -281,6 +281,7 @@
       <div>&nbsp;&nbsp;├─ 📁 meta/ &nbsp;<span style="opacity:.7" data-i18n="ob-d3">– Tags, Notizen, Einstellungen, API-Key</span></div>
       <div>&nbsp;&nbsp;└─ 📁 exports/ &nbsp;<span style="opacity:.7" data-i18n="ob-d4">– Berichte & Backups</span></div>
     </div>
+    <div class="notice info" id="ob-lastfolder" style="display:none;text-align:left;margin-bottom:14px"><span>💡</span><span id="ob-lastfolder-txt"></span></div>
     <button class="btn lg" id="btn-pick">📂 <span data-i18n="ob-choose">Ordner wählen</span></button>
     <p class="small-note" data-i18n="ob-browser">Erfordert Chrome oder Edge (Desktop).</p>
     <div class="copyright">© Copyright by Patrick Thorn</div>
@@ -628,7 +629,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.1';
+  const APP_VERSION = '1.0.2';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1921,6 +1922,10 @@
   }
   async function bootApp(){
     await ensureStructure(); await loadSettings(); await loadCatalog(); await loadExportDefs();
+    // Ordnernamen lokal merken: geht das gespeicherte Handle verloren (Browser
+    // loescht Website-Daten), kann das Onboarding darauf hinweisen, dass die
+    // Daten weiterhin in diesem Ordner liegen.
+    if(state.storageMode==='fsa'&&state.rootHandle){ try{ localStorage.setItem('wa.lastFolder', state.rootHandle.name); }catch(e){} }
     applyTheme(state.settings.theme); applyLang(state.settings.lang);
     updateStorageLabels(); $('#api-key').value=state.apiKey||'';
     updateCount(); renderLibrary(); renderFilters(); renderBackupStats(); renderExportsPanel();
@@ -1934,7 +1939,7 @@
     catch(e){ if(e&&e.name==='AbortError')return; console.error(e); toast(tr2('folder-err'),'err'); }
   }
   async function reconnect(){ const h=state.pendingHandle; if(!h)return; try{ if(!(await ensurePermission(h))){toast(tr2('perm-denied'),'err');return;} state.rootHandle=h; await IDB.set('rootHandle',h); $('#dlg-reconnect').classList.remove('show'); await bootApp(); }catch(e){console.error(e);toast(tr2('folder-err'),'err');} }
-  async function disconnect(){ await IDB.del('rootHandle'); await closePdfView(); state.rootHandle=null; state.dirs={}; state.catalog=[]; state.indexCache.clear(); state.lastHits=[]; state.curDoc=null; state.lib.selected.clear(); const nd=$('#nav-doc'); if(nd)nd.style.display='none'; showScreen('onboard'); }
+  async function disconnect(){ await IDB.del('rootHandle'); try{ localStorage.removeItem('wa.lastFolder'); }catch(e){} await closePdfView(); state.rootHandle=null; state.dirs={}; state.catalog=[]; state.indexCache.clear(); state.lastHits=[]; state.curDoc=null; state.lib.selected.clear(); const nd=$('#nav-doc'); if(nd)nd.style.display='none'; showScreen('onboard'); }
   function tr2(k){ const M={'perm-denied':['Zugriff verweigert. Ohne Ordner-Berechtigung kann nicht gespeichert werden.','Access denied. Without folder permission nothing can be saved.'],'folder-err':['Ordner konnte nicht geöffnet werden.','Could not open the folder.']}; return (M[k]||['',''])[state.settings.lang==='de'?0:1]; }
 
   // ---------- Events ----------
@@ -2044,7 +2049,15 @@
 
     // Desktop Chrome/Edge: echter Ordner via File System Access API
     let handle=null; try{ handle=await IDB.get('rootHandle'); }catch(e){}
-    if(!handle){ showScreen('onboard'); return; }
+    if(!handle){
+      // Handle weg (z. B. Browser loescht Website-Daten beim Schliessen) – die
+      // Daten liegen aber weiterhin als echte Dateien im zuletzt genutzten Ordner.
+      let last=null; try{ last=localStorage.getItem('wa.lastFolder'); }catch(e){}
+      if(last){ const el=$('#ob-lastfolder'), tx=$('#ob-lastfolder-txt'); if(el&&tx){ el.style.display=''; tx.textContent=(state.settings.lang==='de'
+        ? `Deine Daten sind nicht verloren: Sie liegen weiterhin im Ordner „${last}" auf deiner Festplatte – inklusive Dokumente und API-Key. Wähle diesen Ordner einfach erneut aus. Tipp: Damit die Verbindung erhalten bleibt, darf der Browser Website-Daten beim Schließen nicht löschen.`
+        : `Your data is not lost: it is still in the folder "${last}" on your disk – including documents and API key. Simply pick that folder again. Tip: to keep the connection, the browser must not clear site data on close.`); } }
+      showScreen('onboard'); return;
+    }
     try{
       if((await handle.queryPermission({mode:'readwrite'}))==='granted'){ state.rootHandle=handle; await bootApp(); }
       else{ state.pendingHandle=handle; $('#rc-name').textContent=handle.name; showScreen('onboard'); $('#dlg-reconnect').classList.add('show'); }
