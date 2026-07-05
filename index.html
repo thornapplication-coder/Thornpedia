@@ -334,6 +334,7 @@
     <section class="view" id="view-search">
       <div class="page-head"><div><h2 data-i18n="nav-search">Suche</h2><p data-i18n="search-p">Volltext über alle Indizes · Originale werden dabei nie geladen.</p></div></div>
       <div class="top-search" style="max-width:none;margin-bottom:10px">🔎 <input id="search-input" placeholder="Suchbegriff…" data-i18n-ph="search-ph2" style="font-size:14px"><button class="btn sm" id="search-btn" data-i18n="do-search">Suchen</button></div>
+      <div class="row" id="search-history" style="gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center;display:none"></div>
       <div class="row" style="gap:14px;margin-bottom:18px;flex-wrap:wrap;align-items:center">
         <div class="seg" id="search-mode" style="border-radius:8px" role="group" data-i18n-title="sm-title">
           <button class="on" data-smode="text" data-i18n="sm-text">Volltext</button>
@@ -430,6 +431,8 @@
           <h3 style="margin:8px 0" data-i18n="backup-exp-h">Archiv exportieren</h3>
           <p style="color:var(--text-muted)" data-i18n="backup-exp-p">Erzeugt eine ZIP mit /originals, /index und /meta. Wird in /exports gespeichert und als Download angeboten.</p>
           <div class="row" style="margin-top:10px" id="backup-stats"></div>
+          <div class="fmeta" id="backup-last" style="margin-top:6px"></div>
+          <div class="notice warn" id="backup-reminder" style="display:none;margin-top:10px"><span>⚠</span><span id="backup-reminder-txt"></span></div>
           <button class="btn" style="margin-top:14px;width:100%;justify-content:center" id="backup-export">⬇ <span data-i18n="backup-create">Backup-ZIP erstellen</span></button>
           <div class="row" style="justify-content:space-between;margin-top:14px">
             <span data-i18n="ab-label">Automatisches Backup</span>
@@ -543,6 +546,11 @@
           <div class="notice warn" id="opfs-hint" style="display:none;margin-top:12px"><span>⚠</span><span data-i18n="opfs-hint">Auf diesem Gerät liegen die Daten im App-Speicher des Browsers. Erstelle regelmäßig Backup-ZIPs – wenn Website-Daten gelöscht werden, wäre das Archiv sonst weg.</span></div>
         </div>
         <div class="panel panel-pad">
+          <h4 style="margin-bottom:6px" data-i18n="set-tags">Tags verwalten</h4>
+          <p style="color:var(--text-muted);margin:0 0 12px" data-i18n="set-tags-p">Tags über alle Dokumente umbenennen, zusammenführen oder löschen.</p>
+          <div id="tagadmin-list"></div>
+        </div>
+        <div class="panel panel-pad">
           <h4 style="margin-bottom:6px" data-i18n="set-about">Über</h4>
           <p style="color:var(--text-muted);margin:0 0 4px" data-i18n="set-about-p">Wissensarchiv · Keine Konten, kein Server – deine Daten bleiben bei dir.</p>
           <p style="color:var(--text-muted);margin:0 0 12px;font-size:12px" id="about-version"></p>
@@ -633,7 +641,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.4';
+  const APP_VERSION = '1.0.5';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -732,6 +740,9 @@
     'set-aib':['KI-Budget pro Anfrage','AI budget per request'],'aib-eco':['Sparsam','Eco'],'aib-standard':['Standard','Standard'],'aib-thorough':['Gründlich','Thorough'],
     'set-storage':['Speicherort','Storage location'],'set-storage-p':['Alle Daten liegen als echte Dateien in diesem Ordner.','All data lives as real files in this folder.'],'set-change':['Ordner wechseln','Change folder'],'set-disconnect':['Trennen','Disconnect'],
     'set-kind-folder':['Ordner auf deinem Gerät','Folder on your device'],'set-kind-app':['App-Speicher (dieses Gerät)','App storage (this device)'],
+    'set-tags':['Tags verwalten','Manage tags'],'set-tags-p':['Tags über alle Dokumente umbenennen, zusammenführen oder löschen.','Rename, merge or delete tags across all documents.'],
+    'tags-none':['Noch keine Tags vergeben.','No tags yet.'],'tag-rename':['Umbenennen','Rename'],'tag-del':['Löschen','Delete'],
+    'sh-recent':['Zuletzt gesucht:','Recent searches:'],'sh-clear':['Verlauf leeren','Clear history'],
     'set-info-fsa':['Solange dieser Ordner verbunden ist, werden Dokumente, API-Key und Einstellungen dort dauerhaft gespeichert – auch nach dem Schließen. „Ordner wechseln" verbindet einen anderen Ordner, „Trennen" löst nur die Verbindung (die Dateien im Ordner bleiben erhalten).','As long as this folder is connected, documents, API key and settings are stored there permanently – even after closing. "Change folder" connects a different folder, "Disconnect" only releases the link (the files in the folder stay).'],
     'set-info-opfs':['Auf diesem Gerät/Browser gibt es keinen Ordner-Zugriff. Die Daten liegen dauerhaft im App-Speicher des Browsers und bleiben nach dem Schließen erhalten. Für einen echten Ordner (z. B. auf einem USB-Stick) öffne die App in Chrome oder Edge am Computer.','This device/browser has no folder access. Data is stored permanently in the browser’s app storage and stays after closing. For a real folder (e.g. on a USB stick) open the app in Chrome or Edge on a computer.'],
     'set-offline':['Offline-Betrieb wird eingerichtet …','Setting up offline mode …'],'set-offline-on':['Offline-Betrieb aktiv (App als PWA installierbar).','Offline mode active (installable as a PWA).'],'set-offline-off':['Offline-Betrieb nicht verfügbar (nur über https/localhost).','Offline mode unavailable (needs https/localhost).'],
@@ -781,7 +792,7 @@
     $$('#lang-seg button, #lang-seg2 button').forEach(b=>b.classList.toggle('on',b.dataset.lang===lang));
     updateOfflineLabel(); try{localStorage.setItem('wa.lang',lang);}catch(e){}
     // dynamische Bereiche neu rendern
-    if($('#app').classList.contains('show')){ renderLibrary(); renderFilters(); renderSearchResults(); renderBackupStats(); renderSumPicklist(); renderExportsPanel(); updateStorageLabels(); syncAiBudget(); }
+    if($('#app').classList.contains('show')){ renderLibrary(); renderFilters(); renderSearchResults(); renderSearchHistory(); renderBackupStats(); renderSumPicklist(); renderExportsPanel(); renderTagAdmin(); updateStorageLabels(); syncAiBudget(); }
   }
 
   // ---------- File System ----------
@@ -1133,6 +1144,42 @@
   async function removeTag(id, tag){ const doc=await getIndex(id).catch(()=>null); if(!doc)return; doc.tags=(doc.tags||[]).filter(t=>t!==tag); await writeIndex(doc); updateCatalogEntry(doc); await saveCatalog(); const gone=!allTags().includes(tag); if(gone){ if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; } renderLibrary(); renderFilters(); }
   async function batchDelete(){ if(!confirm((state.settings.lang==='de'?'Ausgewählte löschen? ':'Delete selected? ')+state.lib.selected.size)){return;} for(const id of Array.from(state.lib.selected)) await deleteDoc(id,true); await saveCatalog(); renderLibrary(); renderFilters(); renderBackupStats(); toast(state.settings.lang==='de'?'Gelöscht.':'Deleted.'); }
 
+  // ---------- Tag-Verwaltung (global: umbenennen / zusammenführen / löschen) ----------
+  // Umbenennen auf einen bereits vorhandenen Tag verschmilzt beide (dedupliziert je Dokument).
+  async function renameTagGlobal(oldTag, newTag){
+    newTag=(newTag||'').trim(); if(!newTag||newTag===oldTag)return;
+    let changed=0;
+    for(const c of state.catalog){ if(!(c.tags||[]).includes(oldTag))continue;
+      const doc=await getIndex(c.id).catch(()=>null); if(!doc)continue;
+      const set=new Set(doc.tags||[]); set.delete(oldTag); set.add(newTag);
+      doc.tags=Array.from(set); await writeIndex(doc); updateCatalogEntry(doc); changed++; }
+    if(changed){ await saveCatalog(); if(state.lib.tag===oldTag)state.lib.tag=newTag; if(state.search.tag===oldTag)state.search.tag=newTag; }
+    renderTagAdmin(); renderLibrary(); renderFilters();
+    toast(state.settings.lang==='de'?`Tag aktualisiert (${changed}).`:`Tag updated (${changed}).`,'ok');
+  }
+  async function deleteTagGlobal(tag){
+    const de=state.settings.lang==='de';
+    if(!confirm((de?'Tag aus allen Dokumenten entfernen? ':'Remove tag from all documents? ')+'„'+tag+'"'))return;
+    let changed=0;
+    for(const c of state.catalog){ if(!(c.tags||[]).includes(tag))continue;
+      const doc=await getIndex(c.id).catch(()=>null); if(!doc)continue;
+      doc.tags=(doc.tags||[]).filter(t=>t!==tag); await writeIndex(doc); updateCatalogEntry(doc); changed++; }
+    if(changed){ await saveCatalog(); if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; }
+    renderTagAdmin(); renderLibrary(); renderFilters();
+    toast(de?`Tag gelöscht (${changed}).`:`Tag deleted (${changed}).`,'ok');
+  }
+  function renderTagAdmin(){
+    const el=$('#tagadmin-list'); if(!el)return;
+    const tags=allTags();
+    if(!tags.length){ el.innerHTML=`<p style="color:var(--text-muted);font-size:13px;margin:0">${tr('tags-none')}</p>`; return; }
+    const count=(t)=>state.catalog.reduce((a,c)=>a+((c.tags||[]).includes(t)?1:0),0);
+    el.innerHTML=tags.map(t=>`<div class="row" style="justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--line)">`
+      +`<span style="min-width:0;word-break:break-word">🏷 ${esc(t)} <span style="color:var(--text-muted);font-size:12px">· ${count(t)}</span></span>`
+      +`<div class="row"><button class="btn sm neutral" data-tren="${esc(t)}">${tr('tag-rename')}</button><button class="btn sm danger" data-tdel="${esc(t)}">${tr('tag-del')}</button></div></div>`).join('');
+    $$('[data-tren]',el).forEach(b=>b.onclick=()=>{ const t=b.dataset.tren; promptDlg('tag', t, (v)=>renameTagGlobal(t, v)); });
+    $$('[data-tdel]',el).forEach(b=>b.onclick=()=>deleteTagGlobal(b.dataset.tdel));
+  }
+
   // ---------- Suche ----------
   // Faltung fuer robuste Treffer: Kündigung == Kuendigung == KUENDIGUNG.
   // Query UND Dokumenttext werden identisch gefaltet, dadurch bleibt der
@@ -1245,9 +1292,29 @@
     return {terms:needles, hits};
   }
   function currentSearchParams(){ return {q:state.search.q, types:Array.from(state.search.types), from:state.search.from, to:state.search.to, tag:state.search.tag, exact:state.search.mode==='exact', ids: state.search.scope==='selected'? Array.from(state.lib.selected) : null }; }
+  // Suchverlauf: die letzten Suchbegriffe merken (lokal in den Einstellungen),
+  // damit häufige Suchen mit einem Klick erneut ausgeführt werden können.
+  function pushSearchHistory(q){
+    q=(q||'').trim(); if(!q)return;
+    let h=Array.isArray(state.settings.searchHistory)?state.settings.searchHistory.slice():[];
+    h=h.filter(x=>x.toLowerCase()!==q.toLowerCase()); h.unshift(q); h=h.slice(0,8);
+    state.settings.searchHistory=h; persistSettings(); renderSearchHistory();
+  }
+  function renderSearchHistory(){
+    const el=$('#search-history'); if(!el)return; const de=state.settings.lang==='de';
+    const h=Array.isArray(state.settings.searchHistory)?state.settings.searchHistory:[];
+    if(!h.length){ el.style.display='none'; el.innerHTML=''; return; }
+    el.style.display='';
+    el.innerHTML=`<span style="color:var(--text-muted);font-size:12px">${tr('sh-recent')}</span>`
+      + h.map(q=>`<button class="chip" data-hq="${esc(q)}" title="${esc(q)}">🔎 ${esc(q.length>28?q.slice(0,28)+'…':q)}</button>`).join(' ')
+      + `<button class="chip" id="sh-clear" style="color:var(--text-muted)">✕ ${tr('sh-clear')}</button>`;
+    $$('[data-hq]',el).forEach(b=>b.onclick=()=>{ $('#search-input').value=b.dataset.hq; if(state.search.mode==='ask'){state.search.mode='text';syncSearchControls();} runSearch(); });
+    const c=$('#sh-clear',el); if(c)c.onclick=()=>{ state.settings.searchHistory=[]; persistSettings(); renderSearchHistory(); };
+  }
   async function runSearch(){
     const q=$('#search-input').value.trim(); state.search.q=q;
     const resEl=$('#search-results'); state.search.selected.clear();
+    if(q) pushSearchHistory(q);
     if(!q){ resEl.innerHTML=`<div class="empty"><div class="big">🔎</div><p>${tr('type-search-hint')}</p></div>`; $('#search-count').textContent='—'; return; }
     if(state.search.scope==='selected' && !state.lib.selected.size){ resEl.innerHTML=`<div class="empty"><div class="big">☑</div><p>${tr('scope-none')}</p></div>`; $('#search-count').textContent='—'; return; }
     if(state.search.mode==='ask'){ await askQuestion(q); return; }
@@ -1293,7 +1360,8 @@
     if(!ids.length){ resEl.innerHTML=`<div class="empty"><p>${tr('ask-nodocs')}</p></div>`; return; }
     try{
       const ans=await claudeAnswer(q, ids);
-      resEl.innerHTML=`<div class="panel panel-pad"><div class="r-title" style="font-weight:600;margin-bottom:10px">🤖 ${esc(q)}</div><div class="section-text" style="max-height:none">${esc(ans.text)}</div>${sourceListHtml(ans.picked, ans.sources)}</div>`;
+      const cost=aiCostLabel(ans.usage, ids.length);
+      resEl.innerHTML=`<div class="panel panel-pad"><div class="r-title" style="font-weight:600;margin-bottom:10px">🤖 ${esc(q)}</div><div class="section-text" style="max-height:none">${esc(ans.text)}</div>${cost?`<p style="color:var(--text-muted);font-size:12px;margin:10px 0 0">${esc(cost)}</p>`:''}${sourceListHtml(ans.picked, ans.sources)}</div>`;
     }catch(e){ resEl.innerHTML=`<div class="empty"><p style="color:var(--danger)">${esc(e.message)}</p></div>`; }
   }
   async function claudeAnswer(q, ids){
@@ -1307,7 +1375,19 @@
     if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('API '+r.status+': '+t.slice(0,200)); }
     const data=await r.json(); const text=(data.content||[]).map(c=>c.text||'').join('\n').trim();
     const picked=sources.map(d=>({docId:d.id, name:d.name, ref: d.pageCount ? {page:(d.pageCount>1?('1–'+d.pageCount):1)} : null}));
-    return {text, sources, picked};
+    return {text, sources, picked, usage:data.usage||null};
+  }
+  // Grobe Kostenschätzung einer KI-Anfrage aus der zurückgegebenen Token-Nutzung
+  // (Opus 4.8: 5 $ / 25 $ je 1 Mio. Token). Reine Info in der Oberfläche – wird
+  // bewusst NICHT in Exporte übernommen.
+  function aiCostLabel(usage, nDocs){
+    const de=state.settings.lang==='de';
+    let money='';
+    if(usage){ const inT=usage.input_tokens||0, outT=usage.output_tokens||0;
+      const cents=(inT/1e6*5 + outT/1e6*25)*100; // grobe Schätzung in US-Cent
+      money = cents<1 ? (de?'unter 1 Cent':'under 1 cent') : ('≈ '+(cents<10?cents.toFixed(1):Math.round(cents))+(de?' Cent':' cents')); }
+    const docs = (nDocs!=null) ? ((money?' · ':'')+nDocs+' '+(de?(nDocs===1?'Dokument genutzt':'Dokumente genutzt'):(nDocs===1?'document used':'documents used'))) : '';
+    return (money||docs) ? ('🧮 '+money+docs+(money?(de?' (geschätzt)':' (estimate)'):'')) : '';
   }
   function refLabel(ref){ if(!ref)return ''; if(ref.page!=null)return `${tr('page')} ${ref.page}`; if(ref.sheet!=null)return `${tr('sheet')} „${ref.sheet}"${ref.row!=null?` · ${tr('row')} ${ref.row}`:(ref.cell?` · ${tr('cell')} ${ref.cell}`:'')}`; if(ref.section!=null)return `${tr('section')} ${ref.section}`; return ''; }
   function renderSearchResults(){
@@ -1499,7 +1579,7 @@
     const data=await r.json(); const text=(data.content||[]).map(c=>c.text||'').join('\n').trim();
     // Quellenverzeichnis: jedes eingeflossene Dokument mit Seitenumfang (PDF) bzw. ohne Zusatz
     const picked=sources.map(d=>({docId:d.id, name:d.name, ref: d.pageCount ? {page:(d.pageCount>1?('1–'+d.pageCount):1)} : null}));
-    return {text, sources, picked};
+    return {text, sources, picked, usage:data.usage||null};
   }
   async function generateSummary(){
     const {ids, spec}=getSummarySource(); const out=$('#sum-output');
@@ -1509,7 +1589,8 @@
     try{
       const r = state.sumMode==='ai' ? await claudeSummary(ids) : await extractiveSummary(ids);
       const title=state.settings.lang==='de'?`Zusammenfassung – ${ids.length} Dokument(e)`:`Summary – ${ids.length} document(s)`;
-      out.innerHTML=`<div class="summary-out"><h3>${esc(title)}</h3><p style="white-space:pre-line">${esc(r.text)}</p>${sourceListHtml(r.picked||[], r.sources||[])}</div>`;
+      const cost=(state.sumMode==='ai') ? aiCostLabel(r.usage, ids.length) : '';
+      out.innerHTML=`<div class="summary-out"><h3>${esc(title)}</h3><p style="white-space:pre-line">${esc(r.text)}</p>${cost?`<p style="color:var(--text-muted);font-size:12px;margin:10px 0 0">${esc(cost)}</p>`:''}${sourceListHtml(r.picked||[], r.sources||[])}</div>`;
       state.lastSummary={ title, text:r.text, picked:r.picked||[], sources:r.sources||[], mode:state.sumMode, sourceSpec:spec };
       $('#sum-export-row').style.display='';
     }catch(e){ out.innerHTML=`<div class="notice err"><span>⚠</span><span>${esc(e.message)}</span></div>`; }
@@ -1752,6 +1833,22 @@
     if(ab) ab.textContent=state.settings.autoBackupLast
       ? (de?'Letztes Auto-Backup: ':'Last auto backup: ')+new Date(state.settings.autoBackupLast).toLocaleString(de?'de-DE':'en-GB')+(de?' · die letzten 5 werden aufbewahrt':' · the last 5 are kept')
       : (de?'Noch kein Auto-Backup erstellt.':'No auto backup yet.');
+    // „Letztes Backup vor X Tagen" + Erinnerung, damit gerade im App-Speicher-Modus
+    // nichts unbemerkt verloren geht.
+    const last=state.settings.lastBackup?Date.parse(state.settings.lastBackup):0;
+    const bl=$('#backup-last');
+    if(bl){ if(last){ const days=Math.floor((Date.now()-last)/86400e3);
+        const ago=days<=0?(de?'heute':'today'):days===1?(de?'vor 1 Tag':'1 day ago'):(de?`vor ${days} Tagen`:`${days} days ago`);
+        bl.textContent=(de?'Letztes Backup: ':'Last backup: ')+ago+' · '+new Date(last).toLocaleDateString(de?'de-DE':'en-GB');
+      } else bl.textContent=de?'Noch kein Backup erstellt.':'No backup created yet.'; }
+    const rem=$('#backup-reminder'), remt=$('#backup-reminder-txt');
+    if(rem&&remt){ const days=last?Math.floor((Date.now()-last)/86400e3):Infinity;
+      const stale = !last || days>=7;
+      rem.style.display=stale?'':'none';
+      if(stale) remt.textContent = !last
+        ? (de?'Du hast noch kein Backup erstellt. Erstelle jetzt ein Backup-ZIP und lege es sicher ab.':'You have no backup yet. Create a backup ZIP now and store it safely.')
+        : (de?`Dein letztes Backup ist ${days} Tage alt. Erstelle regelmäßig ein Backup-ZIP.`:`Your last backup is ${days} days old. Create a backup ZIP regularly.`);
+    }
   }
   async function buildBackupBlob(){
     await loadScript('vendor/jszip.min.js'); const zip=new window.JSZip();
@@ -1766,6 +1863,7 @@
       toast(state.settings.lang==='de'?'Backup wird erstellt…':'Creating backup…');
       const blob=await buildBackupBlob(); const name='wissensarchiv_backup_'+stamp()+'.zip';
       await saveToExports(name, blob); download(blob, name);
+      state.settings.lastBackup=new Date().toISOString(); persistSettings(); renderBackupStats();
       toast(state.settings.lang==='de'?'Backup erstellt (in /exports und Download).':'Backup created (in /exports and download).','ok');
     }catch(e){ console.error(e); toast((state.settings.lang==='de'?'Backup-Fehler: ':'Backup error: ')+e.message,'err'); }
   }
@@ -1791,6 +1889,7 @@
       await saveToExports('wissensarchiv_autobackup_'+stamp()+'.zip', blob);
       await rotateAutoBackups(5);
       state.settings.autoBackupLast=new Date().toISOString();
+      state.settings.lastBackup=state.settings.autoBackupLast;
       await persistSettings();
       renderBackupStats();
     }catch(e){ console.warn('Auto-Backup fehlgeschlagen', e); }
@@ -1920,7 +2019,7 @@
 
   // ---------- Navigation ----------
   function switchView(view){ $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); const gb=$('#settings-btn'); if(gb){ gb.classList.toggle('active', view==='settings'); gb.setAttribute('aria-pressed', view==='settings'?'true':'false'); } $('.main').scrollTop=0;
-    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();} if(view==='summary')renderSumPicklist(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; syncAiBudget(); } }
+    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();renderSearchHistory();} if(view==='summary')renderSumPicklist(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; syncAiBudget(); renderTagAdmin(); } }
 
   // ---------- Boot ----------
   function updateStorageLabels(){
