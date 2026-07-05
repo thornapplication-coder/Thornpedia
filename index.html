@@ -512,6 +512,17 @@
           <p style="color:var(--text-muted);margin:0 0 12px" data-i18n="set-api-p">Für Online-Zusammenfassungen (Modell claude-opus-4-8). Wird lokal in /meta/apikey.txt gespeichert – nicht im Browser.</p>
           <div class="field" style="margin-bottom:10px"><label>API-Key</label><input type="password" id="api-key" placeholder="sk-ant-…"></div>
           <div class="row"><button class="btn sm" id="api-save" data-i18n="save">Speichern</button><button class="btn sm neutral" id="api-test" data-i18n="api-test">Verbindung testen</button><span id="api-status"></span></div>
+          <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">
+            <div class="row" style="justify-content:space-between;flex-wrap:wrap">
+              <span data-i18n="set-aib">KI-Budget pro Anfrage</span>
+              <div class="seg" id="aib-seg" style="border-radius:8px" role="group" data-i18n-title="set-aib">
+                <button data-aib="eco" data-i18n="aib-eco">Sparsam</button>
+                <button data-aib="standard" data-i18n="aib-standard">Standard</button>
+                <button data-aib="thorough" data-i18n="aib-thorough">Gründlich</button>
+              </div>
+            </div>
+            <p style="color:var(--text-muted);font-size:12px;margin:8px 0 0" id="aib-hint"></p>
+          </div>
         </div>
         <div class="panel panel-pad">
           <h4 style="margin-bottom:6px" data-i18n="set-storage">Speicherort</h4>
@@ -617,7 +628,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.0';
+  const APP_VERSION = '1.0.1';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -713,6 +724,7 @@
     'imp-queue':['Import-Warteschlange','Import queue'],'imp-uihint':['Die App bleibt während des Imports bedienbar. Große PDFs werden seitenweise verarbeitet.','The app stays usable during import. Large PDFs are processed page by page.'],
     'set-p':['Lokal gespeichert in /meta.','Stored locally in /meta.'],'set-appear':['Darstellung','Appearance'],'set-theme':['Theme','Theme'],'theme-auto':['Auto','Auto'],'theme-light':['Hell','Light'],'theme-dark':['Dunkel','Dark'],'set-lang':['Sprache / Language','Language / Sprache'],
     'set-api':['Claude API (optional)','Claude API (optional)'],'set-api-p':['Für Online-Zusammenfassungen (Modell claude-opus-4-8). Wird lokal in /meta/apikey.txt gespeichert – nicht im Browser.','For online summaries (model claude-opus-4-8). Stored locally in /meta/apikey.txt – not in the browser.'],'api-test':['Verbindung testen','Test connection'],'save':['Speichern','Save'],
+    'set-aib':['KI-Budget pro Anfrage','AI budget per request'],'aib-eco':['Sparsam','Eco'],'aib-standard':['Standard','Standard'],'aib-thorough':['Gründlich','Thorough'],
     'set-storage':['Speicherort','Storage location'],'set-storage-p':['Alle Daten liegen als echte Dateien in diesem Ordner.','All data lives as real files in this folder.'],'set-change':['Ordner wechseln','Change folder'],'set-disconnect':['Trennen','Disconnect'],
     'set-offline':['Offline-Betrieb wird eingerichtet …','Setting up offline mode …'],'set-offline-on':['Offline-Betrieb aktiv (App als PWA installierbar).','Offline mode active (installable as a PWA).'],'set-offline-off':['Offline-Betrieb nicht verfügbar (nur über https/localhost).','Offline mode unavailable (needs https/localhost).'],
     'set-about':['Über','About'],'set-about-p':['Wissensarchiv v{v} · Keine Konten, kein Server – deine Daten bleiben bei dir.','Knowledge Archive v{v} · No accounts, no server – your data stays with you.'],
@@ -761,7 +773,7 @@
     $$('#lang-seg button, #lang-seg2 button').forEach(b=>b.classList.toggle('on',b.dataset.lang===lang));
     updateOfflineLabel(); try{localStorage.setItem('wa.lang',lang);}catch(e){}
     // dynamische Bereiche neu rendern
-    if($('#app').classList.contains('show')){ renderLibrary(); renderFilters(); renderSearchResults(); renderBackupStats(); renderSumPicklist(); renderExportsPanel(); updateStorageLabels(); }
+    if($('#app').classList.contains('show')){ renderLibrary(); renderFilters(); renderSearchResults(); renderBackupStats(); renderSumPicklist(); renderExportsPanel(); updateStorageLabels(); syncAiBudget(); }
   }
 
   // ---------- File System ----------
@@ -784,8 +796,8 @@
   async function removeFile(dir, name){ try{ await dir.removeEntry(name); }catch(e){} }
 
   async function loadSettings(){
-    try{ const p=JSON.parse(await readFileText(state.dirs.meta,'settings.json')); state.settings=Object.assign({theme:'auto',lang:'de',autoExports:true,autoBackup:'weekly'},p); }
-    catch(e){ state.settings={theme:'auto',lang:'de',autoExports:true,autoBackup:'weekly'}; await persistSettings(); }
+    try{ const p=JSON.parse(await readFileText(state.dirs.meta,'settings.json')); state.settings=Object.assign({theme:'auto',lang:'de',autoExports:true,autoBackup:'weekly',aiBudget:'standard'},p); }
+    catch(e){ state.settings={theme:'auto',lang:'de',autoExports:true,autoBackup:'weekly',aiBudget:'standard'}; await persistSettings(); }
     try{ state.apiKey=(await readFileText(state.dirs.meta,'apikey.txt')).trim(); }catch(e){ state.apiKey=''; }
   }
   let _pt=null, _psWaiters=[];
@@ -1236,6 +1248,23 @@
     state.lastHits=hits; state.search.terms=terms;
     renderSearchResults();
   }
+  // Einstellbares KI-Budget pro Anfrage (Einstellungen -> Claude API):
+  // steuert, wie viele Dokumente/Zeichen als Kontext gesendet werden und wie
+  // lang die Antwort sein darf. Grobe Kosten je Anfrage (Opus 4.8) im Hint.
+  const AI_BUDGETS={
+    eco:      { docs:6,  chars:30000,  ans:800,  sum:600  },
+    standard: { docs:12, chars:60000,  ans:1500, sum:1024 },
+    thorough: { docs:20, chars:150000, ans:3000, sum:2048 },
+  };
+  function aiLimits(){ return AI_BUDGETS[state.settings.aiBudget]||AI_BUDGETS.standard; }
+  function syncAiBudget(){
+    const cur=state.settings.aiBudget||'standard'; const de=state.settings.lang==='de';
+    $$('#aib-seg button').forEach(b=>{ const on=b.dataset.aib===cur; b.classList.toggle('on',on); b.setAttribute('aria-pressed',on?'true':'false'); });
+    const hints={ eco:      de?'≈ 5–7 Cent pro Frage · bis 6 Dokumente, kürzere Antworten':'≈ 5–7 cents per question · up to 6 documents, shorter answers',
+                  standard: de?'≈ 10–14 Cent pro Frage · bis 12 Dokumente':'≈ 10–14 cents per question · up to 12 documents',
+                  thorough: de?'≈ 25–30 Cent pro Frage · bis 20 Dokumente, lange Antworten':'≈ 25–30 cents per question · up to 20 documents, long answers' };
+    const h=$('#aib-hint'); if(h)h.textContent=hints[cur]||hints.standard;
+  }
   // Einfache Stichwort-Retrieval fuer die KI-Frage: Dokumente nach Anzahl passender
   // Fragewoerter ranken (ODER), begrenzt die an die API gesendete Textmenge.
   const STOP=new Set('der die das und oder in im am zur zum ein eine einen eines dem den des mit von vom fur für auf ist sind war waren wie was wo wer welche welcher alles über uber about the a an of to in on for is are what which where who all and or with from find finde raus mir mich'.split(/\s+/));
@@ -1252,7 +1281,7 @@
     if(!state.apiKey){ resEl.innerHTML=`<div class="empty"><div class="big">🤖</div><p>${tr('ask-nokey')}</p><button class="btn sm" data-view-jump="settings" style="margin-top:8px">⚙️ ${tr('nav-set')}</button></div>`; wireJump(resEl); return; }
     resEl.innerHTML=`<div class="empty"><span class="busy"></span> <span style="margin-left:8px">${tr('ask-working')}</span></div>`;
     await loadAllIndexes();
-    let ids = state.search.scope==='selected' ? Array.from(state.lib.selected) : retrieveDocs(q, 12);
+    let ids = state.search.scope==='selected' ? Array.from(state.lib.selected) : retrieveDocs(q, aiLimits().docs);
     if(!ids.length){ resEl.innerHTML=`<div class="empty"><p>${tr('ask-nodocs')}</p></div>`; return; }
     try{
       const ans=await claudeAnswer(q, ids);
@@ -1261,11 +1290,12 @@
   }
   async function claudeAnswer(q, ids){
     if(!navigator.onLine) throw new Error(state.settings.lang==='de'?'Keine Internetverbindung.':'No internet connection.');
-    let corpus=''; const sources=[]; const LIMIT=60000;
+    const B=aiLimits();
+    let corpus=''; const sources=[]; const LIMIT=B.chars;
     for(const id of ids){ const doc=await getIndex(id); sources.push(doc); corpus+=`\n\n### ${doc.name}\n`; for(const u of (doc.units||[])){ corpus+=`[${refLabel(u.ref)}] ${u.text}\n`; if(corpus.length>LIMIT)break; } if(corpus.length>LIMIT){ corpus=corpus.slice(0,LIMIT); break; } }
     const lang=state.settings.lang==='de'?'Deutsch':'English';
     const prompt=`Beantworte die folgende Frage AUSSCHLIESSLICH anhand der bereitgestellten Dokumentauszüge, auf ${lang}. Wenn die Auszüge die Antwort nicht enthalten, sage das ehrlich. Verweise im Text auf die betreffenden Dateinamen/Fundstellen.\n\nFrage: ${q}\n\nDokumentauszüge:${corpus}`;
-    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, body:JSON.stringify({model:'claude-opus-4-8',max_tokens:1500,messages:[{role:'user',content:prompt}]}) });
+    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, body:JSON.stringify({model:'claude-opus-4-8',max_tokens:B.ans,messages:[{role:'user',content:prompt}]}) });
     if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('API '+r.status+': '+t.slice(0,200)); }
     const data=await r.json(); const text=(data.content||[]).map(c=>c.text||'').join('\n').trim();
     const picked=sources.map(d=>({docId:d.id, name:d.name, ref: d.pageCount ? {page:(d.pageCount>1?('1–'+d.pageCount):1)} : null}));
@@ -1451,11 +1481,12 @@
   async function claudeSummary(ids){
     if(!state.apiKey) throw new Error(state.settings.lang==='de'?'Kein API-Key hinterlegt (Einstellungen).':'No API key set (Settings).');
     if(!navigator.onLine) throw new Error(state.settings.lang==='de'?'Keine Internetverbindung.':'No internet connection.');
-    let corpus=''; const sources=[]; const LIMIT=60000;
+    const B=aiLimits();
+    let corpus=''; const sources=[]; const LIMIT=B.chars;
     for(const id of ids){ const doc=await getIndex(id); sources.push(doc); corpus+=`\n\n### ${doc.name}\n`; for(const u of (doc.units||[])){ corpus+=`[${refLabel(u.ref)}] ${u.text}\n`; if(corpus.length>LIMIT)break; } if(corpus.length>LIMIT){ corpus=corpus.slice(0,LIMIT); break; } }
     const lang=state.settings.lang==='de'?'Deutsch':'English';
     const prompt=`Fasse die folgenden Dokumente prägnant auf ${lang} zusammen. Nenne am Ende KEINE Quellen (die fügt die App hinzu). Nur die inhaltliche Zusammenfassung:\n${corpus}`;
-    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, body:JSON.stringify({model:'claude-opus-4-8',max_tokens:1024,messages:[{role:'user',content:prompt}]}) });
+    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, body:JSON.stringify({model:'claude-opus-4-8',max_tokens:B.sum,messages:[{role:'user',content:prompt}]}) });
     if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('API '+r.status+': '+t.slice(0,200)); }
     const data=await r.json(); const text=(data.content||[]).map(c=>c.text||'').join('\n').trim();
     // Quellenverzeichnis: jedes eingeflossene Dokument mit Seitenumfang (PDF) bzw. ohne Zusatz
@@ -1874,7 +1905,7 @@
 
   // ---------- Navigation ----------
   function switchView(view){ $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); const gb=$('#settings-btn'); if(gb){ gb.classList.toggle('active', view==='settings'); gb.setAttribute('aria-pressed', view==='settings'?'true':'false'); } $('.main').scrollTop=0;
-    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();} if(view==='summary')renderSumPicklist(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; } }
+    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();} if(view==='summary')renderSumPicklist(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; syncAiBudget(); } }
 
   // ---------- Boot ----------
   function updateStorageLabels(){
@@ -1968,6 +1999,7 @@
 
     // API
     $('#api-save').onclick=async()=>{ await saveApiKey($('#api-key').value); toast('OK','ok'); };
+    $$('#aib-seg button').forEach(b=>b.onclick=()=>{ state.settings.aiBudget=b.dataset.aib; persistSettings(); syncAiBudget(); });
     $('#api-test').onclick=async()=>{ const st=$('#api-status'); st.innerHTML='<span class="busy"></span>'; try{ await saveApiKey($('#api-key').value); if(!state.apiKey)throw new Error(state.settings.lang==='de'?'Kein Key':'No key'); if(!navigator.onLine)throw new Error(state.settings.lang==='de'?'Offline':'Offline'); const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-opus-4-8',max_tokens:16,messages:[{role:'user',content:'ping'}]})}); st.innerHTML=r.ok?'<span class="chip" style="color:var(--good)">● OK</span>':`<span class="chip" style="color:var(--danger)">● ${r.status}</span>`; }catch(e){ st.innerHTML=`<span class="chip" style="color:var(--danger)">● ${esc(e.message)}</span>`; } };
   }
   function openExport(kind){ const data=buildReportItems(kind); if(!data.items.length&&!data.summary){ toast(state.settings.lang==='de'?'Keine Treffer zum Exportieren.':'No results to export.','err'); return; } $('#exp-text').textContent=(state.settings.lang==='de'?`${data.items.length} Treffer werden exportiert.`:`${data.items.length} results will be exported.`); $('#dlg-export').classList.add('show'); }
