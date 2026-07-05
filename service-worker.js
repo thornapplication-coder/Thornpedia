@@ -5,7 +5,7 @@
  * damit Updates sofort ankommen – und cache-first für die (unveränderlichen)
  * Bibliotheken und Icons, mit Offline-Fallback auf den Cache. */
 
-const VERSION = 'wa-1.0.1';
+const VERSION = 'wa-1.0.2';
 const CACHE = `wissensarchiv-${VERSION}`;
 
 // Kern der App-Shell, der beim Installieren fest vorgeladen wird.
