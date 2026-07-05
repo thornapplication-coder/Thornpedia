@@ -59,6 +59,22 @@ export async function run(base) {
   });
   t.check('UND-Suche trifft nur Dokument mit beiden Begriffen', s4.length === 1 && s4[0] === 'mietvertrag.pdf', JSON.stringify(s4));
 
+  // Forum: Eintrag anlegen → fließt in die Suche ein (Typ 'forum')
+  const fo = await page.evaluate(async () => {
+    const id = 'forumtest-1';
+    await window.WA.foSaveEntry({ id, name: 'Checkliste Vorflugkontrolle', body: 'Wichtiges Stichwort: Zwlfkontrolle vor jedem Flug.', type: 'forum', ext: 'forum', importedAt: new Date().toISOString(), tags: [], forum: { gid: 'g1', sid: null }, comments: [], attachments: [] });
+    document.querySelector('#search-input').value = 'Zwlfkontrolle';
+    document.querySelector('#search-input').dispatchEvent(new Event('input'));
+    window.WA.state.search.q = 'Zwlfkontrolle';
+    await window.WA.runSearch();
+    const h = window.WA.state.lastHits;
+    return { count: h.length, type: h[0] && h[0].type, name: h[0] && h[0].name, inCatalog: window.WA.state.catalog.some(c => c.type === 'forum') };
+  });
+  t.check('Forum-Eintrag ist durchsuchbar', fo.count === 1 && fo.type === 'forum' && fo.name === 'Checkliste Vorflugkontrolle', JSON.stringify(fo));
+  t.check('Forum-Eintrag steht im Katalog (Typ forum)', fo.inCatalog === true);
+  // Zurück zur Basissuche, damit die folgenden Prüfungen unbeeinflusst bleiben
+  await page.evaluate(async () => { document.querySelector('#search-input').value = 'Kuendigungsfrist'; window.WA.state.search.q = 'Kuendigungsfrist'; await window.WA.runSearch(); });
+
   // Fundstelle: PDF-Seite rendern (zurück zur Basissuche für Terms)
   await page.evaluate(async () => { document.querySelector('#search-input').value = 'Kuendigungsfrist'; await window.WA.runSearch(); });
   const doc = await page.evaluate(async () => {
