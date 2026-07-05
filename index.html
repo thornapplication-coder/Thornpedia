@@ -645,7 +645,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.7';
+  const APP_VERSION = '1.0.8';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1690,55 +1690,131 @@
     return { headers, rows, widths:widths.map(w=>w/total) };
   }
 
-  // Eindeutige Quellenliste (Datei — Fundstelle) fuer das Quellenverzeichnis.
-  function sourceListItems(items){ const seen=new Set(); const out=[]; for(const it of (items||[])){ const key=(it.file||'')+'|'+(it.ref||''); if(seen.has(key))continue; seen.add(key); out.push((it.file||'')+(it.ref?' — '+it.ref:'')); } return out; }
+  // Kompaktes Quellen-Tabellenmodell (Nr., Dokument, Fundstelle [, Tags, Datum]),
+  // dedupliziert je Datei+Fundstelle – für ein aufgeräumtes Quellenverzeichnis.
+  function sourceTableModel(data, de){
+    const items=data.items||[];
+    const hasTags=items.some(it=>it.tags); const hasDate=items.some(it=>it.date);
+    const headers=[de?'Nr.':'No.', de?'Dokument':'Document', de?'Fundstelle':'Reference'];
+    const widths=[0.07,0.46,0.23];
+    if(hasTags){ headers.push('Tags'); widths.push(0.13); }
+    if(hasDate){ headers.push(de?'Datum':'Date'); widths.push(0.11); }
+    const tot=widths.reduce((a,b)=>a+b,0);
+    const seen=new Set(); const rows=[]; let n=0;
+    for(const it of items){ const key=(it.file||'')+'|'+(it.ref||''); if(seen.has(key))continue; seen.add(key); n++;
+      const r=[String(n), it.file||'', it.ref||'—']; if(hasTags)r.push(it.tags||''); if(hasDate)r.push(it.date||''); rows.push(r); }
+    return { headers, rows, widths:widths.map(w=>w/tot) };
+  }
+
+  // Dezente, einheitliche Export-Farbpalette (Akzent-Türkis + gedämpfte Töne).
+  const EXPCOL={ accent:'0E7C93', accentRGB:[14,124,147], head:'EAF6FA', headRGB:[234,246,250],
+                 muted:'6B7280', mutedRGB:[107,114,128], body:'2D3440', bodyRGB:[45,52,64],
+                 zebra:'F5F7F9', zebraRGB:[245,247,249], border:'D8DEE3', borderRGB:[216,222,227] };
+
+  // Aufgeräumte Tabelle im PDF: getönter Kopf, Zebra-Zeilen, dünne Rahmen, mit
+  // Seitenumbruch (Kopfzeile wird auf jeder Seite wiederholt).
+  function pdfTable(doc, model, x, y, W, opts){
+    const M=opts.M, PH=doc.internal.pageSize.getHeight();
+    const cols=model.widths.map(w=>w*W);
+    const pad=2.2, lh=4.4; doc.setFontSize(9);
+    const setBorder=()=>doc.setDrawColor(EXPCOL.borderRGB[0],EXPCOL.borderRGB[1],EXPCOL.borderRGB[2]);
+    const grid=(top,h)=>{ setBorder(); let vx=x; for(let i=0;i<=cols.length;i++){ doc.line(vx,top,vx,top+h); vx+=cols[i]||0; } doc.line(x,top,x+W,top); doc.line(x,top+h,x+W,top+h); };
+    const drawHeader=()=>{ const h=lh+2*pad; doc.setFillColor(EXPCOL.headRGB[0],EXPCOL.headRGB[1],EXPCOL.headRGB[2]); doc.rect(x,y,W,h,'F');
+      doc.setTextColor(EXPCOL.accentRGB[0],EXPCOL.accentRGB[1],EXPCOL.accentRGB[2]); doc.setFont(undefined,'bold');
+      let cx=x; model.headers.forEach((hd,i)=>{ doc.splitTextToSize(String(hd),cols[i]-2*pad).forEach((ln,li)=>doc.text(ln,cx+pad,y+pad+lh-1+li*lh)); cx+=cols[i]; });
+      grid(y,h); y+=h; };
+    const bodyStyle=()=>{ doc.setFont(undefined,'normal'); doc.setTextColor(EXPCOL.bodyRGB[0],EXPCOL.bodyRGB[1],EXPCOL.bodyRGB[2]); };
+    drawHeader(); bodyStyle();
+    model.rows.forEach((r,ri)=>{
+      const cell=r.map((c,i)=>doc.splitTextToSize(String(c==null?'':c),cols[i]-2*pad));
+      const rh=Math.max(1,...cell.map(l=>l.length))*lh+2*pad;
+      if(y+rh>PH-M-8){ doc.addPage(); y=M; drawHeader(); bodyStyle(); }
+      if(ri%2){ doc.setFillColor(EXPCOL.zebraRGB[0],EXPCOL.zebraRGB[1],EXPCOL.zebraRGB[2]); doc.rect(x,y,W,rh,'F'); }
+      let cx=x; cell.forEach((lines,i)=>{ lines.forEach((ln,li)=>doc.text(ln,cx+pad,y+pad+lh-1+li*lh)); cx+=cols[i]; });
+      grid(y,rh); y+=rh;
+    });
+    return y+2;
+  }
+  // Dieselbe Tabelle für DOCX: Kopf getönt, Zebra-Zeilen, dünne Rahmen.
+  function docxTable(D, model){
+    const bd={style:D.BorderStyle.SINGLE,size:4,color:EXPCOL.border};
+    const borders={top:bd,bottom:bd,left:bd,right:bd,insideHorizontal:bd,insideVertical:bd};
+    const cw=model.widths.map(w=>Math.max(500,Math.round(w*9000)));
+    const cell=(txt,{bold=false,fill,color=EXPCOL.body,center=false}={})=>new D.TableCell({ shading:fill?{type:D.ShadingType.CLEAR,fill,color:'auto'}:undefined, margins:{top:40,bottom:40,left:90,right:90}, children:[new D.Paragraph({ alignment:center?D.AlignmentType.CENTER:D.AlignmentType.LEFT, children:[new D.TextRun({text:String(txt==null?'':txt),bold,size:18,color})] })] });
+    const head=new D.TableRow({ tableHeader:true, children:model.headers.map((h,i)=>cell(h,{bold:true,fill:EXPCOL.head,color:EXPCOL.accent,center:i===0})) });
+    const rows=model.rows.map((r,ri)=>new D.TableRow({ children:r.map((c,ci)=>cell(c,{fill: ri%2?EXPCOL.zebra:'FFFFFF', center:ci===0})) }));
+    return new D.Table({ width:{size:100,type:D.WidthType.PERCENTAGE}, columnWidths:cw, borders, rows:[head,...rows] });
+  }
 
   // Blob-Erzeugung fuer alle drei Formate – wird von Downloads UND Live-Refresh genutzt.
   async function makeExportBlob(fmt, data){
     const de=state.settings.lang==='de';
-    const t=tableModel(data, de);
-    const srcHead=data.summary?(de?'Quellenverzeichnis':'Source list'):(de?'Treffer':'Results');
+    const srcTitle=de?'Quellenverzeichnis':'Source list';
+    if(fmt==='xlsx') return xlsxBlob(data, de);
+    if(fmt==='pdf')  return pdfBlob(data, de, srcTitle);
+    return docxBlob(data, de, srcTitle);
+  }
 
-    if(fmt==='xlsx'){
-      await loadScript('vendor/xlsx.full.min.js'); const XLSX=window.XLSX;
-      const wb=XLSX.utils.book_new();
-      if(data.summary){
-        const s1=XLSX.utils.aoa_to_sheet([[data.title],[data.params],[],[de?'Zusammenfassung':'Summary'],[data.summary]]);
-        s1['!cols']=[{wch:110}];
-        XLSX.utils.book_append_sheet(wb,s1,de?'Zusammenfassung':'Summary');
-      }
-      const ws=XLSX.utils.aoa_to_sheet([t.headers, ...t.rows]);
-      ws['!cols']=t.widths.map(w=>({wch:Math.max(6,Math.round(w*130))}));
-      XLSX.utils.book_append_sheet(wb,ws, srcHead.slice(0,31));
-      const out=XLSX.write(wb,{type:'array',bookType:'xlsx'});
-      return new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  async function xlsxBlob(data, de){
+    await loadScript('vendor/xlsx.full.min.js'); const XLSX=window.XLSX;
+    const wb=XLSX.utils.book_new();
+    // Titel-/Untertitel-Band, dann die Tabelle mit Filter & sinnvollen Spaltenbreiten.
+    const addTableSheet=(name, model)=>{
+      const nc=model.headers.length;
+      const ws=XLSX.utils.aoa_to_sheet([[data.title],[data.params],[], model.headers, ...model.rows]);
+      ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:Math.max(0,nc-1)}},{s:{r:1,c:0},e:{r:1,c:Math.max(0,nc-1)}}];
+      ws['!cols']=model.widths.map(w=>({wch:Math.max(6,Math.round(w*120))}));
+      if(model.rows.length) ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:3,c:0},e:{r:3+model.rows.length,c:nc-1}})};
+      XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
+    };
+    if(data.summary){
+      const s1=XLSX.utils.aoa_to_sheet([[data.title],[data.params],[],[de?'Zusammenfassung':'Summary'],...String(data.summary).split(/\n{2,}/).map(p=>[p])]);
+      s1['!cols']=[{wch:110}];
+      XLSX.utils.book_append_sheet(wb, s1, de?'Zusammenfassung':'Summary');
+      addTableSheet(de?'Quellen':'Sources', sourceTableModel(data, de));
+    } else {
+      addTableSheet(de?'Treffer':'Results', tableModel(data, de));
     }
+    const out=XLSX.write(wb,{type:'array',bookType:'xlsx'});
+    return new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  }
 
-    if(fmt==='pdf'){
-      // Dokument-Layout: je Fundstelle eine Überschrift (Quelle) und darunter der
-      // gefundene Text, mit Abständen. Am Ende das Quellenverzeichnis.
-      await loadScript('vendor/jspdf.umd.min.js'); const {jsPDF}=window.jspdf; const doc=new jsPDF();
-      const M=14, W=doc.internal.pageSize.getWidth()-M*2, PH=doc.internal.pageSize.getHeight();
-      let y=18;
-      const para=(text,{size=11,bold=false,color=20,gap=4,indent=0}={})=>{ doc.setFontSize(size); doc.setFont(undefined,bold?'bold':'normal'); doc.setTextColor(color); const lh=size*0.42+1; for(const ln of doc.splitTextToSize(String(text==null?'':text), W-indent)){ if(y+lh>PH-M){ doc.addPage(); y=M; } doc.text(ln, M+indent, y+lh-1); y+=lh; } y+=gap; doc.setTextColor(20); };
-      para(data.title,{size:16,bold:true,gap:2});
-      para(data.params,{size:10,color:90,gap:7});
-      if(data.summary){ para(de?'Zusammenfassung':'Summary',{size:13,bold:true,gap:2}); for(const blk of String(data.summary).split(/\n{2,}/)) para(blk,{gap:5}); }
-      else { for(const it of data.items){ if(y+16>PH-M){ doc.addPage(); y=M; } para(`${it.file}${it.ref?' — '+it.ref:''}`,{size:12,bold:true,gap:1}); para((it.text||it.snippet||'').slice(0,4000),{color:60,gap:8}); } }
-      const src=sourceListItems(data.items);
-      if(src.length){ para(de?'Quellenverzeichnis':'Source list',{size:13,bold:true,gap:2}); src.forEach((s,i)=>para(`${i+1}. ${s}`,{size:10,color:60,gap:1})); }
-      return doc.output('blob');
-    }
+  async function pdfBlob(data, de, srcTitle){
+    await loadScript('vendor/jspdf.umd.min.js'); const {jsPDF}=window.jspdf; const doc=new jsPDF();
+    const M=14, pageW=doc.internal.pageSize.getWidth(), PH=doc.internal.pageSize.getHeight(), W=pageW-M*2;
+    const setC=(c)=>doc.setTextColor(c[0],c[1],c[2]); let y=0;
+    // Kopfband: getönte Fläche, Titel im Akzent, Untertitel gedämpft, Akzentlinie.
+    doc.setFontSize(9.5); const pl=doc.splitTextToSize(String(data.params||''), W);
+    const bandH=14 + pl.length*4.4 + 5;
+    doc.setFillColor(EXPCOL.headRGB[0],EXPCOL.headRGB[1],EXPCOL.headRGB[2]); doc.rect(0,0,pageW,bandH,'F');
+    setC(EXPCOL.accentRGB); doc.setFont(undefined,'bold'); doc.setFontSize(15); doc.text(String(data.title||''), M, 12);
+    doc.setFont(undefined,'normal'); doc.setFontSize(9.5); setC(EXPCOL.mutedRGB); doc.text(pl, M, 18);
+    doc.setDrawColor(EXPCOL.accentRGB[0],EXPCOL.accentRGB[1],EXPCOL.accentRGB[2]); doc.setLineWidth(0.6); doc.line(M, bandH-1.5, pageW-M, bandH-1.5); doc.setLineWidth(0.2);
+    y=bandH+8;
+    const para=(text,{size=11,bold=false,color=EXPCOL.bodyRGB,gap=4,indent=0}={})=>{ doc.setFontSize(size); doc.setFont(undefined,bold?'bold':'normal'); setC(color); const lh=size*0.42+1; for(const ln of doc.splitTextToSize(String(text==null?'':text), W-indent)){ if(y+lh>PH-M-8){ doc.addPage(); y=M; } doc.text(ln, M+indent, y+lh-1); y+=lh; } y+=gap; };
+    if(data.summary){ para(de?'Zusammenfassung':'Summary',{size:13,bold:true,color:EXPCOL.accentRGB,gap:3}); for(const blk of String(data.summary).split(/\n{2,}/)) para(blk,{gap:5}); }
+    else { data.items.forEach((it,i)=>{ if(y+18>PH-M-8){ doc.addPage(); y=M; } para(`${it.file}${it.ref?'  ·  '+it.ref:''}`,{size:11.5,bold:true,color:EXPCOL.accentRGB,gap:1}); para((it.text||it.snippet||'').slice(0,4000),{gap:4}); if(i<data.items.length-1){ doc.setDrawColor(EXPCOL.borderRGB[0],EXPCOL.borderRGB[1],EXPCOL.borderRGB[2]); doc.line(M,y,pageW-M,y); y+=5; } }); }
+    const model=sourceTableModel(data, de);
+    if(model.rows.length){ if(y+26>PH-M-8){ doc.addPage(); y=M; } para(srcTitle,{size:13,bold:true,color:EXPCOL.accentRGB,gap:3}); y=pdfTable(doc, model, M, y, W, {M}); }
+    // Fußzeile mit Seitenzahlen auf jeder Seite.
+    const np=doc.getNumberOfPages();
+    for(let p=1;p<=np;p++){ doc.setPage(p); doc.setFontSize(8); setC(EXPCOL.mutedRGB); doc.text('Thornpedia', M, PH-6); doc.text(`${de?'Seite':'Page'} ${p} / ${np}`, pageW-M, PH-6, {align:'right'}); }
+    return doc.output('blob');
+  }
 
-    // DOCX – gleiches Dokument-Layout wie PDF.
+  async function docxBlob(data, de, srcTitle){
     await loadScript('vendor/docx.umd.js'); const D=window.docx;
-    const kids=[ new D.Paragraph({text:data.title, heading:D.HeadingLevel.HEADING_1}),
-                 new D.Paragraph({children:[new D.TextRun({text:data.params, color:'777777'})], spacing:{after:240}}) ];
-    if(data.summary){ kids.push(new D.Paragraph({text:(de?'Zusammenfassung':'Summary'), heading:D.HeadingLevel.HEADING_2, spacing:{before:120,after:120}})); for(const blk of String(data.summary).split(/\n{2,}/)) kids.push(new D.Paragraph({text:blk, spacing:{after:160}})); }
-    else { for(const it of data.items){ kids.push(new D.Paragraph({text:`${it.file}${it.ref?' — '+it.ref:''}`, heading:D.HeadingLevel.HEADING_3, spacing:{before:220,after:60}})); kids.push(new D.Paragraph({text:(it.text||it.snippet||'').slice(0,8000), spacing:{after:120}})); } }
-    const src=sourceListItems(data.items);
-    if(src.length){ kids.push(new D.Paragraph({text:(de?'Quellenverzeichnis':'Source list'), heading:D.HeadingLevel.HEADING_2, spacing:{before:260,after:120}})); src.forEach((s,i)=>kids.push(new D.Paragraph({text:`${i+1}. ${s}`, spacing:{after:40}}))); }
-    const docx=new D.Document({sections:[{children:kids}]});
+    const run=(text,opt={})=>new D.TextRun(Object.assign({text:String(text==null?'':text)},opt));
+    const kids=[
+      new D.Paragraph({children:[run(data.title,{bold:true,size:32,color:EXPCOL.accent})], spacing:{after:40}}),
+      new D.Paragraph({children:[run(data.params,{size:18,color:EXPCOL.muted})], spacing:{after:220}, border:{bottom:{style:D.BorderStyle.SINGLE,size:8,color:EXPCOL.accent,space:6}}}),
+    ];
+    if(data.summary){ kids.push(new D.Paragraph({children:[run(de?'Zusammenfassung':'Summary',{bold:true,size:26,color:EXPCOL.accent})], spacing:{before:200,after:120}})); for(const blk of String(data.summary).split(/\n{2,}/)) kids.push(new D.Paragraph({children:[run(blk,{size:22,color:EXPCOL.body})], spacing:{after:140}})); }
+    else { data.items.forEach(it=>{ kids.push(new D.Paragraph({children:[run(`${it.file}${it.ref?'  ·  '+it.ref:''}`,{bold:true,size:23,color:EXPCOL.accent})], spacing:{before:220,after:40}})); kids.push(new D.Paragraph({children:[run((it.text||it.snippet||'').slice(0,8000),{size:21,color:EXPCOL.body})], spacing:{after:120}})); }); }
+    const model=sourceTableModel(data, de);
+    if(model.rows.length){ kids.push(new D.Paragraph({children:[run(srcTitle,{bold:true,size:26,color:EXPCOL.accent})], spacing:{before:280,after:140}})); kids.push(docxTable(D, model)); }
+    const footer=new D.Footer({children:[ new D.Paragraph({ alignment:D.AlignmentType.CENTER, children:[ run('Thornpedia  ·  '+(de?'Seite ':'Page '),{size:16,color:EXPCOL.muted}), new D.TextRun({children:[D.PageNumber.CURRENT],size:16,color:EXPCOL.muted}), run(' / ',{size:16,color:EXPCOL.muted}), new D.TextRun({children:[D.PageNumber.TOTAL_PAGES],size:16,color:EXPCOL.muted}) ] }) ]});
+    const docx=new D.Document({sections:[{ footers:{default:footer}, children:kids }]});
     return await D.Packer.toBlob(docx);
   }
 
