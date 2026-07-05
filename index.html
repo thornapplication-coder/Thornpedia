@@ -140,7 +140,18 @@
     tbody tr:hover{background:var(--bg-alt)}
     tbody tr.sel{background:var(--surface-accent)}
     .ftype{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:6px;font-size:10px;font-weight:bold;color:#fff;flex:none}
-    .t-pdf{background:#d64545}.t-docx{background:#2b6cb0}.t-xlsx{background:#2f855a}.t-csv{background:#6b7280}.t-txt{background:#8a6d3b}.t-md{background:#7048a8}
+    .t-pdf{background:#d64545}.t-docx{background:#2b6cb0}.t-xlsx{background:#2f855a}.t-csv{background:#6b7280}.t-txt{background:#8a6d3b}.t-md{background:#7048a8}.t-forum{background:#0E7C93}
+    .forum-layout{display:grid;grid-template-columns:260px 1fr;gap:16px}
+    @media (max-width:860px){.forum-layout{grid-template-columns:1fr}}
+    .forum-grp{padding:7px 9px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px}
+    .forum-grp:hover{background:var(--bg-alt)}
+    .forum-grp.on{background:var(--surface-accent);color:var(--primary);font-weight:bold}
+    .forum-sub{margin-left:16px;font-size:13px}
+    .forum-card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--panel);cursor:pointer}
+    .forum-card:hover{border-color:var(--secondary)}
+    .forum-att{max-width:100%;border-radius:8px;border:1px solid var(--line);margin:6px 8px 0 0}
+    .forum-att.img{max-height:340px}
+    .btn.xs{padding:2px 7px;font-size:11px;line-height:1.5}
     .fname{font-weight:bold}
     .fmeta{color:var(--text-muted);font-size:12px}
     .badge-scan{background:rgba(232,161,58,.16);color:#b9791f;border:1px solid rgba(232,161,58,.4);border-radius:5px;padding:1px 6px;font-size:11px;white-space:nowrap}
@@ -311,6 +322,7 @@
     <button class="nav-item" data-view="search"><span class="ic">🔎</span><span class="txt" data-i18n="nav-search">Suche</span></button>
     <button class="nav-item" data-view="doc" id="nav-doc" style="display:none"><span class="ic">📄</span><span class="txt" data-i18n="nav-doc">Fundstelle</span></button>
     <button class="nav-item" data-view="summary"><span class="ic">✨</span><span class="txt" data-i18n="nav-sum">Zusammenfassung</span></button>
+    <button class="nav-item" data-view="forum"><span class="ic">💬</span><span class="txt" data-i18n="nav-forum">Forum</span></button>
     <div class="nav-label" data-i18n="nav-actions">Aktionen</div>
     <button class="nav-item" data-view="import"><span class="ic">⬆️</span><span class="txt" data-i18n="nav-import">Importieren</span></button>
     <button class="nav-item" data-view="exporte"><span class="ic">📤</span><span class="txt" data-i18n="nav-exporte">Exporte</span></button>
@@ -423,6 +435,12 @@
           </div>
         </div>
       </div>
+    </section>
+
+    <!-- ===== Forum ===== -->
+    <section class="view" id="view-forum">
+      <div class="page-head"><div><h2 data-i18n="nav-forum">Forum</h2><p data-i18n="forum-p">Eigene Themen und Untergruppen mit Einträgen, Kommentaren und Anhängen (Bild/Video) – alles wird durchsucht.</p></div></div>
+      <div id="forum-content"></div>
     </section>
 
     <!-- ===== Backup ===== -->
@@ -645,7 +663,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.8';
+  const APP_VERSION = '1.1.0';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -749,6 +767,14 @@
     'sh-recent':['Zuletzt gesucht:','Recent searches:'],'sh-clear':['Verlauf leeren','Clear history'],
     'f-from':['Von (Importdatum)','From (import date)'],'f-to':['Bis (Importdatum)','To (import date)'],
     'about-oss':['Nutzt quelloffene Bibliotheken (PDF.js, Tesseract.js, SheetJS, Mammoth, docx, jsPDF, JSZip).','Uses open-source libraries (PDF.js, Tesseract.js, SheetJS, Mammoth, docx, jsPDF, JSZip).'],'about-oss-link':['Lizenzhinweise','License notices'],
+    'nav-forum':['Forum','Forum'],'forum-p':['Eigene Themen und Untergruppen mit Einträgen, Kommentaren und Anhängen (Bild/Video) – alles wird durchsucht.','Your own topics and subgroups with entries, comments and attachments (image/video) – all searchable.'],
+    'fo-themes':['Themen','Topics'],'fo-newtheme':['+ Thema','+ Topic'],'fo-newsub':['+ Untergruppe','+ Subgroup'],'fo-allentries':['Alle Einträge','All entries'],
+    'fo-newentry':['+ Neuer Eintrag','+ New entry'],'fo-noentries':['Noch keine Einträge hier. Lege einen an.','No entries here yet. Create one.'],'fo-nothemes':['Noch keine Themen. Lege links ein Thema an.','No topics yet. Create a topic on the left.'],
+    'fo-title-ph':['Titel des Eintrags','Entry title'],'fo-body-ph':['Text / Beschreibung …','Text / description …'],'fo-save':['Speichern','Save'],'fo-cancel':['Abbrechen','Cancel'],
+    'fo-edit':['Bearbeiten','Edit'],'fo-delete':['Löschen','Delete'],'fo-attach':['Anhang (Bild/Video)','Attachment (image/video)'],'fo-comments':['Kommentare','Comments'],
+    'fo-comment-ph':['Kommentar hinzufügen …','Add a comment …'],'fo-addcomment':['Kommentar','Comment'],'fo-back':['← Zurück','← Back'],'fo-rename':['Umbenennen','Rename'],
+    'fo-theme-name':['Name des Themas','Topic name'],'fo-sub-name':['Name der Untergruppe','Subgroup name'],'fo-del-theme':['Thema mit allen Einträgen löschen?','Delete topic with all its entries?'],
+    'fo-del-sub':['Untergruppe löschen? Einträge rücken ins Thema.','Delete subgroup? Its entries move up to the topic.'],'fo-del-entry':['Diesen Eintrag löschen?','Delete this entry?'],'fo-in':['in','in'],'fo-untitled':['(ohne Titel)','(untitled)'],
     'about-1':['Thornpedia ist eine digitale Wissensplattform für die zivile Luftfahrt, die zur Unterstützung von Aus- und Weiterbildungsmaßnahmen im EASA-regulierten Flugbetrieb entwickelt wurde. Sie dient als zentrale Informationsquelle für flugbetriebliche, technische und regulatorische Themen und unterstützt einen strukturierten, standardisierten sowie nachhaltigen Wissenstransfer.','Thornpedia is a digital knowledge platform for civil aviation, developed to support training and continuing-education measures in EASA-regulated flight operations. It serves as a central source of information on operational, technical and regulatory topics and supports a structured, standardised and sustainable transfer of knowledge.'],
     'about-2':['Die Plattform stellt fundierte Informationen zu Luftfahrzeugen, Flugzeugsystemen, Betriebsverfahren, Performance, Navigation, Meteorologie, Human Factors sowie den geltenden EASA-Regularien bereit. Thornpedia unterstützt Pilotinnen und Piloten, Fluglehrende, Prüfer sowie Trainingsverantwortliche bei der Vorbereitung, Durchführung und Nachbereitung von Ausbildungs- und Qualifizierungsmaßnahmen.','The platform provides well-founded information on aircraft, aircraft systems, operating procedures, performance, navigation, meteorology, human factors and the applicable EASA regulations. Thornpedia supports pilots, flight instructors, examiners and training managers in preparing, conducting and following up training and qualification measures.'],
     'about-3':['Zur effizienten Aufbereitung umfangreicher Fachinformationen nutzt Thornpedia moderne Verfahren der Künstlichen Intelligenz. Diese werden eingesetzt, um Inhalte zu analysieren, zusammenzufassen und übersichtlich darzustellen. Dadurch können relevante Informationen schneller erfasst werden, ohne den fachlichen Kontext aus dem Blick zu verlieren.','To efficiently process extensive specialist information, Thornpedia uses modern artificial-intelligence techniques. These are used to analyse, summarise and clearly present content, so that relevant information can be grasped faster without losing the technical context.'],
@@ -802,7 +828,7 @@
     $$('#lang-seg button, #lang-seg2 button').forEach(b=>b.classList.toggle('on',b.dataset.lang===lang));
     updateOfflineLabel(); try{localStorage.setItem('wa.lang',lang);}catch(e){}
     // dynamische Bereiche neu rendern
-    if($('#app').classList.contains('show')){ renderLibrary(); renderFilters(); renderSearchResults(); renderSearchHistory(); renderBackupStats(); renderSumPicklist(); renderExportsPanel(); renderTagAdmin(); updateStorageLabels(); syncAiBudget(); }
+    if($('#app').classList.contains('show')){ renderLibrary(); renderFilters(); renderSearchResults(); renderSearchHistory(); renderBackupStats(); renderSumPicklist(); renderExportsPanel(); renderTagAdmin(); if(state.forum)renderForum(); updateStorageLabels(); syncAiBudget(); }
   }
 
   // ---------- File System ----------
@@ -818,7 +844,7 @@
     return null;
   }
   async function ensurePermission(h, mode='readwrite'){ if(!h.queryPermission) return true; const o={mode}; if((await h.queryPermission(o))==='granted')return true; if((await h.requestPermission(o))==='granted')return true; return false; }
-  async function ensureStructure(){ for(const n of ['originals','index','meta','exports']) state.dirs[n]=await state.rootHandle.getDirectoryHandle(n,{create:true}); }
+  async function ensureStructure(){ for(const n of ['originals','index','meta','exports','forum']) state.dirs[n]=await state.rootHandle.getDirectoryHandle(n,{create:true}); }
 
   async function readFileText(dir, name){ const fh=await dir.getFileHandle(name,{create:false}); return await (await fh.getFile()).text(); }
   async function writeFile(dir, name, data){ const fh=await dir.getFileHandle(name,{create:true}); const w=await fh.createWritable(); await w.write(data); await w.close(); }
@@ -861,11 +887,11 @@
   // type wird auf bekannte Werte begrenzt – sonst koennte ein manipuliertes
   // Restore-Index-JSON ueber die CSS-Klasse t-${type} HTML einschleusen.
   const TYPE_SET=new Set(['pdf','docx','xlsx','csv','txt','md']);
-  function safeType(doc){ if(TYPE_SET.has(doc.type))return doc.type; const t=typeOf((doc.ext||'').toLowerCase()); return TYPE_SET.has(t)?t:'txt'; }
+  function safeType(doc){ if(doc.type==='forum')return 'forum'; if(TYPE_SET.has(doc.type))return doc.type; const t=typeOf((doc.ext||'').toLowerCase()); return TYPE_SET.has(t)?t:'txt'; }
   // id nur aus sicheren Zeichen – ist zugleich Dateiname (id+'.json'). Beim
   // Restore garantiert das: kein Path-/Attribut-Ausbruch, Datei ist auffindbar.
   const SAFE_ID=/^[A-Za-z0-9_-]{1,120}$/;
-  function summaryOf(doc){ return {id:doc.id,name:String(doc.name==null?'':doc.name),ext:doc.ext,type:safeType(doc),size:doc.size,importedAt:doc.importedAt,scanned:!!doc.scanned,ocr:!!doc.ocr,pageCount:doc.pageCount||null,tags:Array.isArray(doc.tags)?doc.tags.map(String):[],note:String(doc.note||''),unitCount:(doc.units||[]).length,hash:doc.hash||''}; }
+  function summaryOf(doc){ const s={id:doc.id,name:String(doc.name==null?'':doc.name),ext:doc.ext,type:safeType(doc),size:doc.size,importedAt:doc.importedAt,scanned:!!doc.scanned,ocr:!!doc.ocr,pageCount:doc.pageCount||null,tags:Array.isArray(doc.tags)?doc.tags.map(String):[],note:String(doc.note||''),unitCount:(doc.units||[]).length,hash:doc.hash||''}; if(doc.type==='forum'){ s.forum=doc.forum||{}; s.att=(doc.attachments||[]).length; s.cmt=(doc.comments||[]).length; } return s; }
   async function rebuildCatalog(){ const cat=[]; try{ for await(const [name,h] of state.dirs.index.entries()){ if(h.kind==='file'&&name.endsWith('.json')){ const stem=name.slice(0,-5); if(!SAFE_ID.test(stem))continue; try{ const d=JSON.parse(await (await h.getFile()).text()); d.id=stem; cat.push(summaryOf(d)); }catch(e){} } } }catch(e){} cat.sort((a,b)=>(b.importedAt||'').localeCompare(a.importedAt||'')); return cat; }
   async function getIndex(id){ if(state.indexCache.has(id))return state.indexCache.get(id); const d=JSON.parse(await readFileText(state.dirs.index,id+'.json')); state.indexCache.set(id,d); return d; }
   async function writeIndex(doc){ await writeFile(state.dirs.index,doc.id+'.json',JSON.stringify(doc)); state.indexCache.set(doc.id,doc); }
@@ -1001,7 +1027,7 @@
     $('#lib-sub').textContent = (state.settings.lang==='de'?`${state.catalog.length} Dokumente · lokal gespeichert`:`${state.catalog.length} documents · stored locally`);
     if(!state.catalog.length){ el.innerHTML=`<div class="empty panel"><div class="big">📚</div><h3>${tr('lib-empty-h')}</h3><p style="max-width:420px">${tr('lib-empty-p')}</p><button class="btn" style="margin-top:8px" data-view-jump="import">⬆️ ${tr('nav-import')}</button></div>`; wireJump(el); return; }
     const L=state.lib;
-    let rows=state.catalog.slice();
+    let rows=state.catalog.slice().filter(r=>r.type!=='forum'); // Forum-Einträge leben in ihrer eigenen Ansicht
     if(L.type!=='all') rows=rows.filter(r=>r.type===L.type);
     if(L.tag) rows=rows.filter(r=>(r.tags||[]).includes(L.tag));
     if(L.q){ const q=L.q.toLowerCase(); rows=rows.filter(r=>r.name.toLowerCase().includes(q)||(r.note||'').toLowerCase().includes(q)||(r.tags||[]).some(t=>t.toLowerCase().includes(q))); }
@@ -1112,7 +1138,7 @@
   async function persistDoc(doc){ await writeIndex(doc); return updateCatalogEntry(doc); }
   // Guard: existiert das Dokument noch (nicht zwischenzeitlich gelöscht)? Sonst Toast + false.
   function guardExists(doc){ if(state.catalog.some(c=>c.id===doc.id))return true; toast(state.settings.lang==='de'?'Dokument wurde inzwischen gelöscht.':'Document was deleted in the meantime.','err'); return false; }
-  async function deleteDoc(id, silent){ const doc=await getIndex(id).catch(()=>null); if(doc){ await removeFile(state.dirs.originals, doc.storedAs); } await removeFile(state.dirs.index, id+'.json'); state.indexCache.delete(id); state.catalog=state.catalog.filter(c=>c.id!==id); state.lib.selected.delete(id);
+  async function deleteDoc(id, silent){ const doc=await getIndex(id).catch(()=>null); if(doc){ if(doc.type==='forum'){ for(const a of (doc.attachments||[])) await removeFile(state.dirs.forum, a.storedAs); } else { await removeFile(state.dirs.originals, doc.storedAs); } } await removeFile(state.dirs.index, id+'.json'); state.indexCache.delete(id); state.catalog=state.catalog.filter(c=>c.id!==id); state.lib.selected.delete(id);
     if(state.pdfView.docId===id) closePdfView();
     if(state.curDoc&&state.curDoc.doc&&state.curDoc.doc.id===id){ state.curDoc=null; const nd=$('#nav-doc'); if(nd)nd.style.display='none'; }
     state.lastHits=state.lastHits.filter(h=>h.docId!==id); state.search.selected.clear();
@@ -1220,6 +1246,131 @@
     $$('[data-tdel]',el).forEach(b=>b.onclick=()=>deleteTagGlobal(b.dataset.tdel));
   }
 
+  // ---------- Forum ----------
+  // Selbst verwaltete Themen → Untergruppen → Einträge (mit Kommentaren und
+  // Bild-/Video-Anhängen). Einträge sind normale Katalog-Dokumente vom Typ
+  // 'forum' – dadurch fließen Titel, Text und Kommentare automatisch in die Suche
+  // ein. Die Themen-/Untergruppen-Struktur liegt in /meta/forum.json, Anhänge als
+  // echte Dateien in /forum.
+  async function loadForum(){ try{ const f=JSON.parse(await readFileText(state.dirs.meta,'forum.json')); state.forum=(f&&Array.isArray(f.groups))?f:{groups:[]}; }catch(e){ state.forum={groups:[]}; } }
+  async function saveForum(){ try{ await writeFile(state.dirs.meta,'forum.json',JSON.stringify(state.forum,null,2)); }catch(e){ console.warn(e); } }
+  const foUuid=()=>crypto.randomUUID();
+  const forumGroups=()=>((state.forum&&state.forum.groups)||[]);
+  const forumGroup=(gid)=>forumGroups().find(g=>g.id===gid);
+  const forumEntries=()=>state.catalog.filter(c=>c.type==='forum');
+  function foMediaKind(name, mime){ const e=(String(name).split('.').pop()||'').toLowerCase(); if((mime&&mime.startsWith('image/'))||['png','jpg','jpeg','gif','webp','bmp'].includes(e))return 'image'; if((mime&&mime.startsWith('video/'))||['mp4','webm','ogg','ogv','mov','m4v'].includes(e))return 'video'; return 'file'; }
+  function foBuildUnits(e){ const u=[{ref:{section:'Titel'},text:String(e.name||'')}]; if(e.body)u.push({ref:{section:'Text'},text:String(e.body)}); (e.comments||[]).forEach((c,i)=>{ if(c.text)u.push({ref:{section:'Kommentar '+(i+1)},text:String(c.text)}); }); (e.attachments||[]).forEach(a=>u.push({ref:{section:'Anhang'},text:String(a.name||'')})); return u; }
+  async function foSaveEntry(e){ e.type='forum'; e.ext='forum'; e.units=foBuildUnits(e); e.size=(e.body||'').length; await writeIndex(e); const i=state.catalog.findIndex(c=>c.id===e.id); if(i>=0)state.catalog[i]=summaryOf(e); else state.catalog.push(summaryOf(e)); await saveCatalog(); }
+
+  function renderForum(){
+    const el=$('#forum-content'); if(!el)return;
+    (state._forumUrls||[]).forEach(u=>{try{URL.revokeObjectURL(u);}catch(_){}}); state._forumUrls=[];
+    if(!state.forumSel)state.forumSel={gid:null,sid:null};
+    if(state.forumView==='edit'){ renderForumEditor(el); return; }
+    if(state.forumView==='entry'&&state.forumEntryId){ renderForumEntry(el); return; }
+    const de=state.settings.lang==='de'; const sel=state.forumSel; const groups=forumGroups();
+    const grpHtml=`<div class="panel panel-pad">
+      <div class="row" style="justify-content:space-between;margin-bottom:8px"><h4>${tr('fo-themes')}</h4><button class="btn sm neutral" id="fo-addgrp">${tr('fo-newtheme')}</button></div>
+      <div class="forum-grp ${sel.gid===null?'on':''}" data-fg="">📋 ${tr('fo-allentries')}</div>
+      ${groups.map(g=>`
+        <div class="forum-grp ${sel.gid===g.id&&!sel.sid?'on':''}" data-fg="${esc(g.id)}"><span style="flex:1;min-width:0;word-break:break-word">💬 ${esc(g.name)}</span><button class="btn xs neutral" data-fgren="${esc(g.id)}" aria-label="${tr('fo-rename')}">✎</button><button class="btn xs danger" data-fgdel="${esc(g.id)}" aria-label="${tr('fo-delete')}">🗑</button></div>
+        ${(g.subs||[]).map(s=>`<div class="forum-grp forum-sub ${sel.gid===g.id&&sel.sid===s.id?'on':''}" data-fg="${esc(g.id)}" data-fs="${esc(s.id)}"><span style="flex:1;min-width:0;word-break:break-word">↳ ${esc(s.name)}</span><button class="btn xs neutral" data-fsren="${esc(g.id)}|${esc(s.id)}" aria-label="${tr('fo-rename')}">✎</button><button class="btn xs danger" data-fsdel="${esc(g.id)}|${esc(s.id)}" aria-label="${tr('fo-delete')}">🗑</button></div>`).join('')}
+        ${sel.gid===g.id?`<div style="margin:2px 0 10px 16px"><button class="btn xs neutral" data-fsadd="${esc(g.id)}">${tr('fo-newsub')}</button></div>`:''}
+      `).join('')||`<p style="color:var(--text-muted);font-size:13px">${tr('fo-nothemes')}</p>`}
+    </div>`;
+    let entries=forumEntries();
+    if(sel.gid)entries=entries.filter(e=>e.forum&&e.forum.gid===sel.gid);
+    if(sel.sid)entries=entries.filter(e=>e.forum&&e.forum.sid===sel.sid);
+    entries.sort((a,b)=>(b.importedAt||'').localeCompare(a.importedAt||''));
+    const canAdd=sel.gid!=null;
+    const listHtml=`<div>
+      <div class="row" style="justify-content:space-between;margin-bottom:12px"><strong>${entries.length} ${de?'Einträge':'entries'}</strong>${canAdd?`<button class="btn sm" id="fo-newentry">${tr('fo-newentry')}</button>`:`<span style="color:var(--text-muted);font-size:12px">${de?'Wähle links ein Thema, um Einträge anzulegen.':'Pick a topic on the left to add entries.'}</span>`}</div>
+      ${entries.map(e=>{ const g=forumGroup(e.forum&&e.forum.gid); const sub=g&&(g.subs||[]).find(s=>s.id===(e.forum&&e.forum.sid)); const loc=[g&&g.name,sub&&sub.name].filter(Boolean).join(' · ');
+        return `<div class="forum-card" data-foopen="${esc(e.id)}"><div style="font-weight:600">${esc(e.name||tr('fo-untitled'))}</div><div class="fmeta" style="margin-top:3px">${loc?esc(loc)+' · ':''}${fmtDate(e.importedAt)}${e.att?` · 📎 ${e.att}`:''}${e.cmt?` · 💬 ${e.cmt}`:''}</div></div>`; }).join('')||`<p style="color:var(--text-muted)">${tr('fo-noentries')}</p>`}
+    </div>`;
+    el.innerHTML=`<div class="forum-layout">${grpHtml}${listHtml}</div>`;
+    // Wiring
+    const add=$('#fo-addgrp',el); if(add)add.onclick=foAddGroup;
+    $$('.forum-grp[data-fg]',el).forEach(row=>row.onclick=(e)=>{ if(e.target.closest('button'))return; state.forumSel={gid:row.dataset.fg||null, sid:row.dataset.fs||null}; renderForum(); });
+    $$('[data-fgren]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();foRenameGroup(b.dataset.fgren);});
+    $$('[data-fgdel]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();foDeleteGroup(b.dataset.fgdel);});
+    $$('[data-fsadd]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();foAddSub(b.dataset.fsadd);});
+    $$('[data-fsren]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();const[g,s]=b.dataset.fsren.split('|');foRenameSub(g,s);});
+    $$('[data-fsdel]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();const[g,s]=b.dataset.fsdel.split('|');foDeleteSub(g,s);});
+    const ne=$('#fo-newentry',el); if(ne)ne.onclick=()=>{ state.forumEditId=null; state.forumView='edit'; renderForum(); };
+    $$('[data-foopen]',el).forEach(c=>c.onclick=()=>{ state.forumEntryId=c.dataset.foopen; state.forumView='entry'; renderForum(); });
+  }
+
+  async function renderForumEntry(el){
+    const de=state.settings.lang==='de';
+    el.innerHTML=`<div class="empty"><span class="busy"></span></div>`;
+    let e; try{ e=await getIndex(state.forumEntryId); }catch(_){ e=null; }
+    if(!e||e.type!=='forum'){ state.forumView='list'; return renderForum(); }
+    const g=forumGroup(e.forum&&e.forum.gid); const sub=g&&(g.subs||[]).find(s=>s.id===(e.forum&&e.forum.sid)); const loc=[g&&g.name,sub&&sub.name].filter(Boolean).join(' · ');
+    const atts=(e.attachments||[]).map((a,i)=>`<div style="display:inline-block;vertical-align:top;position:relative"><span data-foatt="${i}"></span><button class="btn xs danger" data-foattdel="${i}" style="position:absolute;top:10px;right:14px" aria-label="${tr('fo-delete')}">✕</button></div>`).join('');
+    const comments=(e.comments||[]).map((c,i)=>`<div class="notice info" style="margin-top:8px;align-items:flex-start"><span>💬</span><span style="flex:1;min-width:0"><div style="white-space:pre-wrap">${esc(c.text)}</div><div class="fmeta" style="margin-top:2px">${fmtDate(c.at)}</div></span><button class="btn xs danger" data-focmtdel="${i}" aria-label="${tr('fo-delete')}">✕</button></div>`).join('');
+    el.innerHTML=`<div class="panel panel-pad" style="max-width:820px">
+      <div class="row" style="justify-content:space-between;margin-bottom:10px"><button class="btn sm neutral" id="fo-back">${tr('fo-back')}</button><div class="row"><button class="btn sm neutral" id="fo-edit">✎ ${tr('fo-edit')}</button><button class="btn sm danger" id="fo-delentry">🗑 ${tr('fo-delete')}</button></div></div>
+      <h3 style="margin:0 0 4px">${esc(e.name||tr('fo-untitled'))}</h3>
+      <div class="fmeta" style="margin-bottom:12px">${loc?esc(loc)+' · ':''}${fmtDate(e.importedAt)}</div>
+      <div style="white-space:pre-wrap;line-height:1.6">${esc(e.body||'')}</div>
+      <div style="margin-top:12px" id="fo-atts">${atts}</div>
+      <div style="margin-top:14px"><button class="btn sm neutral" id="fo-attach">📎 ${tr('fo-attach')}</button><input type="file" id="fo-attach-input" accept="image/*,video/*" style="display:none"></div>
+      <h4 style="margin:20px 0 8px;border-top:1px solid var(--line);padding-top:14px">${tr('fo-comments')} (${(e.comments||[]).length})</h4>
+      <div id="fo-comment-list">${comments||`<p style="color:var(--text-muted);font-size:13px">—</p>`}</div>
+      <div class="row" style="margin-top:10px"><input id="fo-comment-input" placeholder="${tr('fo-comment-ph')}" style="flex:1"><button class="btn sm" id="fo-addcomment">${tr('fo-addcomment')}</button></div>
+    </div>`;
+    // Anhänge als Blob-URLs anzeigen (Bild/Video inline)
+    // Anhänge per DOM-API einsetzen (nicht per innerHTML mit "src="+URL): so taucht
+    // kein literales src="…" im Quelltext auf (das der Preload-Scanner sonst als
+    // Phantom-Request interpretiert) und Blob-URLs bleiben sauber getrennt.
+    (e.attachments||[]).forEach(async(a,i)=>{ try{ const f=await (await state.dirs.forum.getFileHandle(a.storedAs)).getFile(); const url=URL.createObjectURL(f); state._forumUrls.push(url); const h=$(`[data-foatt="${i}"]`,el); if(!h)return; let node;
+      if(a.kind==='image'){ node=document.createElement('img'); node.className='forum-att img'; node.alt=a.name||''; node.src=url; }
+      else if(a.kind==='video'){ node=document.createElement('video'); node.className='forum-att'; node.controls=true; node.style.maxHeight='340px'; node.src=url; }
+      else { node=document.createElement('a'); node.className='btn sm neutral'; node.download=a.name||'attachment'; node.textContent='⬇ '+(a.name||''); node.href=url; }
+      h.innerHTML=''; h.appendChild(node); }catch(_){}} );
+    $('#fo-back',el).onclick=()=>{ state.forumView='list'; renderForum(); };
+    $('#fo-edit',el).onclick=()=>{ state.forumEditId=e.id; state.forumView='edit'; renderForum(); };
+    $('#fo-delentry',el).onclick=async()=>{ if(!confirm(tr('fo-del-entry')))return; await deleteDoc(e.id); state.forumView='list'; state.forumEntryId=null; renderForum(); };
+    const ai=$('#fo-attach-input',el); $('#fo-attach',el).onclick=()=>ai.click(); ai.onchange=()=>{ if(ai.files[0])foAddAttachment(e, ai.files[0]); };
+    $$('[data-foattdel]',el).forEach(b=>b.onclick=()=>foDelAttachment(e, +b.dataset.foattdel));
+    $$('[data-focmtdel]',el).forEach(b=>b.onclick=()=>foDelComment(e, +b.dataset.focmtdel));
+    const ci=$('#fo-comment-input',el); const addC=()=>{ const v=ci.value; ci.value=''; foAddComment(e, v); };
+    $('#fo-addcomment',el).onclick=addC; ci.onkeydown=(ev)=>{ if(ev.key==='Enter')addC(); };
+  }
+
+  async function renderForumEditor(el){
+    const de=state.settings.lang==='de'; let e=null;
+    if(state.forumEditId){ try{ e=await getIndex(state.forumEditId); }catch(_){}}
+    const sel=state.forumSel||{gid:null,sid:null};
+    el.innerHTML=`<div class="panel panel-pad" style="max-width:820px">
+      <div class="field"><label>${tr('fo-title-ph')}</label><input id="fo-e-title" value="${esc(e?e.name:'')}"></div>
+      <div class="field" style="margin-top:10px"><label>${tr('fo-body-ph')}</label><textarea id="fo-e-body" rows="10" style="width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:14px;resize:vertical">${esc(e?e.body:'')}</textarea></div>
+      <div class="row" style="margin-top:12px"><button class="btn" id="fo-e-save">${tr('fo-save')}</button><button class="btn neutral" id="fo-e-cancel">${tr('fo-cancel')}</button></div>
+    </div>`;
+    $('#fo-e-save',el).onclick=async()=>{ const t=$('#fo-e-title',el).value.trim(); const b=$('#fo-e-body',el).value;
+      if(!t&&!b){ toast(de?'Bitte Titel oder Text eingeben.':'Please enter a title or text.','err'); return; }
+      if(e){ e.name=t||e.name; e.body=b; await foSaveEntry(e); state.forumEntryId=e.id; }
+      else { const entry={ id:foUuid(), name:t||tr('fo-untitled'), body:b, type:'forum', ext:'forum', importedAt:new Date().toISOString(), tags:[], note:'', forum:{gid:sel.gid, sid:sel.sid}, comments:[], attachments:[] }; await foSaveEntry(entry); state.forumEntryId=entry.id; }
+      state.forumView='entry'; renderForum(); };
+    $('#fo-e-cancel',el).onclick=()=>{ state.forumView=state.forumEntryId?'entry':'list'; renderForum(); };
+  }
+
+  function foAddGroup(){ promptDlg({title:tr('fo-newtheme'),label:tr('fo-theme-name'),icon:'💬'},'',async(v)=>{ v=(v||'').trim(); if(!v)return; forumGroups().push({id:foUuid(),name:v,subs:[]}); await saveForum(); renderForum(); }); }
+  function foRenameGroup(gid){ const g=forumGroup(gid); if(!g)return; promptDlg({title:tr('fo-rename'),label:tr('fo-theme-name'),icon:'✎'},g.name,async(v)=>{ v=(v||'').trim(); if(!v)return; g.name=v; await saveForum(); renderForum(); }); }
+  async function foDeleteGroup(gid){ if(!confirm(tr('fo-del-theme')))return; for(const c of forumEntries().filter(e=>e.forum&&e.forum.gid===gid)) await deleteDoc(c.id,true); state.forum.groups=forumGroups().filter(g=>g.id!==gid); if(state.forumSel&&state.forumSel.gid===gid)state.forumSel={gid:null,sid:null}; await saveCatalog(); await saveForum(); renderForum(); }
+  function foAddSub(gid){ const g=forumGroup(gid); if(!g)return; promptDlg({title:tr('fo-newsub'),label:tr('fo-sub-name'),icon:'↳'},'',async(v)=>{ v=(v||'').trim(); if(!v)return; g.subs=g.subs||[]; g.subs.push({id:foUuid(),name:v}); await saveForum(); renderForum(); }); }
+  function foRenameSub(gid,sid){ const g=forumGroup(gid); const s=g&&(g.subs||[]).find(x=>x.id===sid); if(!s)return; promptDlg({title:tr('fo-rename'),label:tr('fo-sub-name'),icon:'✎'},s.name,async(v)=>{ v=(v||'').trim(); if(!v)return; s.name=v; await saveForum(); renderForum(); }); }
+  async function foDeleteSub(gid,sid){ if(!confirm(tr('fo-del-sub')))return; const g=forumGroup(gid); if(!g)return; g.subs=(g.subs||[]).filter(s=>s.id!==sid); for(const c of forumEntries().filter(e=>e.forum&&e.forum.gid===gid&&e.forum.sid===sid)){ const full=await getIndex(c.id).catch(()=>null); if(full){ full.forum=full.forum||{}; full.forum.sid=null; await foSaveEntry(full); } } if(state.forumSel&&state.forumSel.gid===gid&&state.forumSel.sid===sid)state.forumSel={gid,sid:null}; await saveForum(); renderForum(); }
+  async function foAddComment(e, text){ text=(text||'').trim(); if(!text)return; e.comments=e.comments||[]; e.comments.push({id:foUuid(), text, at:new Date().toISOString()}); await foSaveEntry(e); renderForum(); }
+  async function foDelComment(e, i){ (e.comments||[]).splice(i,1); await foSaveEntry(e); renderForum(); }
+  async function foAddAttachment(e, file){ if(!file)return; const de=state.settings.lang==='de'; if(file.size>300*1024*1024){ toast(de?'Anhang zu groß (max. 300 MB).':'Attachment too large (max. 300 MB).','err'); return; }
+    const storedAs=foUuid()+'__'+String(file.name).replace(/[\\/]/g,'_');
+    try{ await writeFile(state.dirs.forum, storedAs, await file.arrayBuffer()); }catch(err){ toast(de?'Anhang konnte nicht gespeichert werden.':'Could not save attachment.','err'); return; }
+    e.attachments=e.attachments||[]; e.attachments.push({name:file.name, storedAs, kind:foMediaKind(file.name,file.type), size:file.size});
+    await foSaveEntry(e); renderForum(); }
+  async function foDelAttachment(e, i){ const a=(e.attachments||[])[i]; if(a) await removeFile(state.dirs.forum, a.storedAs); (e.attachments||[]).splice(i,1); await foSaveEntry(e); renderForum(); }
+
   // ---------- Suche ----------
   // Faltung fuer robuste Treffer: Kündigung == Kuendigung == KUENDIGUNG.
   // Query UND Dokumenttext werden identisch gefaltet, dadurch bleibt der
@@ -1303,7 +1454,8 @@
     for(const nd of allNeedles){ nd.re=new RegExp('(^|[^a-z0-9])'+esc2(nd.f)+'([^a-z0-9]|$)'); }
     for(const c of state.catalog){
       if(idset&&!idset.has(c.id))continue;
-      if(types&&!types.has(c.type))continue;
+      // Forum-Einträge sind immer durchsuchbar; der Dateityp-Filter gilt nur für echte Dateien.
+      if(types&&c.type!=='forum'&&!types.has(c.type))continue;
       if(p.tag&&!(c.tags||[]).includes(p.tag))continue;
       if(p.from&&c.importedAt&&c.importedAt.slice(0,10)<p.from)continue;
       if(p.to&&c.importedAt&&c.importedAt.slice(0,10)>p.to)continue;
@@ -1481,7 +1633,7 @@
   }
 
   // ---------- Fundstelle ----------
-  async function openHit(i){ const h=state.lastHits[i]; if(!h)return; try{ const doc=await getIndex(h.docId); state.curDoc={doc, ref:h.ref, terms:state.search.terms||[], page:h.ref&&h.ref.page||1}; await renderDoc(); switchView('doc'); }catch(e){ toast(state.settings.lang==='de'?'Dokument nicht mehr vorhanden.':'Document no longer exists.','err'); } }
+  async function openHit(i){ const h=state.lastHits[i]; if(!h)return; try{ const doc=await getIndex(h.docId); if(doc.type==='forum'){ state.forumView='entry'; state.forumEntryId=doc.id; switchView('forum'); return; } state.curDoc={doc, ref:h.ref, terms:state.search.terms||[], page:h.ref&&h.ref.page||1}; await renderDoc(); switchView('doc'); }catch(e){ toast(state.settings.lang==='de'?'Dokument nicht mehr vorhanden.':'Document no longer exists.','err'); } }
   async function openDoc(id){ try{ const doc=await getIndex(id); state.curDoc={doc, ref:(doc.units[0]||{}).ref||null, terms:[], page:1}; await renderDoc(); switchView('doc'); }catch(e){ toast(state.settings.lang==='de'?'Dokument nicht mehr vorhanden.':'Document no longer exists.','err'); } }
   async function renderDoc(){
     const {doc, terms}=state.curDoc; const main=$('#doc-main'), info=$('#doc-info');
@@ -1996,6 +2148,7 @@
     // Cloud-Speicher – der API-Key gehoert dort nicht hinein.
     const add=async(dirHandle, folder, skip)=>{ for await(const [name,h] of dirHandle.entries()){ if(h.kind==='file'){ if(skip&&skip.has(name))continue; const f=await h.getFile(); zip.file(folder+'/'+name, await f.arrayBuffer()); } } };
     await add(state.dirs.originals,'originals'); await add(state.dirs.index,'index'); await add(state.dirs.meta,'meta', new Set(['apikey.txt']));
+    if(state.dirs.forum) await add(state.dirs.forum,'forum'); // Forum-Anhänge (Bilder/Videos)
     return await zip.generateAsync({type:'blob'});
   }
   async function exportBackup(){
@@ -2041,11 +2194,13 @@
     try{
       toast(de?'Backup wird eingelesen…':'Reading backup…');
       await loadScript('vendor/jszip.min.js'); const zip=await window.JSZip.loadAsync(await file.arrayBuffer());
-      const targets={originals:state.dirs.originals, index:state.dirs.index, meta:state.dirs.meta};
+      const targets={originals:state.dirs.originals, index:state.dirs.index, meta:state.dirs.meta, forum:state.dirs.forum};
       const entries=Object.keys(zip.files);
       // Nur meta-Dateien aus einer festen Whitelist zulassen; apikey.txt und
       // catalog.json werden NIE aus einem fremden ZIP uebernommen.
-      const META_ALLOW=new Set(['settings.json','exports.json']);
+      const META_ALLOW=new Set(['settings.json','exports.json','forum.json']);
+      // Forum-Anhänge nur mit Medien-Endung übernehmen (Bilder/Videos), nichts Ausführbares.
+      const FORUM_EXT=new Set(['png','jpg','jpeg','gif','webp','bmp','mp4','webm','ogg','ogv','mov','m4v']);
       // Grenzen gegen ZIP-Bomben / Speicher-DoS
       const MAX_FILES=20000, MAX_TOTAL=2*1024*1024*1024; let n=0, total=0, skipped=0;
       for(const path of entries){
@@ -2059,6 +2214,7 @@
         // Originale nur mit unterstützter Endung übernehmen – blockt z. B. eine
         // eingeschleuste originals/evil.html, die beim Öffnen als HTML rendern würde.
         if(folder==='originals'&&!SUPPORTED.some(ext=>fname.toLowerCase().endsWith('.'+ext))){ skipped++; continue; }
+        if(folder==='forum'&&!FORUM_EXT.has((fname.split('.').pop()||'').toLowerCase())){ skipped++; continue; }
         if(++n>MAX_FILES){ throw new Error(de?'Zu viele Dateien im Backup.':'Too many files in backup.'); }
         const content=await zf.async('arraybuffer');
         total+=content.byteLength; if(total>MAX_TOTAL){ throw new Error(de?'Backup ist zu groß.':'Backup too large.'); }
@@ -2069,9 +2225,9 @@
     finally{
       // Auch nach einem Abbruch bereits geschriebene Index-Dateien sichtbar machen –
       // Katalog aus den Index-Dateien (Quelle der Wahrheit) neu aufbauen, nichts verwaist.
-      try{ state.indexCache.clear(); state.catalog=await rebuildCatalog(); await saveCatalog(); await loadSettings(); await loadExportDefs();
+      try{ state.indexCache.clear(); state.catalog=await rebuildCatalog(); await saveCatalog(); await loadSettings(); await loadExportDefs(); await loadForum();
         updateCount(); applyTheme(state.settings.theme); applyLang(state.settings.lang);
-        renderLibrary(); renderFilters(); renderBackupStats(); renderExportsPanel(); updateStorageLabels();
+        renderLibrary(); renderFilters(); renderBackupStats(); renderExportsPanel(); updateStorageLabels(); renderForum();
       }catch(e2){ console.error(e2); }
       if(restored) toast((state.settings.lang==='de'?'Wiederhergestellt: ':'Restored: ')+state.catalog.length+(state.settings.lang==='de'?' Dokumente.':' documents.'),'ok');
     }
@@ -2080,8 +2236,9 @@
   // ---------- Prompt-Dialog ----------
   function promptDlg(kind, value, onOk){
     const map={rename:['rename-t','rename-l','✏️'],tag:['tag-t','tag-l','🏷'],note:['note-t','note-l','📝']};
-    const [t,l,ic]=map[kind]||['rename-t','rename-l','✏️'];
-    $('#prompt-title').textContent=tr(t); $('#prompt-label').textContent=tr(l); $('#prompt-icon').textContent=ic;
+    const isObj = kind && typeof kind==='object'; // freie Titel/Beschriftung (z. B. Forum)
+    const [t,l,ic]= isObj ? [null,null,(kind.icon||'✏️')] : (map[kind]||['rename-t','rename-l','✏️']);
+    $('#prompt-title').textContent= isObj?(kind.title||''):tr(t); $('#prompt-label').textContent= isObj?(kind.label||''):tr(l); $('#prompt-icon').textContent=ic;
     const inp=$('#prompt-input'); inp.value=value||'';
     // Beim Vergeben von Tags ein Dropdown der bereits vorhandenen Tags anbieten
     // (freie Eingabe neuer Tags bleibt möglich).
@@ -2162,7 +2319,7 @@
 
   // ---------- Navigation ----------
   function switchView(view){ $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); const gb=$('#settings-btn'); if(gb){ gb.classList.toggle('active', view==='settings'); gb.setAttribute('aria-pressed', view==='settings'?'true':'false'); } $('.main').scrollTop=0;
-    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();renderSearchHistory();} if(view==='summary')renderSumPicklist(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; syncAiBudget(); renderTagAdmin(); } }
+    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();renderSearchHistory();} if(view==='summary')renderSumPicklist(); if(view==='forum')renderForum(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; syncAiBudget(); renderTagAdmin(); } }
 
   // ---------- Boot ----------
   function updateStorageLabels(){
@@ -2181,7 +2338,7 @@
     const pf=$('#pick-folder'); if(pf)pf.style.display=('showDirectoryPicker' in window)?'':'none';
   }
   async function bootApp(){
-    await ensureStructure(); await loadSettings(); await loadCatalog(); await loadExportDefs();
+    await ensureStructure(); await loadSettings(); await loadCatalog(); await loadExportDefs(); await loadForum();
     // Ordnernamen lokal merken: geht das gespeicherte Handle verloren (Browser
     // loescht Website-Daten), kann das Onboarding darauf hinweisen, dass die
     // Daten weiterhin in diesem Ordner liegen.
@@ -2279,7 +2436,7 @@
 
     if(window.__WA_MOCK_ROOT__||window.__WA_TEST__){
       // Test-Brücke – nur aktiv, wenn explizit injiziert (automatisierte Prüfung).
-      window.WA={ importFiles, runSearch, searchArchive, generateSummary, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, setMode:(m)=>{state.sumMode=m;},
+      window.WA={ importFiles, runSearch, searchArchive, generateSummary, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, setMode:(m)=>{state.sumMode=m;},
         rebuildCatalog: async()=>{ state.indexCache.clear(); state.catalog=await rebuildCatalog(); renderLibrary(); return state.catalog; } };
     }
 
