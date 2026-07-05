@@ -592,7 +592,7 @@
 <div class="overlay" id="dlg-prompt">
   <div class="modal">
     <div class="modal-head"><div class="mi" id="prompt-icon">✏️</div><h3 id="prompt-title">—</h3></div>
-    <div class="modal-body"><div class="field"><label id="prompt-label">—</label><input id="prompt-input" type="text"></div></div>
+    <div class="modal-body"><div class="field"><label id="prompt-label">—</label><input id="prompt-input" type="text" autocomplete="off"><datalist id="tag-suggestions"></datalist><p id="prompt-hint" style="color:var(--text-muted);font-size:12px;margin:8px 0 0;display:none"></p></div></div>
     <div class="modal-foot">
       <button class="btn neutral" id="prompt-cancel" data-i18n="cancel">Abbrechen</button>
       <button class="btn" id="prompt-ok" data-i18n="ok">OK</button>
@@ -633,7 +633,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.3';
+  const APP_VERSION = '1.0.4';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1840,7 +1840,14 @@
     const map={rename:['rename-t','rename-l','✏️'],tag:['tag-t','tag-l','🏷'],note:['note-t','note-l','📝']};
     const [t,l,ic]=map[kind]||['rename-t','rename-l','✏️'];
     $('#prompt-title').textContent=tr(t); $('#prompt-label').textContent=tr(l); $('#prompt-icon').textContent=ic;
-    const inp=$('#prompt-input'); inp.value=value||''; const dlg=$('#dlg-prompt'); dlg.classList.add('show'); inp.focus(); inp.select();
+    const inp=$('#prompt-input'); inp.value=value||'';
+    // Beim Vergeben von Tags ein Dropdown der bereits vorhandenen Tags anbieten
+    // (freie Eingabe neuer Tags bleibt möglich).
+    const dl=$('#tag-suggestions'); const hint=$('#prompt-hint');
+    if(kind==='tag'){ const tags=allTags(); dl.innerHTML=tags.map(x=>`<option value="${esc(x)}"></option>`).join(''); inp.setAttribute('list','tag-suggestions');
+      if(hint){ hint.style.display=tags.length?'':'none'; hint.textContent=tags.length?(state.settings.lang==='de'?'Vorhandenen Tag wählen oder neuen eintippen.':'Pick an existing tag or type a new one.'):''; } }
+    else { inp.removeAttribute('list'); dl.innerHTML=''; if(hint){ hint.style.display='none'; hint.textContent=''; } }
+    const dlg=$('#dlg-prompt'); dlg.classList.add('show'); inp.focus(); inp.select();
     const ok=()=>{ dlg.classList.remove('show'); onOk(inp.value); cleanup(); };
     const cancel=()=>{ dlg.classList.remove('show'); cleanup(); };
     const key=(e)=>{ if(e.key==='Enter')ok(); if(e.key==='Escape')cancel(); };
