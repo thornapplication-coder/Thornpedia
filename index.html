@@ -204,7 +204,6 @@
     .overlay{position:fixed;inset:0;background:rgba(20,24,28,.55);display:none;align-items:center;justify-content:center;z-index:70;padding:20px}
     .overlay.show{display:flex}
     .modal{background:var(--panel);border:1px solid var(--line);border-radius:12px;max-width:480px;width:100%;box-shadow:0 12px 40px rgba(0,0,0,.25);overflow:hidden}
-    .modal.wide{max-width:600px}
     .modal-head{padding:18px 20px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:12px}
     .modal-head .mi{width:40px;height:40px;border-radius:9px;background:var(--surface-accent);color:var(--primary);display:grid;place-items:center;font-size:20px;flex:none}
     .modal-body{padding:20px}
@@ -646,7 +645,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.0.6';
+  const APP_VERSION = '1.0.7';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -762,12 +761,12 @@
     'dup-h':['Duplikat gefunden','Duplicate found'],'dup-all':['Für alle weiteren Duplikate übernehmen','Apply to all further duplicates'],'dup-skip':['Überspringen','Skip'],'dup-replace':['Ersetzen','Replace'],
     'cancel':['Abbrechen','Cancel'],'ok':['OK','OK'],'close':['Schließen','Close'],
     'exp-h':['Treffer exportieren','Export results'],
-    'col-name':['Name','Name'],'col-date':['Importdatum','Imported'],'col-size':['Größe','Size'],'col-type':['Typ','Type'],'col-tags':['Tags','Tags'],'col-status':['Status','Status'],
+    'col-name':['Name','Name'],'col-date':['Importdatum','Imported'],'col-size':['Größe','Size'],'col-tags':['Tags','Tags'],'col-status':['Status','Status'],
     'act-open':['Original öffnen','Open original'],'act-download':['Herunterladen','Download'],'act-rename':['Umbenennen','Rename'],'act-tag':['Tag hinzufügen','Add tag'],'act-note':['Notiz','Note'],'act-reindex':['Neu-Indexieren','Re-index'],'act-delete':['Löschen','Delete'],
-    'sortby':['Sortieren','Sort'],'search-in-lib':['Im Bestand suchen…','Search library…'],
+    'search-in-lib':['Im Bestand suchen…','Search library…'],
     'batch-tag':['Taggen','Tag'],'batch-delete':['Löschen','Delete'],'sel-count':['ausgewählt','selected'],
     'hits':['Treffer','hits'],'no-hits':['Keine Treffer.','No results.'],'type-search-hint':['Gib oben einen Suchbegriff ein.','Type a search term above.'],
-    'open-hit':['Fundstelle öffnen →','Open source →'],'doc-note-l':['Notiz','Note'],'doc-info':['Dokument-Info','Document info'],
+    'open-hit':['Fundstelle öffnen →','Open source →'],'doc-info':['Dokument-Info','Document info'],
     'scan-warn':['Dieses PDF hat keine Textebene (gescannt) und ist noch nicht durchsuchbar. Mit „Text erkennen (OCR)" wird der Text lokal auf deinem Gerät erkannt – es werden keine Daten hochgeladen.','This PDF has no text layer (scanned) and is not searchable yet. Use “Recognize text (OCR)” to extract the text locally on your device – nothing is uploaded.'],
     'page':['Seite','Page'],'section':['Abschnitt','Section'],'sheet':['Blatt','Sheet'],'cell':['Zelle','Cell'],'row':['Zeile','Row'],
     'rename-t':['Umbenennen','Rename'],'rename-l':['Neuer Name','New name'],'tag-t':['Tag hinzufügen','Add tag'],'tag-l':['Tag-Name','Tag name'],'note-t':['Notiz bearbeiten','Edit note'],'note-l':['Notiz','Note'],
@@ -1101,14 +1100,18 @@
       if(act==='open'&&OPENABLE.has(seExt)){ const w=window.open(url,'_blank','noopener'); if(!w)download(f, doc.name); /* iOS/Popup-Blocker: dann herunterladen */ }
       else download(f, doc.name);
       setTimeout(()=>URL.revokeObjectURL(url),20000); }catch(e){ toast(state.settings.lang==='de'?'Originaldatei nicht gefunden.':'Original file not found.','err'); } }
-    else if(act==='rename'){ promptDlg('rename', doc.name, async(v)=>{ if(!v||v===doc.name)return; doc.name=v; await writeIndex(doc); updateCatalogEntry(doc); await saveCatalog(); renderLibrary(); toast('OK','ok'); }); }
-    else if(act==='tag'){ promptDlg('tag','', async(v)=>{ v=(v||'').trim(); if(!v)return; doc.tags=doc.tags||[]; if(!doc.tags.includes(v))doc.tags.push(v); await writeIndex(doc); updateCatalogEntry(doc); await saveCatalog(); renderLibrary(); renderFilters(); renderTagAdmin(); }); }
-    else if(act==='note'){ promptDlg('note', doc.note||'', async(v)=>{ doc.note=v||''; await writeIndex(doc); updateCatalogEntry(doc); await saveCatalog(); renderLibrary(); }); }
+    else if(act==='rename'){ promptDlg('rename', doc.name, async(v)=>{ if(!v||v===doc.name)return; doc.name=v; await persistDoc(doc); await saveCatalog(); renderLibrary(); toast('OK','ok'); }); }
+    else if(act==='tag'){ promptDlg('tag','', async(v)=>{ v=(v||'').trim(); if(!v)return; doc.tags=doc.tags||[]; if(!doc.tags.includes(v))doc.tags.push(v); await persistDoc(doc); await saveCatalog(); renderLibrary(); renderFilters(); renderTagAdmin(); }); }
+    else if(act==='note'){ promptDlg('note', doc.note||'', async(v)=>{ doc.note=v||''; await persistDoc(doc); await saveCatalog(); renderLibrary(); }); }
     else if(act==='reindex'){ await reindexDoc(doc); }
     else if(act==='ocr'){ await ocrDoc(doc); }
     else if(act==='delete'){ if(confirm((state.settings.lang==='de'?'Wirklich löschen? ':'Really delete? ')+doc.name)){ await deleteDoc(id); renderLibrary(); renderFilters(); renderBackupStats(); toast(state.settings.lang==='de'?'Gelöscht.':'Deleted.'); } }
   }
   function updateCatalogEntry(doc){ const i=state.catalog.findIndex(c=>c.id===doc.id); if(i>=0)state.catalog[i]=summaryOf(doc); }
+  // Index-Datei schreiben + Katalog-Eintrag aktualisieren – die überall wiederkehrende Sequenz.
+  async function persistDoc(doc){ await writeIndex(doc); return updateCatalogEntry(doc); }
+  // Guard: existiert das Dokument noch (nicht zwischenzeitlich gelöscht)? Sonst Toast + false.
+  function guardExists(doc){ if(state.catalog.some(c=>c.id===doc.id))return true; toast(state.settings.lang==='de'?'Dokument wurde inzwischen gelöscht.':'Document was deleted in the meantime.','err'); return false; }
   async function deleteDoc(id, silent){ const doc=await getIndex(id).catch(()=>null); if(doc){ await removeFile(state.dirs.originals, doc.storedAs); } await removeFile(state.dirs.index, id+'.json'); state.indexCache.delete(id); state.catalog=state.catalog.filter(c=>c.id!==id); state.lib.selected.delete(id);
     if(state.pdfView.docId===id) closePdfView();
     if(state.curDoc&&state.curDoc.doc&&state.curDoc.doc.id===id){ state.curDoc=null; const nd=$('#nav-doc'); if(nd)nd.style.display='none'; }
@@ -1117,8 +1120,8 @@
   async function reindexDoc(doc){
     try{ toast(state.settings.lang==='de'?'Neu-Indexierung…':'Re-indexing…'); const f=await (await state.dirs.originals.getFileHandle(doc.storedAs)).getFile(); const buffer=await f.arrayBuffer(); const res=await parseFile(doc.id, doc.ext, buffer, null);
       // Waehrend des (langen) Neu-Indexierens geloescht? Dann nichts zurueckschreiben – sonst verwaiste Index-Datei.
-      if(!state.catalog.some(c=>c.id===doc.id)){ toast(state.settings.lang==='de'?'Dokument wurde inzwischen gelöscht.':'Document was deleted in the meantime.','err'); return; }
-      doc.units=res.units||[]; doc.scanned=!!res.scanned; doc.pageCount=res.pageCount||null; await writeIndex(doc); updateCatalogEntry(doc); await saveCatalog(); renderLibrary(); toast('OK','ok'); }catch(e){ toast((state.settings.lang==='de'?'Fehler: ':'Error: ')+e.message,'err'); }
+      if(!guardExists(doc))return;
+      doc.units=res.units||[]; doc.scanned=!!res.scanned; doc.pageCount=res.pageCount||null; await persistDoc(doc); await saveCatalog(); renderLibrary(); toast('OK','ok'); }catch(e){ toast((state.settings.lang==='de'?'Fehler: ':'Error: ')+e.message,'err'); }
   }
   // ---------- OCR (tesseract.js, komplett lokal aus vendor/) ----------
   let _ocrWorker=null, _ocrBusy=false;
@@ -1164,9 +1167,9 @@
       await pdf.destroy();
       // Wurde das Dokument waehrend der (langen) OCR geloescht, nichts zurueckschreiben –
       // sonst entstuende eine verwaiste Index-Datei ohne Original.
-      if(!state.catalog.some(c=>c.id===doc.id)){ toast(de?'Dokument wurde inzwischen gelöscht.':'Document was deleted in the meantime.','err'); return; }
+      if(!guardExists(doc))return;
       doc.units=units; doc.ocr=units.length>0; doc.scanned=units.length===0;
-      await writeIndex(doc); updateCatalogEntry(doc); await saveCatalog();
+      await persistDoc(doc); await saveCatalog();
       renderLibrary(); renderFilters();
       if(state.curDoc&&state.curDoc.doc&&state.curDoc.doc.id===doc.id){ state.curDoc.doc=doc; await renderDoc(); }
       toast(units.length?((de?'OCR fertig – ':'OCR done – ')+units.length+(de?' Seiten mit Text, jetzt durchsuchbar.':' pages with text, now searchable.')):(de?'OCR fertig – kein Text erkannt.':'OCR done – no text recognized.'), units.length?'ok':'err');
@@ -1174,11 +1177,11 @@
     finally{ _ocrBusy=false; const el=$('#ocr-progress'); if(el)el.remove(); }
   }
 
-  async function batchTag(){ promptDlg('tag','', async(v)=>{ v=(v||'').trim(); if(!v)return; for(const id of state.lib.selected){ const doc=await getIndex(id).catch(()=>null); if(!doc)continue; doc.tags=doc.tags||[]; if(!doc.tags.includes(v))doc.tags.push(v); await writeIndex(doc); updateCatalogEntry(doc); } await saveCatalog(); renderLibrary(); renderFilters(); renderTagAdmin(); toast('OK','ok'); }); }
+  async function batchTag(){ promptDlg('tag','', async(v)=>{ v=(v||'').trim(); if(!v)return; for(const id of state.lib.selected){ const doc=await getIndex(id).catch(()=>null); if(!doc)continue; doc.tags=doc.tags||[]; if(!doc.tags.includes(v))doc.tags.push(v); await persistDoc(doc); } await saveCatalog(); renderLibrary(); renderFilters(); renderTagAdmin(); toast('OK','ok'); }); }
   // Entfernt ein Tag von einem Dokument (Tags sind damit verwaltbar: hinzufuegen ueber
   // das Zeilenmenue, entfernen ueber das ✕ am Tag). Verschwindet ein Tag dadurch ganz,
   // wird es auch aus den aktiven Filtern entfernt.
-  async function removeTag(id, tag){ const doc=await getIndex(id).catch(()=>null); if(!doc)return; doc.tags=(doc.tags||[]).filter(t=>t!==tag); await writeIndex(doc); updateCatalogEntry(doc); await saveCatalog(); const gone=!allTags().includes(tag); if(gone){ if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; } renderLibrary(); renderFilters(); renderTagAdmin(); }
+  async function removeTag(id, tag){ const doc=await getIndex(id).catch(()=>null); if(!doc)return; doc.tags=(doc.tags||[]).filter(t=>t!==tag); await persistDoc(doc); await saveCatalog(); const gone=!allTags().includes(tag); if(gone){ if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; } renderLibrary(); renderFilters(); renderTagAdmin(); }
   async function batchDelete(){ if(!confirm((state.settings.lang==='de'?'Ausgewählte löschen? ':'Delete selected? ')+state.lib.selected.size)){return;} for(const id of Array.from(state.lib.selected)) await deleteDoc(id,true); await saveCatalog(); renderLibrary(); renderFilters(); renderBackupStats(); toast(state.settings.lang==='de'?'Gelöscht.':'Deleted.'); }
 
   // ---------- Tag-Verwaltung (global: umbenennen / zusammenführen / löschen) ----------
@@ -1189,7 +1192,7 @@
     for(const c of state.catalog){ if(!(c.tags||[]).includes(oldTag))continue;
       const doc=await getIndex(c.id).catch(()=>null); if(!doc)continue;
       const set=new Set(doc.tags||[]); set.delete(oldTag); set.add(newTag);
-      doc.tags=Array.from(set); await writeIndex(doc); updateCatalogEntry(doc); changed++; }
+      doc.tags=Array.from(set); await persistDoc(doc); changed++; }
     if(changed){ await saveCatalog(); if(state.lib.tag===oldTag)state.lib.tag=newTag; if(state.search.tag===oldTag)state.search.tag=newTag; }
     renderTagAdmin(); renderLibrary(); renderFilters();
     toast(state.settings.lang==='de'?`Tag aktualisiert (${changed}).`:`Tag updated (${changed}).`,'ok');
@@ -1200,7 +1203,7 @@
     let changed=0;
     for(const c of state.catalog){ if(!(c.tags||[]).includes(tag))continue;
       const doc=await getIndex(c.id).catch(()=>null); if(!doc)continue;
-      doc.tags=(doc.tags||[]).filter(t=>t!==tag); await writeIndex(doc); updateCatalogEntry(doc); changed++; }
+      doc.tags=(doc.tags||[]).filter(t=>t!==tag); await persistDoc(doc); changed++; }
     if(changed){ await saveCatalog(); if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; }
     renderTagAdmin(); renderLibrary(); renderFilters();
     toast(de?`Tag gelöscht (${changed}).`:`Tag deleted (${changed}).`,'ok');
@@ -1248,9 +1251,11 @@
     }
     return list;
   }
+  // Sonderzeichen für den Einsatz in einem RegExp maskieren (an mehreren Stellen gebraucht).
+  const reEsc=(s)=>String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
   function markRegex(terms){
     const parts=[];
-    for(const t of terms){ for(const v of highlightVariants(t)){ parts.push(v.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')); } }
+    for(const t of terms){ for(const v of highlightVariants(t)){ parts.push(reEsc(v)); } }
     return parts.length?new RegExp('('+parts.join('|')+')','gi'):null;
   }
   // Markiert die Treffer auf dem ROHTEXT und escapt segmentweise – so kann ein
@@ -1294,7 +1299,7 @@
     const hits=[];
     const allNeedles=[...qy.terms, ...qy.phrases];
     // Wortgrenzen-Regex je Begriff EINMAL vorkompilieren (Praezisions-Ranking).
-    const esc2=s=>s.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const esc2=reEsc;
     for(const nd of allNeedles){ nd.re=new RegExp('(^|[^a-z0-9])'+esc2(nd.f)+'([^a-z0-9]|$)'); }
     for(const c of state.catalog){
       if(idset&&!idset.has(c.id))continue;
@@ -1399,21 +1404,33 @@
     try{
       const ans=await claudeAnswer(q, ids);
       const cost=aiCostLabel(ans.usage, (ans.sources||[]).length);
-      resEl.innerHTML=`<div class="panel panel-pad"><div class="r-title" style="font-weight:600;margin-bottom:10px">🤖 ${esc(q)}</div><div class="section-text" style="max-height:none">${esc(ans.text)}</div>${cost?`<p style="color:var(--text-muted);font-size:12px;margin:10px 0 0">${esc(cost)}</p>`:''}${sourceListHtml(ans.picked, ans.sources)}</div>`;
+      resEl.innerHTML=`<div class="panel panel-pad"><div class="r-title" style="font-weight:600;margin-bottom:10px">🤖 ${esc(q)}</div><div class="section-text" style="max-height:none">${esc(ans.text)}</div>${costLine(cost)}${sourceListHtml(ans.picked, ans.sources)}</div>`;
     }catch(e){ resEl.innerHTML=`<div class="empty"><p style="color:var(--danger)">${esc(e.message)}</p></div>`; }
   }
+  // ---------- Gemeinsame Bausteine der Claude-API-Aufrufe ----------
+  // (Frage, Zusammenfassung und Verbindungstest teilen sich Header, Fetch/Parse,
+  //  Korpus-Aufbau und Quellen-Mapping – so gibt es die Logik nur einmal.)
+  const anthropicHeaders=()=>({'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'});
+  async function claudeMessage(prompt, maxTokens){
+    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:anthropicHeaders(), body:JSON.stringify({model:'claude-opus-4-8',max_tokens:maxTokens,messages:[{role:'user',content:prompt}]}) });
+    if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('API '+r.status+': '+t.slice(0,200)); }
+    const data=await r.json();
+    return { text:(data.content||[]).map(c=>c.text||'').join('\n').trim(), usage:data.usage||null };
+  }
+  async function buildCorpus(ids, limit){
+    let corpus=''; const sources=[];
+    for(const id of ids){ const doc=await getIndex(id); sources.push(doc); corpus+=`\n\n### ${doc.name}\n`; for(const u of (doc.units||[])){ corpus+=`[${refLabel(u.ref)}] ${u.text}\n`; if(corpus.length>limit)break; } if(corpus.length>limit){ corpus=corpus.slice(0,limit); break; } }
+    return { corpus, sources };
+  }
+  const pickSources=(sources)=>sources.map(d=>({docId:d.id, name:d.name, ref: d.pageCount ? {page:(d.pageCount>1?('1–'+d.pageCount):1)} : null}));
   async function claudeAnswer(q, ids){
     if(!navigator.onLine) throw new Error(state.settings.lang==='de'?'Keine Internetverbindung.':'No internet connection.');
     const B=aiLimits();
-    let corpus=''; const sources=[]; const LIMIT=B.chars;
-    for(const id of ids){ const doc=await getIndex(id); sources.push(doc); corpus+=`\n\n### ${doc.name}\n`; for(const u of (doc.units||[])){ corpus+=`[${refLabel(u.ref)}] ${u.text}\n`; if(corpus.length>LIMIT)break; } if(corpus.length>LIMIT){ corpus=corpus.slice(0,LIMIT); break; } }
+    const {corpus, sources}=await buildCorpus(ids, B.chars);
     const lang=state.settings.lang==='de'?'Deutsch':'English';
     const prompt=`Beantworte die folgende Frage AUSSCHLIESSLICH anhand der bereitgestellten Dokumentauszüge, auf ${lang}. Wenn die Auszüge die Antwort nicht enthalten, sage das ehrlich. Verweise im Text auf die betreffenden Dateinamen/Fundstellen.\n\nFrage: ${q}\n\nDokumentauszüge:${corpus}`;
-    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, body:JSON.stringify({model:'claude-opus-4-8',max_tokens:B.ans,messages:[{role:'user',content:prompt}]}) });
-    if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('API '+r.status+': '+t.slice(0,200)); }
-    const data=await r.json(); const text=(data.content||[]).map(c=>c.text||'').join('\n').trim();
-    const picked=sources.map(d=>({docId:d.id, name:d.name, ref: d.pageCount ? {page:(d.pageCount>1?('1–'+d.pageCount):1)} : null}));
-    return {text, sources, picked, usage:data.usage||null};
+    const {text, usage}=await claudeMessage(prompt, B.ans);
+    return {text, sources, picked:pickSources(sources), usage};
   }
   // Grobe Kostenschätzung einer KI-Anfrage aus der zurückgegebenen Token-Nutzung
   // (Opus 4.8: 5 $ / 25 $ je 1 Mio. Token). Reine Info in der Oberfläche – wird
@@ -1427,6 +1444,8 @@
     const docs = (nDocs!=null) ? ((money?' · ':'')+nDocs+' '+(de?(nDocs===1?'Dokument genutzt':'Dokumente genutzt'):(nDocs===1?'document used':'documents used'))) : '';
     return (money||docs) ? ('🧮 '+money+docs+(money?(de?' (geschätzt)':' (estimate)'):'')) : '';
   }
+  // Einheitliche dezente Info-Zeile (KI-Kosten) unter Antwort/Zusammenfassung.
+  const costLine=(cost)=>cost?`<p style="color:var(--text-muted);font-size:12px;margin:10px 0 0">${esc(cost)}</p>`:'';
   function refLabel(ref){ if(!ref)return ''; if(ref.page!=null)return `${tr('page')} ${ref.page}`; if(ref.sheet!=null)return `${tr('sheet')} „${ref.sheet}"${ref.row!=null?` · ${tr('row')} ${ref.row}`:(ref.cell?` · ${tr('cell')} ${ref.cell}`:'')}`; if(ref.section!=null)return `${tr('section')} ${ref.section}`; return ''; }
   function renderSearchResults(){
     // Im KI-Frage-Modus verwaltet askQuestion die Ergebnisliste selbst – nicht
@@ -1608,16 +1627,12 @@
     if(!state.apiKey) throw new Error(state.settings.lang==='de'?'Kein API-Key hinterlegt (Einstellungen).':'No API key set (Settings).');
     if(!navigator.onLine) throw new Error(state.settings.lang==='de'?'Keine Internetverbindung.':'No internet connection.');
     const B=aiLimits();
-    let corpus=''; const sources=[]; const LIMIT=B.chars;
-    for(const id of ids){ const doc=await getIndex(id); sources.push(doc); corpus+=`\n\n### ${doc.name}\n`; for(const u of (doc.units||[])){ corpus+=`[${refLabel(u.ref)}] ${u.text}\n`; if(corpus.length>LIMIT)break; } if(corpus.length>LIMIT){ corpus=corpus.slice(0,LIMIT); break; } }
+    const {corpus, sources}=await buildCorpus(ids, B.chars);
     const lang=state.settings.lang==='de'?'Deutsch':'English';
     const prompt=`Fasse die folgenden Dokumente prägnant auf ${lang} zusammen. Nenne am Ende KEINE Quellen (die fügt die App hinzu). Nur die inhaltliche Zusammenfassung:\n${corpus}`;
-    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}, body:JSON.stringify({model:'claude-opus-4-8',max_tokens:B.sum,messages:[{role:'user',content:prompt}]}) });
-    if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('API '+r.status+': '+t.slice(0,200)); }
-    const data=await r.json(); const text=(data.content||[]).map(c=>c.text||'').join('\n').trim();
+    const {text, usage}=await claudeMessage(prompt, B.sum);
     // Quellenverzeichnis: jedes eingeflossene Dokument mit Seitenumfang (PDF) bzw. ohne Zusatz
-    const picked=sources.map(d=>({docId:d.id, name:d.name, ref: d.pageCount ? {page:(d.pageCount>1?('1–'+d.pageCount):1)} : null}));
-    return {text, sources, picked, usage:data.usage||null};
+    return {text, sources, picked:pickSources(sources), usage};
   }
   async function generateSummary(){
     const {ids, spec}=getSummarySource(); const out=$('#sum-output');
@@ -1628,7 +1643,7 @@
       const r = state.sumMode==='ai' ? await claudeSummary(ids) : await extractiveSummary(ids);
       const title=state.settings.lang==='de'?`Zusammenfassung – ${ids.length} Dokument(e)`:`Summary – ${ids.length} document(s)`;
       const cost=(state.sumMode==='ai') ? aiCostLabel(r.usage, (r.sources||[]).length) : '';
-      out.innerHTML=`<div class="summary-out"><h3>${esc(title)}</h3><p style="white-space:pre-line">${esc(r.text)}</p>${cost?`<p style="color:var(--text-muted);font-size:12px;margin:10px 0 0">${esc(cost)}</p>`:''}${sourceListHtml(r.picked||[], r.sources||[])}</div>`;
+      out.innerHTML=`<div class="summary-out"><h3>${esc(title)}</h3><p style="white-space:pre-line">${esc(r.text)}</p>${costLine(cost)}${sourceListHtml(r.picked||[], r.sources||[])}</div>`;
       state.lastSummary={ title, text:r.text, picked:r.picked||[], sources:r.sources||[], mode:state.sumMode, sourceSpec:spec };
       $('#sum-export-row').style.display='';
     }catch(e){ out.innerHTML=`<div class="notice err"><span>⚠</span><span>${esc(e.message)}</span></div>`; }
@@ -1641,11 +1656,13 @@
   async function saveToExports(name, blob){ try{ await writeFile(state.dirs.exports, name, blob); }catch(e){ console.warn('exports speichern:',e); } }
   function stamp(){ const d=new Date(); const p=(n)=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`; }
 
+  // Ein Suchtreffer → eine Berichtszeile (identisch für Live-Bericht und Snapshot).
+  const hitToItem=(h)=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), text:h.text, tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)});
   function buildReportItems(kind){
     // kind: 'hits' | 'summary'
     if(kind==='summary'&&state.lastSummary){ const s=state.lastSummary; return { title:s.title, params:(state.settings.lang==='de'?'Modus: ':'Mode: ')+(s.mode==='ai'?'Claude API':(state.settings.lang==='de'?'Extraktiv':'Extractive')), summary:s.text, items:(s.picked||[]).map(p=>({file:p.name,ref:refLabel(p.ref),snippet:'',tags:'',date:''})) }; }
     const idxs = state.search.selected.size? Array.from(state.search.selected): state.lastHits.map((_,i)=>i);
-    const items=idxs.map(i=>state.lastHits[i]).filter(Boolean).map(h=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), text:h.text, tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)}));
+    const items=idxs.map(i=>state.lastHits[i]).filter(Boolean).map(hitToItem);
     return { title:(state.settings.lang==='de'?'Suchbericht':'Search report'), params:(state.settings.lang==='de'?'Suchbegriff: ':'Query: ')+'"'+state.search.q+'" · '+items.length+' '+tr('hits'), summary:'', items };
   }
   // Gemeinsames Tabellen-Modell: eine Zeile je Fundstelle/Quelle, damit XLSX,
@@ -1747,7 +1764,7 @@
       const pinned=def.search&&Array.isArray(def.search.ids)?def.search.ids:null;
       if(pinned&&pinned.length&&!pinned.some(id=>state.catalog.some(c=>c.id===id))) throw new Error(de?'Markierte Quelldokumente nicht mehr vorhanden.':'Selected source documents no longer exist.');
       const {hits}=await searchArchive(def.search||{});
-      const items=hits.map(h=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), text:h.text, tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)}));
+      const items=hits.map(hitToItem);
       return { title:de?'Suchbericht':'Search report', params:(de?'Suchbegriff: ':'Query: ')+'"'+(def.search&&def.search.q||'')+'" · '+items.length+' '+tr('hits')+' · '+stand, summary:'', items };
     }
     // Zusammenfassung
@@ -2172,7 +2189,7 @@
     // API
     $('#api-save').onclick=async()=>{ await saveApiKey($('#api-key').value); toast('OK','ok'); };
     $$('#aib-seg button').forEach(b=>b.onclick=()=>{ state.settings.aiBudget=b.dataset.aib; persistSettings(); syncAiBudget(); });
-    $('#api-test').onclick=async()=>{ const st=$('#api-status'); st.innerHTML='<span class="busy"></span>'; try{ await saveApiKey($('#api-key').value); if(!state.apiKey)throw new Error(state.settings.lang==='de'?'Kein Key':'No key'); if(!navigator.onLine)throw new Error(state.settings.lang==='de'?'Offline':'Offline'); const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-opus-4-8',max_tokens:16,messages:[{role:'user',content:'ping'}]})}); st.innerHTML=r.ok?'<span class="chip" style="color:var(--good)">● OK</span>':`<span class="chip" style="color:var(--danger)">● ${r.status}</span>`; }catch(e){ st.innerHTML=`<span class="chip" style="color:var(--danger)">● ${esc(e.message)}</span>`; } };
+    $('#api-test').onclick=async()=>{ const st=$('#api-status'); st.innerHTML='<span class="busy"></span>'; try{ await saveApiKey($('#api-key').value); if(!state.apiKey)throw new Error(state.settings.lang==='de'?'Kein Key':'No key'); if(!navigator.onLine)throw new Error(state.settings.lang==='de'?'Offline':'Offline'); const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:anthropicHeaders(),body:JSON.stringify({model:'claude-opus-4-8',max_tokens:16,messages:[{role:'user',content:'ping'}]})}); st.innerHTML=r.ok?'<span class="chip" style="color:var(--good)">● OK</span>':`<span class="chip" style="color:var(--danger)">● ${r.status}</span>`; }catch(e){ st.innerHTML=`<span class="chip" style="color:var(--danger)">● ${esc(e.message)}</span>`; } };
   }
   function openExport(kind){ const data=buildReportItems(kind); if(!data.items.length&&!data.summary){ toast(state.settings.lang==='de'?'Keine Treffer zum Exportieren.':'No results to export.','err'); return; } $('#exp-text').textContent=(state.settings.lang==='de'?`${data.items.length} Treffer werden exportiert.`:`${data.items.length} results will be exported.`); $('#dlg-export').classList.add('show'); }
 
