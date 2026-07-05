@@ -34,7 +34,7 @@ export async function run(base) {
       return window.XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1 }).length;
     });
     const before = await readRows();
-    t.check('Live-Export registriert (4 Zeilen: Kopf+3 Treffer)', before === 4, 'rows='+before);
+    t.check('Live-Export registriert (Titelband+Kopf+3 Treffer = 7 Zeilen)', before === 7, 'rows='+before);
 
     await page.evaluate(async () => {
       const f = new File([await (await fetch('_testfiles/notizen.txt')).blob()], 'notizen.txt');
@@ -42,7 +42,7 @@ export async function run(base) {
     });
     await page.waitForTimeout(2500);
     const after = await readRows();
-    t.check('Export nach Import automatisch aktualisiert (5 Zeilen)', after === 5, 'rows='+after);
+    t.check('Export nach Import automatisch aktualisiert (Titelband+Kopf+4 Treffer = 8 Zeilen)', after === 8, 'rows='+after);
 
     await page.evaluate(async () => {
       window.confirm = () => true;
@@ -54,7 +54,7 @@ export async function run(base) {
     await page.click('#batch-del');
     await page.waitForTimeout(2500);
     const afterDel = await readRows();
-    t.check('Export nach Löschen automatisch aktualisiert (4 Zeilen)', afterDel === 4, 'rows='+afterDel);
+    t.check('Export nach Löschen automatisch aktualisiert (Titelband+Kopf+3 Treffer = 7 Zeilen)', afterDel === 7, 'rows='+afterDel);
 
     // Auto-Backup wurde beim ersten Import angelegt (weekly, noch nie gelaufen)
     const ab = await page.evaluate(async () => {
