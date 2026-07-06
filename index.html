@@ -663,7 +663,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.2.1';
+  const APP_VERSION = '1.3.0';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -770,6 +770,7 @@
     'nav-forum':['Forum','Forum'],'forum-p':['Eigene Themen und Untergruppen mit Einträgen, Kommentaren und Anhängen (Bild/Video) – alles wird durchsucht.','Your own topics and subgroups with entries, comments and attachments (image/video) – all searchable.'],
     'fo-themes':['Themen','Topics'],'fo-newtheme':['+ Thema','+ Topic'],'fo-newsub':['+ Untergruppe','+ Subgroup'],'fo-allentries':['Alle Einträge','All entries'],
     'fo-sub':['Untergruppe','Subgroup'],
+    'fo-refs':['Querverweise','Cross-references'],'fo-addref':['Querverweis','Reference'],'fo-export':['Thema exportieren:','Export topic:'],
     'fo-newentry':['+ Neuer Eintrag','+ New entry'],'fo-noentries':['Noch keine Einträge hier. Lege einen an.','No entries here yet. Create one.'],'fo-nothemes':['Noch keine Themen. Lege links ein Thema an.','No topics yet. Create a topic on the left.'],
     'fo-title-ph':['Titel des Eintrags','Entry title'],'fo-body-ph':['Text / Beschreibung …','Text / description …'],'fo-save':['Speichern','Save'],'fo-cancel':['Abbrechen','Cancel'],
     'fo-edit':['Bearbeiten','Edit'],'fo-delete':['Löschen','Delete'],'fo-attach':['Anhang (Bild/Video)','Attachment (image/video)'],'fo-comments':['Kommentare','Comments'],
@@ -1022,6 +1023,8 @@
   // ---------- Bibliothek ----------
   function fmtBytes(n){ if(n==null)return '—'; if(n<1024)return n+' B'; if(n<1048576)return (n/1024).toFixed(0)+' KB'; if(n<1073741824)return (n/1048576).toFixed(1)+' MB'; return (n/1073741824).toFixed(2)+' GB'; }
   function fmtDate(iso){ if(!iso)return '—'; const d=new Date(iso); return d.toLocaleDateString(locale()); }
+  // Datum + Uhrzeit (für Forum-Einträge/Kommentare).
+  function fmtDateTime(iso){ if(!iso)return '—'; const d=new Date(iso); try{ return d.toLocaleString(locale(),{dateStyle:'medium',timeStyle:'short'}); }catch(_){ return d.toLocaleString(locale()); } }
   // Nur Dokument-Tags: Forum-Einträge haben ihre eigene Tag-Oberfläche (foTags),
   // damit Forum-Tags nicht in Bibliothek/Suchfilter/Tag-Verwaltung auftauchen.
   function allTags(){ const s=new Set(); state.catalog.forEach(c=>{ if(c.type==='forum')return; (c.tags||[]).forEach(t=>s.add(t)); }); return Array.from(s).sort(); }
@@ -1268,8 +1271,8 @@
   const forumLoc=(e)=>{ const g=forumGroup(e.forum&&e.forum.gid); const s=forumSub(g,e.forum&&e.forum.sid); return [g&&g.name,s&&s.name].filter(Boolean).join(' · '); };
   const forumEntries=()=>state.catalog.filter(c=>c.type==='forum');
   function foMediaKind(name, mime){ const e=(String(name).split('.').pop()||'').toLowerCase(); if((mime&&mime.startsWith('image/'))||['png','jpg','jpeg','gif','webp','bmp'].includes(e))return 'image'; if((mime&&mime.startsWith('video/'))||['mp4','webm','ogg','ogv','mov','m4v'].includes(e))return 'video'; return 'file'; }
-  function foBuildUnits(e){ const u=[{ref:{section:'Titel'},text:String(e.name||'')}]; if(e.body)u.push({ref:{section:'Text'},text:String(e.body)}); (e.comments||[]).forEach((c,i)=>{ if(c.text)u.push({ref:{section:'Kommentar '+(i+1)},text:String(c.text)}); }); (e.attachments||[]).forEach(a=>u.push({ref:{section:'Anhang'},text:String(a.name||'')})); if((e.tags||[]).length)u.push({ref:{section:'Tags'},text:(e.tags||[]).join(', ')}); return u; }
-  async function foSaveEntry(e){ e.type='forum'; e.ext='forum'; e.tags=Array.isArray(e.tags)?e.tags:[]; e.units=foBuildUnits(e); e.size=(e.body||'').length; e.updatedAt=new Date().toISOString(); await writeIndex(e); const i=state.catalog.findIndex(c=>c.id===e.id); if(i>=0)state.catalog[i]=summaryOf(e); else state.catalog.push(summaryOf(e)); await saveCatalog(); }
+  function foBuildUnits(e){ const u=[{ref:{section:'Titel'},text:String(e.name||'')}]; if(e.body)u.push({ref:{section:'Text'},text:String(e.body)}); (e.comments||[]).forEach((c,i)=>{ if(c.text)u.push({ref:{section:'Kommentar '+(i+1)},text:String(c.text)}); }); (e.attachments||[]).forEach(a=>u.push({ref:{section:'Anhang'},text:String(a.name||'')})); if((e.tags||[]).length)u.push({ref:{section:'Tags'},text:(e.tags||[]).join(', ')}); if((e.refs||[]).length)u.push({ref:{section:'Querverweise'},text:(e.refs||[]).map(r=>r.name).join(', ')}); return u; }
+  async function foSaveEntry(e){ e.type='forum'; e.ext='forum'; e.tags=Array.isArray(e.tags)?e.tags:[]; e.units=foBuildUnits(e); e.size=(e.body||'').length; const now=new Date().toISOString(); if(!e.importedAt)e.importedAt=now; e.updatedAt=now; await writeIndex(e); const i=state.catalog.findIndex(c=>c.id===e.id); if(i>=0)state.catalog[i]=summaryOf(e); else state.catalog.push(summaryOf(e)); await saveCatalog(); }
   // Status (frei lassen oder einer der drei) + kleine Chips.
   const FO_STATUS=[{k:'important',emoji:'⭐',de:'Wichtig',en:'Important'},{k:'open',emoji:'🔵',de:'Offen',en:'Open'},{k:'done',emoji:'✅',de:'Erledigt',en:'Done'}];
   const foStatus=(k)=>FO_STATUS.find(s=>s.k===k);
@@ -1332,10 +1335,10 @@
     const optStatus=`<option value="">${de?'Status: alle':'Status: all'}</option>`+FO_STATUS.map(s=>`<option value="${s.k}" ${ff.status===s.k?'selected':''}>${s.emoji} ${de?s.de:s.en}</option>`).join('');
     const optTag=`<option value="">${de?'Tag: alle':'Tag: all'}</option>`+foTags.map(t=>`<option value="${esc(t)}" ${ff.tag===t?'selected':''}>${esc(t)}</option>`).join('');
     const listHtml=`<div>
-      <div class="row" style="justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px"><strong>${entries.length} ${de?'Einträge':'entries'}</strong>${canAdd?`<button class="btn sm" id="fo-newentry">${tr('fo-newentry')}</button>`:`<span style="color:var(--text-muted);font-size:12px">${de?'Wähle links ein Thema, um Einträge anzulegen.':'Pick a topic on the left to add entries.'}</span>`}</div>
+      <div class="row" style="justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px"><strong>${entries.length} ${de?'Einträge':'entries'}</strong>${canAdd?`<div class="row" style="gap:6px;flex-wrap:wrap"><span style="color:var(--text-muted);font-size:12px;align-self:center">${tr('fo-export')}</span><button class="btn sm neutral" data-fotopicexp="pdf">PDF</button><button class="btn sm neutral" data-fotopicexp="docx">Word</button><button class="btn sm neutral" data-fotopicexp="xlsx">Excel</button><button class="btn sm" id="fo-newentry">${tr('fo-newentry')}</button></div>`:`<span style="color:var(--text-muted);font-size:12px">${de?'Wähle links ein Thema, um Einträge anzulegen.':'Pick a topic on the left to add entries.'}</span>`}</div>
       <div class="row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap"><input id="fo-q" placeholder="${de?'Im Forum filtern …':'Filter forum …'}" value="${esc(ff.q)}" style="flex:1;min-width:140px"><select id="fo-sort" style="${ss}">${optSort}</select><select id="fo-fstatus" style="${ss}">${optStatus}</select>${foTags.length?`<select id="fo-ftag" style="${ss}">${optTag}</select>`:''}</div>
       ${entries.map(e=>{ const loc=forumLoc(e); const tags=(e.tags||[]).map(t=>`<span class="chip">🏷 ${esc(t)}</span>`).join(' ');
-        return `<div class="forum-card" data-foopen="${esc(e.id)}"><div class="row" style="justify-content:space-between;gap:8px"><div style="font-weight:600;min-width:0;word-break:break-word">${esc(e.name||tr('fo-untitled'))}</div>${foStatusChip(e.status)}</div><div class="fmeta" style="margin-top:3px">${loc?esc(loc)+' · ':''}${fmtDate(upd(e))}${e.att?` · 📎 ${e.att}`:''}${e.cmt?` · 💬 ${e.cmt}`:''}</div>${tags?`<div style="margin-top:6px">${tags}</div>`:''}</div>`; }).join('')||`<p style="color:var(--text-muted)">${tr('fo-noentries')}</p>`}
+        return `<div class="forum-card" data-foopen="${esc(e.id)}"><div class="row" style="justify-content:space-between;gap:8px"><div style="font-weight:600;min-width:0;word-break:break-word">${esc(e.name||tr('fo-untitled'))}</div>${foStatusChip(e.status)}</div><div class="fmeta" style="margin-top:3px">${loc?esc(loc)+' · ':''}${fmtDateTime(upd(e))}${e.att?` · 📎 ${e.att}`:''}${e.cmt?` · 💬 ${e.cmt}`:''}</div>${tags?`<div style="margin-top:6px">${tags}</div>`:''}</div>`; }).join('')||`<p style="color:var(--text-muted)">${tr('fo-noentries')}</p>`}
     </div>`;
     el.innerHTML=`<div class="forum-layout">${grpHtml}${listHtml}</div>`;
     // Wiring
@@ -1347,6 +1350,7 @@
     $$('[data-fsren]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();const[g,s]=b.dataset.fsren.split('|');foRenameSub(g,s);});
     $$('[data-fsdel]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();const[g,s]=b.dataset.fsdel.split('|');foDeleteSub(g,s);});
     const ne=$('#fo-newentry',el); if(ne)ne.onclick=()=>{ state.forumEditId=null; state.forumView='edit'; renderForum(); };
+    $$('[data-fotopicexp]',el).forEach(b=>b.onclick=()=>{ if(sel.gid)exportForumTopic(sel.gid, b.dataset.fotopicexp); });
     $$('[data-foopen]',el).forEach(c=>c.onclick=()=>{ state.forumEntryId=c.dataset.foopen; state.forumView='entry'; renderForum(); });
     const q=$('#fo-q',el); if(q)q.oninput=()=>{ state.forumFilter.q=q.value; const p=q.selectionStart; renderForum(); const nq=$('#fo-q'); if(nq){nq.focus();nq.setSelectionRange(p,p);} };
     const so=$('#fo-sort',el); if(so)so.onchange=()=>{ state.forumSort=so.value; renderForum(); };
@@ -1362,15 +1366,25 @@
     if(!e||e.type!=='forum'){ state.forumView='list'; return renderForum(); }
     const loc=forumLoc(e);
     const atts=(e.attachments||[]).map((a,i)=>`<div style="display:inline-block;vertical-align:top;position:relative"><span data-foatt="${i}"></span><button class="btn xs danger" data-foattdel="${i}" style="position:absolute;top:10px;right:14px" aria-label="${tr('fo-delete')}">✕</button></div>`).join('');
-    const comments=(e.comments||[]).map((c,i)=>`<div class="notice info" style="margin-top:8px;align-items:flex-start"><span>💬</span><span style="flex:1;min-width:0"><div style="white-space:pre-wrap">${esc(c.text)}</div><div class="fmeta" style="margin-top:2px">${fmtDate(c.at)}</div></span><button class="btn xs danger" data-focmtdel="${i}" aria-label="${tr('fo-delete')}">✕</button></div>`).join('');
+    const comments=(e.comments||[]).map((c,i)=>`<div class="notice info" style="margin-top:8px;align-items:flex-start"><span>💬</span><span style="flex:1;min-width:0"><div style="white-space:pre-wrap">${esc(c.text)}</div><div class="fmeta" style="margin-top:2px">${fmtDateTime(c.at)}</div></span><button class="btn xs danger" data-focmtdel="${i}" aria-label="${tr('fo-delete')}">✕</button></div>`).join('');
+    // Querverweise (auf Dokumente oder andere Forum-Einträge)
+    const refExists=(r)=> r.kind==='forum' ? forumEntries().some(c=>c.id===r.id) : state.catalog.some(c=>c.id===r.id&&c.type!=='forum');
+    const refsHtml=(e.refs||[]).map((r,i)=>`<div class="row" style="gap:6px;margin-top:4px;justify-content:space-between"><a href="#" data-foref="${esc(r.kind)}|${esc(r.id)}" style="min-width:0;word-break:break-word${refExists(r)?'':';text-decoration:line-through;color:var(--text-muted)'}">${r.kind==='forum'?'💬':'📄'} ${esc(r.name||'?')}</a><button class="btn xs danger" data-forefdel="${i}" aria-label="${tr('fo-delete')}">✕</button></div>`).join('');
+    const rdocs=state.catalog.filter(c=>c.type!=='forum'); const rfor=forumEntries().filter(c=>c.id!==e.id);
+    let refOpts=`<option value="">${de?'Querverweis wählen …':'Choose reference …'}</option>`;
+    if(rdocs.length)refOpts+=`<optgroup label="${de?'Dokumente':'Documents'}">`+rdocs.map(c=>`<option value="doc|${esc(c.id)}">${esc(c.name)}</option>`).join('')+`</optgroup>`;
+    if(rfor.length)refOpts+=`<optgroup label="Forum">`+rfor.map(c=>`<option value="forum|${esc(c.id)}">${esc(c.name||tr('fo-untitled'))}</option>`).join('')+`</optgroup>`;
     el.innerHTML=`<div class="panel panel-pad" style="max-width:820px">
       <div class="row" style="justify-content:space-between;margin-bottom:10px"><button class="btn sm neutral" id="fo-back">${tr('fo-back')}</button><div class="row"><button class="btn sm neutral" id="fo-edit">✎ ${tr('fo-edit')}</button><button class="btn sm danger" id="fo-delentry">🗑 ${tr('fo-delete')}</button></div></div>
       <div class="row" style="align-items:center;gap:8px;margin:0 0 4px"><h3 style="margin:0;min-width:0;word-break:break-word">${esc(e.name||tr('fo-untitled'))}</h3>${foStatusChip(e.status)}</div>
-      <div class="fmeta" style="margin-bottom:${(e.tags||[]).length?'6px':'12px'}">${loc?esc(loc)+' · ':''}${de?'erstellt ':'created '}${fmtDate(e.importedAt)}${e.updatedAt&&e.updatedAt.slice(0,10)!==(e.importedAt||'').slice(0,10)?` · ${de?'geändert':'edited'} ${fmtDate(e.updatedAt)}`:''}</div>
+      <div class="fmeta" style="margin-bottom:${(e.tags||[]).length?'6px':'12px'}">${loc?esc(loc)+' · ':''}${de?'erstellt ':'created '}${fmtDateTime(e.importedAt)}${e.updatedAt&&e.updatedAt!==e.importedAt?` · ${de?'geändert':'edited'} ${fmtDateTime(e.updatedAt)}`:''}</div>
       ${(e.tags||[]).length?`<div style="margin-bottom:12px">${(e.tags||[]).map(t=>`<span class="chip">🏷 ${esc(t)}</span>`).join(' ')}</div>`:''}
       <div style="line-height:1.6" class="fo-body">${foMd(e.body||'')}</div>
       <div style="margin-top:12px">${atts}</div>
       <div style="margin-top:14px"><button class="btn sm neutral" id="fo-attach">📎 ${tr('fo-attach')}</button><input type="file" id="fo-attach-input" accept="image/*,video/*" style="display:none"></div>
+      <h4 style="margin:20px 0 8px;border-top:1px solid var(--line);padding-top:14px">🔗 ${tr('fo-refs')}</h4>
+      <div>${refsHtml||`<p style="color:var(--text-muted);font-size:13px">—</p>`}</div>
+      <div class="row" style="gap:8px;margin-top:8px"><select id="fo-ref-sel" style="padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:14px;flex:1;min-width:0">${refOpts}</select><button class="btn sm neutral" id="fo-ref-add">+ ${tr('fo-addref')}</button></div>
       <h4 style="margin:20px 0 8px;border-top:1px solid var(--line);padding-top:14px">${tr('fo-comments')} (${(e.comments||[]).length})</h4>
       <div>${comments||`<p style="color:var(--text-muted);font-size:13px">—</p>`}</div>
       <div class="row" style="margin-top:10px"><input id="fo-comment-input" placeholder="${tr('fo-comment-ph')}" style="flex:1"><button class="btn sm" id="fo-addcomment">${tr('fo-addcomment')}</button></div>
@@ -1394,6 +1408,12 @@
     $$('[data-focmtdel]',el).forEach(b=>b.onclick=()=>foDelComment(e, +b.dataset.focmtdel));
     const ci=$('#fo-comment-input',el); const addC=()=>{ const v=ci.value; ci.value=''; foAddComment(e, v); };
     $('#fo-addcomment',el).onclick=addC; ci.onkeydown=(ev)=>{ if(ev.key==='Enter')addC(); };
+    // Querverweise: öffnen / entfernen / hinzufügen
+    $$('[data-foref]',el).forEach(a=>a.onclick=(ev)=>{ ev.preventDefault(); const [kind,id]=a.dataset.foref.split('|');
+      if(kind==='forum'){ if(!forumEntries().some(c=>c.id===id)){ toast(de?'Eintrag nicht mehr vorhanden.':'Entry no longer exists.','err'); return; } state.forumEntryId=id; state.forumView='entry'; renderForum(); }
+      else { if(!state.catalog.some(c=>c.id===id&&c.type!=='forum')){ toast(de?'Dokument nicht mehr vorhanden.':'Document no longer exists.','err'); return; } openDoc(id); } });
+    $$('[data-forefdel]',el).forEach(b=>b.onclick=async()=>{ (e.refs||[]).splice(+b.dataset.forefdel,1); await foSaveEntry(e); renderForum(); });
+    const ra=$('#fo-ref-add',el); if(ra)ra.onclick=async()=>{ const v=$('#fo-ref-sel',el).value; if(!v)return; const [kind,id]=v.split('|'); const target=state.catalog.find(c=>c.id===id); if(!target)return; e.refs=e.refs||[]; if(e.refs.some(r=>r.id===id)){ toast(de?'Bereits verknüpft.':'Already linked.'); return; } e.refs.push({kind, id, name:target.name||tr('fo-untitled')}); await foSaveEntry(e); renderForum(); };
   }
 
   async function renderForumEditor(el){
@@ -1424,7 +1444,7 @@
       const status=$('#fo-e-status',el)?$('#fo-e-status',el).value:'';
       const tags=[...new Set($('#fo-e-tags',el).value.split(',').map(x=>x.trim()).filter(Boolean))];
       if(e){ e.name=t||e.name; e.body=b; e.forum={gid,sid}; e.status=status; e.tags=tags; await foSaveEntry(e); state.forumEntryId=e.id; }
-      else { const entry={ id:foUuid(), name:t||tr('fo-untitled'), body:b, type:'forum', ext:'forum', importedAt:new Date().toISOString(), tags, note:'', status, forum:{gid,sid}, comments:[], attachments:[] }; await foSaveEntry(entry); state.forumEntryId=entry.id; }
+      else { const entry={ id:foUuid(), name:t||tr('fo-untitled'), body:b, type:'forum', ext:'forum', tags, note:'', status, forum:{gid,sid}, comments:[], attachments:[], refs:[] }; await foSaveEntry(entry); state.forumEntryId=entry.id; }
       state.forumView='entry'; renderForum(); };
     $('#fo-e-cancel',el).onclick=()=>{ state.forumView=state.forumEntryId?'entry':'list'; renderForum(); };
   }
@@ -1443,6 +1463,26 @@
     e.attachments=e.attachments||[]; e.attachments.push({name:file.name, storedAs, kind:foMediaKind(file.name,file.type), size:file.size});
     await foSaveEntry(e); renderForum(); }
   async function foDelAttachment(e, i){ const a=(e.attachments||[])[i]; if(a) await removeFile(state.dirs.forum, a.storedAs); (e.attachments||[]).splice(i,1); await foSaveEntry(e); renderForum(); }
+  // Ganzes Thema (inkl. Untergruppen) als aufgeräumtes Dokument exportieren –
+  // nutzt dieselbe Export-Pipeline wie Suchberichte (Quelle je Eintrag + Text +
+  // Kommentare, plus Quellen-Tabelle am Ende).
+  async function exportForumTopic(gid, fmt){
+    const g=forumGroup(gid); if(!g)return; const de=state.settings.lang==='de';
+    const cat=forumEntries().filter(c=>c.forum&&c.forum.gid===gid).sort((a,b)=>(a.importedAt||'').localeCompare(b.importedAt||''));
+    if(!cat.length){ toast(de?'Keine Einträge in diesem Thema.':'No entries in this topic.','err'); return; }
+    const items=[];
+    for(const c of cat){ const e=await getIndex(c.id).catch(()=>null); if(!e)continue;
+      const sub=forumSub(g, e.forum&&e.forum.sid); const loc=[g.name, sub&&sub.name].filter(Boolean).join(' · ');
+      let text=e.body||'';
+      if((e.comments||[]).length) text+='\n\n'+(de?'Kommentare:':'Comments:')+'\n'+(e.comments||[]).map(c=>'– '+c.text).join('\n');
+      if((e.refs||[]).length) text+='\n\n'+(de?'Querverweise:':'Cross-references:')+' '+(e.refs||[]).map(r=>r.name).join(', ');
+      items.push({ file:e.name||tr('fo-untitled'), ref:loc, snippet:'', text, tags:(e.tags||[]).join(', '), date:fmtDateTime(e.importedAt) });
+    }
+    if(!items.length){ toast(de?'Keine Einträge in diesem Thema.':'No entries in this topic.','err'); return; }
+    const data={ title:(de?'Thema: ':'Topic: ')+g.name, params:items.length+' '+(de?'Einträge':'entries')+' · '+(de?'Stand: ':'As of: ')+new Date().toLocaleString(locale()), summary:'', items };
+    try{ const blob=await makeExportBlob(fmt, data); await writeExportFile('thornpedia_thema_'+slug(g.name)+'_'+stamp()+'.'+fmt, blob, true); toast(de?'Thema exportiert (in /exports und als Download).':'Topic exported (in /exports and download).','ok'); }
+    catch(err){ console.error(err); toast('Export: '+err.message,'err'); }
+  }
 
   // ---------- Suche ----------
   // Faltung fuer robuste Treffer: Kündigung == Kuendigung == KUENDIGUNG.
@@ -2511,7 +2551,7 @@
 
     if(window.__WA_MOCK_ROOT__||window.__WA_TEST__){
       // Test-Brücke – nur aktiv, wenn explizit injiziert (automatisierte Prüfung).
-      window.WA={ importFiles, runSearch, searchArchive, generateSummary, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, setMode:(m)=>{state.sumMode=m;},
+      window.WA={ importFiles, runSearch, searchArchive, generateSummary, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, setMode:(m)=>{state.sumMode=m;},
         rebuildCatalog: async()=>{ state.indexCache.clear(); state.catalog=await rebuildCatalog(); renderLibrary(); return state.catalog; } };
     }
 
