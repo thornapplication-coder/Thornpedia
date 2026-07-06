@@ -693,7 +693,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.8.1';
+  const APP_VERSION = '1.8.2';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1739,23 +1739,15 @@
                   thorough: de?'≈ 25–30 Cent pro Frage · bis 20 Dokumente, lange Antworten':'≈ 25–30 cents per question · up to 20 documents, long answers' };
     const h=$('#aib-hint'); if(h)h.textContent=hints[cur]||hints.standard;
   }
-  // Stoppwörter für das Passagen-Retrieval der KI-Frage (siehe qaCorpus/exactPassages).
-  const STOP=new Set('der die das und oder in im am zur zum ein eine einen eines dem den des mit von vom fur für auf ist sind war waren wie was wo wer welche welcher alles über uber about the a an of to in on for is are what which where who all and or with from find finde raus mir mich'.split(/\s+/));
   async function askQuestion(q){
     const resEl=$('#search-results'); $('#search-count').textContent='';
     if(!state.apiKey){ resEl.innerHTML=`<div class="empty"><div class="big">🤖</div><p>${tr('ask-nokey')}</p><button class="btn sm" data-view-jump="settings" style="margin-top:8px">⚙️ ${tr('nav-set')}</button></div>`; wireJump(resEl); return; }
     resEl.innerHTML=`<div class="empty"><span class="busy"></span> <span style="margin-left:8px">${tr('ask-working')}</span></div>`;
-    await loadAllIndexes();
-    // Die KI durchsucht IMMER alle hochgeladenen Dokumente (auf Passagen-Ebene).
-    if(!state.catalog.some(c=>c.type!=='forum')){ resEl.innerHTML=`<div class="empty"><p>${tr('ask-nodocs')}</p></div>`; return; }
     try{
+      // Normaler Claude-Chat – bezieht sich NICHT auf die hochgeladenen Dokumente.
       const ans=await claudeAnswer(q);
-      const cost=aiCostLabel(ans.usage, (ans.sources||[]).length);
-      // Exakte Belegstellen aus den (herangezogenen) Dokumenten, passend zur Frage.
-      const ids=(ans.sources||[]).map(s=>s.id).filter(Boolean);
-      const words=[...new Set(fold(q).split(/[^a-z0-9]+/).filter(w=>w.length>=3 && !STOP.has(w)))];
-      const passages=await exactPassages(ids, words, 6);
-      resEl.innerHTML=`<div class="panel panel-pad"><div class="r-title" style="font-weight:600;margin-bottom:10px">🤖 ${esc(q)}</div><div class="section-text" style="max-height:none">${esc(ans.text)}</div>${costLine(cost)}${excerptBlock(passages)}${sourceListHtml(ans.picked, ans.sources)}</div>`;
+      const cost=aiCostLabel(ans.usage, null);
+      resEl.innerHTML=`<div class="panel panel-pad"><div class="r-title" style="font-weight:600;margin-bottom:10px">🤖 ${esc(q)}</div><div class="fo-body" style="line-height:1.7">${foMd(ans.text)}</div>${costLine(cost)}</div>`;
     }catch(e){ resEl.innerHTML=`<div class="empty"><p style="color:var(--danger)">${esc(e.message)}</p></div>`; }
   }
   // ---------- Gemeinsame Bausteine der Claude-API-Aufrufe ----------
@@ -1773,46 +1765,16 @@
     for(const id of ids){ const doc=await getIndex(id); sources.push(doc); corpus+=`\n\n### ${doc.name}\n`; for(const u of (doc.units||[])){ corpus+=`[${refLabel(u.ref)}] ${u.text}\n`; if(corpus.length>limit)break; } if(corpus.length>limit){ corpus=corpus.slice(0,limit); break; } }
     return { corpus, sources };
   }
-  // Passagen-Retrieval für KI-Fragen: bewertet JEDE Textstelle in ALLEN Dokumenten
-  // nach passenden Fragewörtern und schickt die relevantesten Stellen (dokument-
-  // übergreifend, pro Dokument begrenzt) an die KI – nicht nur den Anfang eines
-  // einzelnen Dokuments. So findet die KI die Antwort auch tief in großen Dateien
-  // und zieht mehrere Dokumente heran.
-  function qaCorpus(q, limitChars, maxDocs){
-    const words=[...new Set(fold(q).split(/[^a-z0-9]+/).filter(w=>w.length>=3 && !STOP.has(w)))];
-    const docs=state.catalog.filter(c=>c.type!=='forum');
-    let scored=[];
-    for(const c of docs){ const doc=state.indexCache.get(c.id); if(!doc)continue;
-      for(const u of (doc.units||[])){ const f=foldUnit(u); let s=0; for(const w of words){ if(f.includes(w))s++; } if(s)scored.push({s, text:String(u.text||'').trim(), ref:u.ref, name:doc.name, id:c.id}); } }
-    scored.sort((a,b)=>b.s-a.s);
-    // Kein Wort-Treffer: trotzdem Anfangs-Passagen aus mehreren Dokumenten heranziehen.
-    if(!scored.length){
-      for(const c of docs.slice(0, maxDocs||8)){ const doc=state.indexCache.get(c.id); if(!doc)continue;
-        (doc.units||[]).slice(0,3).forEach(u=>scored.push({s:0, text:String(u.text||'').trim(), ref:u.ref, name:doc.name, id:c.id})); }
-    }
-    // Bis zum Zeichenbudget auswählen, aber pro Dokument begrenzen, damit ein
-    // Riesendokument nicht alle anderen verdrängt.
-    const perDoc=new Map(); const chosen=[]; let total=0; const CAP=8;
-    for(const it of scored){ const n=perDoc.get(it.id)||0; if(n>=CAP)continue;
-      if(total+it.text.length>limitChars && chosen.length)break;
-      perDoc.set(it.id,n+1); chosen.push(it); total+=it.text.length; if(total>=limitChars)break; }
-    // Nach Dokument gruppiert ausgeben.
-    const byDoc=new Map();
-    for(const it of chosen){ if(!byDoc.has(it.id))byDoc.set(it.id,{name:it.name, id:it.id, units:[]}); byDoc.get(it.id).units.push(it); }
-    let corpus=''; const sources=[];
-    for(const g of byDoc.values()){ const cat=state.catalog.find(c=>c.id===g.id)||{}; sources.push({id:g.id, name:g.name, pageCount:cat.pageCount}); corpus+=`\n\n### ${g.name}\n`; for(const u of g.units){ corpus+=`[${refLabel(u.ref)}] ${u.text}\n`; } }
-    return { corpus, sources };
-  }
   const pickSources=(sources)=>sources.map(d=>({docId:d.id, name:d.name, ref: d.pageCount ? {page:(d.pageCount>1?('1–'+d.pageCount):1)} : null}));
+  // „KI fragen" ist ein normaler Claude-Chat – die Antwort bezieht sich NICHT auf
+  // die hochgeladenen Dokumente, sondern kommt aus dem allgemeinen Wissen von Claude.
+  // Sprache folgt der App-Einstellung (Deutsch, umschaltbar auf Englisch).
   async function claudeAnswer(q){
     if(!navigator.onLine) throw new Error(state.settings.lang==='de'?'Keine Internetverbindung.':'No internet connection.');
     const B=aiLimits();
-    const {corpus, sources}=qaCorpus(q, B.chars, B.docs);
-    if(!corpus.trim()) throw new Error(state.settings.lang==='de'?'Keine durchsuchbaren Dokumente vorhanden.':'No searchable documents available.');
-    const lang=state.settings.lang==='de'?'Deutsch':'English';
-    const prompt=`Beantworte die folgende Frage AUSSCHLIESSLICH anhand der bereitgestellten Dokumentauszüge, auf ${lang}. Wenn die Auszüge die Antwort nicht enthalten, sage das ehrlich. Verweise im Text auf die betreffenden Dateinamen/Fundstellen.\n\nFrage: ${q}\n\nDokumentauszüge:${corpus}`;
-    const {text, usage}=await claudeMessage(prompt, B.ans);
-    return {text, sources, picked:pickSources(sources), usage};
+    const instr = state.settings.lang==='de' ? 'Bitte antworte auf Deutsch.' : 'Please answer in English.';
+    const {text, usage}=await claudeMessage(instr+'\n\n'+q, B.ans);
+    return {text, usage};
   }
   // Grobe Kostenschätzung einer KI-Anfrage aus der zurückgegebenen Token-Nutzung
   // (Opus 4.8: 5 $ / 25 $ je 1 Mio. Token). Reine Info in der Oberfläche – wird
@@ -1858,7 +1820,7 @@
     const de=state.settings.lang==='de';
     const ce=$('#chk-exact'); if(ce) ce.checked = state.search.mode==='exact';
     const cs=$('#chk-scope'); if(cs) cs.checked = state.search.scope==='selected';
-    const inp=$('#search-input'); if(inp) inp.placeholder = state.search.mode==='ask' ? (de?'Frage stellen, z. B. „Was steht zu Mietverträgen?"':'Ask a question, e.g. "What do the docs say about lease agreements?"') : (state.search.mode==='exact' ? (de?'Genauer Wortlaut …':'Exact wording …') : (de?'Suchbegriff…':'Search term…'));
+    const inp=$('#search-input'); if(inp) inp.placeholder = state.search.mode==='ask' ? (de?'Claude etwas fragen – wie im Chat …':'Ask Claude anything – like a chat …') : (state.search.mode==='exact' ? (de?'Genauer Wortlaut …':'Exact wording …') : (de?'Suchbegriff…':'Search term…'));
     const btn=$('#search-btn'); if(btn) btn.textContent = state.search.mode==='ask' ? (de?'Fragen':'Ask') : (de?'Suchen':'Search');
     const hint=$('#search-scope-hint'); if(hint) hint.textContent = state.search.scope==='selected' ? (state.lib.selected.size ? (state.lib.selected.size+' '+(de?'markiert (in der Bibliothek)':'selected (in library)')) : (de?'Keine Dokumente markiert – bitte in der Bibliothek Haken setzen.':'No documents selected – tick them in the library.')) : '';
   }
@@ -3079,7 +3041,7 @@
 
     if(window.__WA_MOCK_ROOT__||window.__WA_TEST__){
       // Test-Brücke – nur aktiv, wenn explizit injiziert (automatisierte Prüfung).
-      window.WA={ importFiles, runSearch, searchArchive, generateSummary, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, setMode:(m)=>{state.sumMode=m;}, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, foAddComment, qaCorpus,
+      window.WA={ importFiles, runSearch, searchArchive, generateSummary, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, setMode:(m)=>{state.sumMode=m;}, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, foAddComment,
         rebuildCatalog: async()=>{ state.indexCache.clear(); state.catalog=await rebuildCatalog(); renderLibrary(); return state.catalog; } };
     }
 
