@@ -59,6 +59,16 @@ export async function run(base) {
   });
   t.check('UND-Suche trifft nur Dokument mit beiden Begriffen', s4.length === 1 && s4[0] === 'mietvertrag.pdf', JSON.stringify(s4));
 
+  // KI-Frage: Passagen-Retrieval durchsucht ALLE Dokumente (nicht nur eins/den Anfang)
+  const qa = await page.evaluate(async () => {
+    for (const c of window.WA.state.catalog) { try { await window.WA.getIndex(c.id); } catch (_) {} }
+    const a = window.WA.qaCorpus('Kuendigungsfrist', 60000, 12);   // Begriff kommt im Mietvertrag vor
+    const b = window.WA.qaCorpus('qqxzptvw', 60000, 12);           // kommt nirgends vor → Fallback über mehrere Dokumente
+    return { aHasTerm: /Kuendigungsfrist/i.test(a.corpus), aSources: a.sources.length, bSources: b.sources.length };
+  });
+  t.check('KI-Retrieval findet die Passage im Dokument', qa.aHasTerm === true && qa.aSources >= 1, JSON.stringify(qa));
+  t.check('KI-Retrieval zieht mehrere Dokumente heran (kein Treffer → Fallback)', qa.bSources >= 2, JSON.stringify(qa));
+
   // Forum: Eintrag mit Status/Tags/Markdown → fließt in die Suche ein, rendert sauber
   const fo = await page.evaluate(async () => {
     const id = 'forumtest-1';
