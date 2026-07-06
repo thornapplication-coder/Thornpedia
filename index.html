@@ -663,7 +663,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.2.0';
+  const APP_VERSION = '1.2.1';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -775,7 +775,7 @@
     'fo-edit':['Bearbeiten','Edit'],'fo-delete':['Löschen','Delete'],'fo-attach':['Anhang (Bild/Video)','Attachment (image/video)'],'fo-comments':['Kommentare','Comments'],
     'fo-comment-ph':['Kommentar hinzufügen …','Add a comment …'],'fo-addcomment':['Kommentar','Comment'],'fo-back':['← Zurück','← Back'],'fo-rename':['Umbenennen','Rename'],
     'fo-theme-name':['Name des Themas','Topic name'],'fo-sub-name':['Name der Untergruppe','Subgroup name'],'fo-del-theme':['Thema mit allen Einträgen löschen?','Delete topic with all its entries?'],
-    'fo-del-sub':['Untergruppe löschen? Einträge rücken ins Thema.','Delete subgroup? Its entries move up to the topic.'],'fo-del-entry':['Diesen Eintrag löschen?','Delete this entry?'],'fo-in':['in','in'],'fo-untitled':['(ohne Titel)','(untitled)'],
+    'fo-del-sub':['Untergruppe löschen? Einträge rücken ins Thema.','Delete subgroup? Its entries move up to the topic.'],'fo-del-entry':['Diesen Eintrag löschen?','Delete this entry?'],'fo-untitled':['(ohne Titel)','(untitled)'],
     'about-1':['Thornpedia ist eine digitale Wissensplattform für die zivile Luftfahrt, die zur Unterstützung von Aus- und Weiterbildungsmaßnahmen im EASA-regulierten Flugbetrieb entwickelt wurde. Sie dient als zentrale Informationsquelle für flugbetriebliche, technische und regulatorische Themen und unterstützt einen strukturierten, standardisierten sowie nachhaltigen Wissenstransfer.','Thornpedia is a digital knowledge platform for civil aviation, developed to support training and continuing-education measures in EASA-regulated flight operations. It serves as a central source of information on operational, technical and regulatory topics and supports a structured, standardised and sustainable transfer of knowledge.'],
     'about-2':['Die Plattform stellt fundierte Informationen zu Luftfahrzeugen, Flugzeugsystemen, Betriebsverfahren, Performance, Navigation, Meteorologie, Human Factors sowie den geltenden EASA-Regularien bereit. Thornpedia unterstützt Pilotinnen und Piloten, Fluglehrende, Prüfer sowie Trainingsverantwortliche bei der Vorbereitung, Durchführung und Nachbereitung von Ausbildungs- und Qualifizierungsmaßnahmen.','The platform provides well-founded information on aircraft, aircraft systems, operating procedures, performance, navigation, meteorology, human factors and the applicable EASA regulations. Thornpedia supports pilots, flight instructors, examiners and training managers in preparing, conducting and following up training and qualification measures.'],
     'about-3':['Zur effizienten Aufbereitung umfangreicher Fachinformationen nutzt Thornpedia moderne Verfahren der Künstlichen Intelligenz. Diese werden eingesetzt, um Inhalte zu analysieren, zusammenzufassen und übersichtlich darzustellen. Dadurch können relevante Informationen schneller erfasst werden, ohne den fachlichen Kontext aus dem Blick zu verlieren.','To efficiently process extensive specialist information, Thornpedia uses modern artificial-intelligence techniques. These are used to analyse, summarise and clearly present content, so that relevant information can be grasped faster without losing the technical context.'],
@@ -821,6 +821,7 @@
     'upd-later':['Später','Later'],
   };
   const tr = (key) => (I18N[key]||['',''])[state.settings.lang==='de'?0:1];
+  const locale = () => state.settings.lang==='de' ? 'de-DE' : 'en-GB';
   function applyLang(lang){ state.settings.lang=lang; const i=lang==='de'?0:1; document.documentElement.lang=lang;
     $$('[data-i18n]').forEach(n=>{const t=I18N[n.getAttribute('data-i18n')];if(t)n.innerHTML=t[i].replace('{v}',APP_VERSION);});
     $$('[data-i18n-ph]').forEach(n=>{const t=I18N[n.getAttribute('data-i18n-ph')];if(t)n.placeholder=t[i];});
@@ -898,7 +899,7 @@
   async function writeIndex(doc){ await writeFile(state.dirs.index,doc.id+'.json',JSON.stringify(doc)); state.indexCache.set(doc.id,doc); }
   async function loadAllIndexes(){ for(const c of state.catalog){ if(!state.indexCache.has(c.id)){ try{ await getIndex(c.id); }catch(e){} } } }
 
-  function updateCount(){ $('#cnt-lib').textContent=String(state.catalog.length); }
+  function updateCount(){ $('#cnt-lib').textContent=String(state.catalog.filter(c=>c.type!=='forum').length); }
 
   // ---------- Parser ----------
   function getWorker(){ if(!state.parseWorker){ state.parseWorker=new Worker('parse-worker.js'); } return state.parseWorker; }
@@ -1004,7 +1005,7 @@
       $('#import-summary').textContent=`${done} ${de()?'importiert':'imported'} · ${skipped} ${de()?'übersprungen':'skipped'}${failed?` · ${failed} ${de()?'Fehler':'errors'}`:''}`;
     }
     }finally{ _importBusy=false; }
-    renderLibrary(); renderFilters(); renderBackupStats();
+    refreshLibrary();
     toast(`${done} ${state.settings.lang==='de'?'importiert':'imported'}`+(skipped?`, ${skipped} ${state.settings.lang==='de'?'übersprungen':'skipped'}`:''), 'ok');
     if(done>0) maybeAutoBackup();
   }
@@ -1020,15 +1021,20 @@
 
   // ---------- Bibliothek ----------
   function fmtBytes(n){ if(n==null)return '—'; if(n<1024)return n+' B'; if(n<1048576)return (n/1024).toFixed(0)+' KB'; if(n<1073741824)return (n/1048576).toFixed(1)+' MB'; return (n/1073741824).toFixed(2)+' GB'; }
-  function fmtDate(iso){ if(!iso)return '—'; const d=new Date(iso); return d.toLocaleDateString(state.settings.lang==='de'?'de-DE':'en-GB'); }
-  function allTags(){ const s=new Set(); state.catalog.forEach(c=>(c.tags||[]).forEach(t=>s.add(t))); return Array.from(s).sort(); }
+  function fmtDate(iso){ if(!iso)return '—'; const d=new Date(iso); return d.toLocaleDateString(locale()); }
+  // Nur Dokument-Tags: Forum-Einträge haben ihre eigene Tag-Oberfläche (foTags),
+  // damit Forum-Tags nicht in Bibliothek/Suchfilter/Tag-Verwaltung auftauchen.
+  function allTags(){ const s=new Set(); state.catalog.forEach(c=>{ if(c.type==='forum')return; (c.tags||[]).forEach(t=>s.add(t)); }); return Array.from(s).sort(); }
+  // Der wiederkehrende Render-Dreiklang nach jeder Katalog-Änderung.
+  function refreshLibrary(){ renderLibrary(); renderFilters(); return renderBackupStats(); }
 
   function renderLibrary(){
     const el=$('#lib-content'); if(!el)return;
-    $('#lib-sub').textContent = (state.settings.lang==='de'?`${state.catalog.length} Dokumente · lokal gespeichert`:`${state.catalog.length} documents · stored locally`);
-    if(!state.catalog.length){ el.innerHTML=`<div class="empty panel"><div class="big">📚</div><h3>${tr('lib-empty-h')}</h3><p style="max-width:420px">${tr('lib-empty-p')}</p><button class="btn" style="margin-top:8px" data-view-jump="import">⬆️ ${tr('nav-import')}</button></div>`; wireJump(el); return; }
+    const docs=state.catalog.filter(c=>c.type!=='forum'); // Forum-Einträge leben in ihrer eigenen Ansicht
+    $('#lib-sub').textContent = (state.settings.lang==='de'?`${docs.length} Dokumente · lokal gespeichert`:`${docs.length} documents · stored locally`);
+    if(!docs.length){ el.innerHTML=`<div class="empty panel"><div class="big">📚</div><h3>${tr('lib-empty-h')}</h3><p style="max-width:420px">${tr('lib-empty-p')}</p><button class="btn" style="margin-top:8px" data-view-jump="import">⬆️ ${tr('nav-import')}</button></div>`; wireJump(el); return; }
     const L=state.lib;
-    let rows=state.catalog.slice().filter(r=>r.type!=='forum'); // Forum-Einträge leben in ihrer eigenen Ansicht
+    let rows=docs.slice();
     if(L.type!=='all') rows=rows.filter(r=>r.type===L.type);
     if(L.tag) rows=rows.filter(r=>(r.tags||[]).includes(L.tag));
     if(L.q){ const q=L.q.toLowerCase(); rows=rows.filter(r=>r.name.toLowerCase().includes(q)||(r.note||'').toLowerCase().includes(q)||(r.tags||[]).some(t=>t.toLowerCase().includes(q))); }
@@ -1132,7 +1138,7 @@
     else if(act==='note'){ promptDlg('note', doc.note||'', async(v)=>{ doc.note=v||''; await persistDoc(doc); await saveCatalog(); renderLibrary(); }); }
     else if(act==='reindex'){ await reindexDoc(doc); }
     else if(act==='ocr'){ await ocrDoc(doc); }
-    else if(act==='delete'){ if(confirm((state.settings.lang==='de'?'Wirklich löschen? ':'Really delete? ')+doc.name)){ await deleteDoc(id); renderLibrary(); renderFilters(); renderBackupStats(); toast(state.settings.lang==='de'?'Gelöscht.':'Deleted.'); } }
+    else if(act==='delete'){ if(confirm((state.settings.lang==='de'?'Wirklich löschen? ':'Really delete? ')+doc.name)){ await deleteDoc(id); refreshLibrary(); toast(state.settings.lang==='de'?'Gelöscht.':'Deleted.'); } }
   }
   function updateCatalogEntry(doc){ const i=state.catalog.findIndex(c=>c.id===doc.id); if(i>=0)state.catalog[i]=summaryOf(doc); }
   // Index-Datei schreiben + Katalog-Eintrag aktualisieren – die überall wiederkehrende Sequenz.
@@ -1209,14 +1215,14 @@
   // das Zeilenmenue, entfernen ueber das ✕ am Tag). Verschwindet ein Tag dadurch ganz,
   // wird es auch aus den aktiven Filtern entfernt.
   async function removeTag(id, tag){ const doc=await getIndex(id).catch(()=>null); if(!doc)return; doc.tags=(doc.tags||[]).filter(t=>t!==tag); await persistDoc(doc); await saveCatalog(); const gone=!allTags().includes(tag); if(gone){ if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; } renderLibrary(); renderFilters(); renderTagAdmin(); }
-  async function batchDelete(){ if(!confirm((state.settings.lang==='de'?'Ausgewählte löschen? ':'Delete selected? ')+state.lib.selected.size)){return;} for(const id of Array.from(state.lib.selected)) await deleteDoc(id,true); await saveCatalog(); renderLibrary(); renderFilters(); renderBackupStats(); toast(state.settings.lang==='de'?'Gelöscht.':'Deleted.'); }
+  async function batchDelete(){ if(!confirm((state.settings.lang==='de'?'Ausgewählte löschen? ':'Delete selected? ')+state.lib.selected.size)){return;} for(const id of Array.from(state.lib.selected)) await deleteDoc(id,true); await saveCatalog(); refreshLibrary(); toast(state.settings.lang==='de'?'Gelöscht.':'Deleted.'); }
 
   // ---------- Tag-Verwaltung (global: umbenennen / zusammenführen / löschen) ----------
   // Umbenennen auf einen bereits vorhandenen Tag verschmilzt beide (dedupliziert je Dokument).
   async function renameTagGlobal(oldTag, newTag){
     newTag=(newTag||'').trim(); if(!newTag||newTag===oldTag)return;
     let changed=0;
-    for(const c of state.catalog){ if(!(c.tags||[]).includes(oldTag))continue;
+    for(const c of state.catalog){ if(c.type==='forum')continue; if(!(c.tags||[]).includes(oldTag))continue;
       const doc=await getIndex(c.id).catch(()=>null); if(!doc)continue;
       const set=new Set(doc.tags||[]); set.delete(oldTag); set.add(newTag);
       doc.tags=Array.from(set); await persistDoc(doc); changed++; }
@@ -1228,7 +1234,7 @@
     const de=state.settings.lang==='de';
     if(!confirm((de?'Tag aus allen Dokumenten entfernen? ':'Remove tag from all documents? ')+'„'+tag+'"'))return;
     let changed=0;
-    for(const c of state.catalog){ if(!(c.tags||[]).includes(tag))continue;
+    for(const c of state.catalog){ if(c.type==='forum')continue; if(!(c.tags||[]).includes(tag))continue;
       const doc=await getIndex(c.id).catch(()=>null); if(!doc)continue;
       doc.tags=(doc.tags||[]).filter(t=>t!==tag); await persistDoc(doc); changed++; }
     if(changed){ await saveCatalog(); if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; }
@@ -1258,6 +1264,8 @@
   const foUuid=()=>crypto.randomUUID();
   const forumGroups=()=>((state.forum&&state.forum.groups)||[]);
   const forumGroup=(gid)=>forumGroups().find(g=>g.id===gid);
+  const forumSub=(g,sid)=>g&&(g.subs||[]).find(s=>s.id===sid);
+  const forumLoc=(e)=>{ const g=forumGroup(e.forum&&e.forum.gid); const s=forumSub(g,e.forum&&e.forum.sid); return [g&&g.name,s&&s.name].filter(Boolean).join(' · '); };
   const forumEntries=()=>state.catalog.filter(c=>c.type==='forum');
   function foMediaKind(name, mime){ const e=(String(name).split('.').pop()||'').toLowerCase(); if((mime&&mime.startsWith('image/'))||['png','jpg','jpeg','gif','webp','bmp'].includes(e))return 'image'; if((mime&&mime.startsWith('video/'))||['mp4','webm','ogg','ogv','mov','m4v'].includes(e))return 'video'; return 'file'; }
   function foBuildUnits(e){ const u=[{ref:{section:'Titel'},text:String(e.name||'')}]; if(e.body)u.push({ref:{section:'Text'},text:String(e.body)}); (e.comments||[]).forEach((c,i)=>{ if(c.text)u.push({ref:{section:'Kommentar '+(i+1)},text:String(c.text)}); }); (e.attachments||[]).forEach(a=>u.push({ref:{section:'Anhang'},text:String(a.name||'')})); if((e.tags||[]).length)u.push({ref:{section:'Tags'},text:(e.tags||[]).join(', ')}); return u; }
@@ -1310,6 +1318,7 @@
     if(sel.gid)entries=entries.filter(e=>e.forum&&e.forum.gid===sel.gid);
     if(sel.sid)entries=entries.filter(e=>e.forum&&e.forum.sid===sel.sid);
     const foTags=[...new Set(forumEntries().flatMap(e=>e.tags||[]))].sort();
+    if(ff.tag&&!foTags.includes(ff.tag))ff.tag=''; // Filter zurücksetzen, wenn der Tag nicht mehr existiert (sonst leere Liste ohne Bedienelement)
     if(ff.status)entries=entries.filter(e=>(e.status||'')===ff.status);
     if(ff.tag)entries=entries.filter(e=>(e.tags||[]).includes(ff.tag));
     if(ff.q){ const q=ff.q.toLowerCase(); entries=entries.filter(e=>(e.name||'').toLowerCase().includes(q)||(e.tags||[]).some(t=>t.toLowerCase().includes(q))); }
@@ -1325,7 +1334,7 @@
     const listHtml=`<div>
       <div class="row" style="justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px"><strong>${entries.length} ${de?'Einträge':'entries'}</strong>${canAdd?`<button class="btn sm" id="fo-newentry">${tr('fo-newentry')}</button>`:`<span style="color:var(--text-muted);font-size:12px">${de?'Wähle links ein Thema, um Einträge anzulegen.':'Pick a topic on the left to add entries.'}</span>`}</div>
       <div class="row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap"><input id="fo-q" placeholder="${de?'Im Forum filtern …':'Filter forum …'}" value="${esc(ff.q)}" style="flex:1;min-width:140px"><select id="fo-sort" style="${ss}">${optSort}</select><select id="fo-fstatus" style="${ss}">${optStatus}</select>${foTags.length?`<select id="fo-ftag" style="${ss}">${optTag}</select>`:''}</div>
-      ${entries.map(e=>{ const g=forumGroup(e.forum&&e.forum.gid); const sub=g&&(g.subs||[]).find(s=>s.id===(e.forum&&e.forum.sid)); const loc=[g&&g.name,sub&&sub.name].filter(Boolean).join(' · '); const tags=(e.tags||[]).map(t=>`<span class="chip">🏷 ${esc(t)}</span>`).join(' ');
+      ${entries.map(e=>{ const loc=forumLoc(e); const tags=(e.tags||[]).map(t=>`<span class="chip">🏷 ${esc(t)}</span>`).join(' ');
         return `<div class="forum-card" data-foopen="${esc(e.id)}"><div class="row" style="justify-content:space-between;gap:8px"><div style="font-weight:600;min-width:0;word-break:break-word">${esc(e.name||tr('fo-untitled'))}</div>${foStatusChip(e.status)}</div><div class="fmeta" style="margin-top:3px">${loc?esc(loc)+' · ':''}${fmtDate(upd(e))}${e.att?` · 📎 ${e.att}`:''}${e.cmt?` · 💬 ${e.cmt}`:''}</div>${tags?`<div style="margin-top:6px">${tags}</div>`:''}</div>`; }).join('')||`<p style="color:var(--text-muted)">${tr('fo-noentries')}</p>`}
     </div>`;
     el.innerHTML=`<div class="forum-layout">${grpHtml}${listHtml}</div>`;
@@ -1347,10 +1356,11 @@
 
   async function renderForumEntry(el){
     const de=state.settings.lang==='de';
+    const seq=(state._foSeq=(state._foSeq||0)+1); // Render-Token gegen Anhang-Races bei schnellem Wechsel
     el.innerHTML=`<div class="empty"><span class="busy"></span></div>`;
     let e; try{ e=await getIndex(state.forumEntryId); }catch(_){ e=null; }
     if(!e||e.type!=='forum'){ state.forumView='list'; return renderForum(); }
-    const g=forumGroup(e.forum&&e.forum.gid); const sub=g&&(g.subs||[]).find(s=>s.id===(e.forum&&e.forum.sid)); const loc=[g&&g.name,sub&&sub.name].filter(Boolean).join(' · ');
+    const loc=forumLoc(e);
     const atts=(e.attachments||[]).map((a,i)=>`<div style="display:inline-block;vertical-align:top;position:relative"><span data-foatt="${i}"></span><button class="btn xs danger" data-foattdel="${i}" style="position:absolute;top:10px;right:14px" aria-label="${tr('fo-delete')}">✕</button></div>`).join('');
     const comments=(e.comments||[]).map((c,i)=>`<div class="notice info" style="margin-top:8px;align-items:flex-start"><span>💬</span><span style="flex:1;min-width:0"><div style="white-space:pre-wrap">${esc(c.text)}</div><div class="fmeta" style="margin-top:2px">${fmtDate(c.at)}</div></span><button class="btn xs danger" data-focmtdel="${i}" aria-label="${tr('fo-delete')}">✕</button></div>`).join('');
     el.innerHTML=`<div class="panel panel-pad" style="max-width:820px">
@@ -1359,17 +1369,19 @@
       <div class="fmeta" style="margin-bottom:${(e.tags||[]).length?'6px':'12px'}">${loc?esc(loc)+' · ':''}${de?'erstellt ':'created '}${fmtDate(e.importedAt)}${e.updatedAt&&e.updatedAt.slice(0,10)!==(e.importedAt||'').slice(0,10)?` · ${de?'geändert':'edited'} ${fmtDate(e.updatedAt)}`:''}</div>
       ${(e.tags||[]).length?`<div style="margin-bottom:12px">${(e.tags||[]).map(t=>`<span class="chip">🏷 ${esc(t)}</span>`).join(' ')}</div>`:''}
       <div style="line-height:1.6" class="fo-body">${foMd(e.body||'')}</div>
-      <div style="margin-top:12px" id="fo-atts">${atts}</div>
+      <div style="margin-top:12px">${atts}</div>
       <div style="margin-top:14px"><button class="btn sm neutral" id="fo-attach">📎 ${tr('fo-attach')}</button><input type="file" id="fo-attach-input" accept="image/*,video/*" style="display:none"></div>
       <h4 style="margin:20px 0 8px;border-top:1px solid var(--line);padding-top:14px">${tr('fo-comments')} (${(e.comments||[]).length})</h4>
-      <div id="fo-comment-list">${comments||`<p style="color:var(--text-muted);font-size:13px">—</p>`}</div>
+      <div>${comments||`<p style="color:var(--text-muted);font-size:13px">—</p>`}</div>
       <div class="row" style="margin-top:10px"><input id="fo-comment-input" placeholder="${tr('fo-comment-ph')}" style="flex:1"><button class="btn sm" id="fo-addcomment">${tr('fo-addcomment')}</button></div>
     </div>`;
     // Anhänge als Blob-URLs anzeigen (Bild/Video inline)
     // Anhänge per DOM-API einsetzen (nicht per innerHTML mit "src="+URL): so taucht
     // kein literales src="…" im Quelltext auf (das der Preload-Scanner sonst als
     // Phantom-Request interpretiert) und Blob-URLs bleiben sauber getrennt.
-    (e.attachments||[]).forEach(async(a,i)=>{ try{ const f=await (await state.dirs.forum.getFileHandle(a.storedAs)).getFile(); const url=URL.createObjectURL(f); state._forumUrls.push(url); const h=$(`[data-foatt="${i}"]`,el); if(!h)return; let node;
+    (e.attachments||[]).forEach(async(a,i)=>{ try{ const f=await (await state.dirs.forum.getFileHandle(a.storedAs)).getFile(); const url=URL.createObjectURL(f);
+      if(seq!==state._foSeq){ try{URL.revokeObjectURL(url);}catch(_){} return; } // inzwischen anderer Eintrag/Ansicht → verwerfen
+      state._forumUrls.push(url); const h=$(`[data-foatt="${i}"]`,el); if(!h)return; let node;
       if(a.kind==='image'){ node=document.createElement('img'); node.className='forum-att img'; node.alt=a.name||''; node.src=url; }
       else if(a.kind==='video'){ node=document.createElement('video'); node.className='forum-att'; node.controls=true; node.style.maxHeight='340px'; node.src=url; }
       else { node=document.createElement('a'); node.className='btn sm neutral'; node.download=a.name||'attachment'; node.textContent='⬇ '+(a.name||''); node.href=url; }
@@ -1421,7 +1433,7 @@
   function foRenameGroup(gid){ const g=forumGroup(gid); if(!g)return; promptDlg({title:tr('fo-rename'),label:tr('fo-theme-name'),icon:'✎'},g.name,async(v)=>{ v=(v||'').trim(); if(!v)return; g.name=v; await saveForum(); renderForum(); }); }
   async function foDeleteGroup(gid){ if(!confirm(tr('fo-del-theme')))return; for(const c of forumEntries().filter(e=>e.forum&&e.forum.gid===gid)) await deleteDoc(c.id,true); state.forum.groups=forumGroups().filter(g=>g.id!==gid); if(state.forumSel&&state.forumSel.gid===gid)state.forumSel={gid:null,sid:null}; await saveCatalog(); await saveForum(); renderForum(); }
   function foAddSub(gid){ const g=forumGroup(gid); if(!g)return; promptDlg({title:tr('fo-newsub'),label:tr('fo-sub-name'),icon:'↳'},'',async(v)=>{ v=(v||'').trim(); if(!v)return; g.subs=g.subs||[]; g.subs.push({id:foUuid(),name:v}); await saveForum(); renderForum(); }); }
-  function foRenameSub(gid,sid){ const g=forumGroup(gid); const s=g&&(g.subs||[]).find(x=>x.id===sid); if(!s)return; promptDlg({title:tr('fo-rename'),label:tr('fo-sub-name'),icon:'✎'},s.name,async(v)=>{ v=(v||'').trim(); if(!v)return; s.name=v; await saveForum(); renderForum(); }); }
+  function foRenameSub(gid,sid){ const s=forumSub(forumGroup(gid),sid); if(!s)return; promptDlg({title:tr('fo-rename'),label:tr('fo-sub-name'),icon:'✎'},s.name,async(v)=>{ v=(v||'').trim(); if(!v)return; s.name=v; await saveForum(); renderForum(); }); }
   async function foDeleteSub(gid,sid){ if(!confirm(tr('fo-del-sub')))return; const g=forumGroup(gid); if(!g)return; g.subs=(g.subs||[]).filter(s=>s.id!==sid); for(const c of forumEntries().filter(e=>e.forum&&e.forum.gid===gid&&e.forum.sid===sid)){ const full=await getIndex(c.id).catch(()=>null); if(full){ full.forum=full.forum||{}; full.forum.sid=null; await foSaveEntry(full); } } if(state.forumSel&&state.forumSel.gid===gid&&state.forumSel.sid===sid)state.forumSel={gid,sid:null}; await saveForum(); renderForum(); }
   async function foAddComment(e, text){ text=(text||'').trim(); if(!text)return; e.comments=e.comments||[]; e.comments.push({id:foUuid(), text, at:new Date().toISOString()}); await foSaveEntry(e); renderForum(); }
   async function foDelComment(e, i){ (e.comments||[]).splice(i,1); await foSaveEntry(e); renderForum(); }
@@ -1798,7 +1810,7 @@
   // damit Live-Exporte die Zusammenfassung spaeter neu erzeugen koennen.
   function getSummarySource(){
     const src=($('input[name=sumsrc]:checked')||{}).value||'selected';
-    if(src==='all') return {ids:state.catalog.map(c=>c.id), spec:{type:'all'}};
+    if(src==='all') return {ids:state.catalog.filter(c=>c.type!=='forum').map(c=>c.id), spec:{type:'all'}};
     if(src==='hits'){
       if(state.search.selected.size){
         const ids=Array.from(new Set(Array.from(state.search.selected).map(i=>state.lastHits[i]&&state.lastHits[i].docId).filter(Boolean)));
@@ -2046,7 +2058,7 @@
 
   async function buildReportData(def){
     const de=state.settings.lang==='de';
-    const stand=(de?'Stand: ':'As of: ')+new Date().toLocaleString(de?'de-DE':'en-GB');
+    const stand=(de?'Stand: ':'As of: ')+new Date().toLocaleString(locale());
     if(def.kind==='hits'){
       // Auf „nur markierte" fixierte Exporte: existiert keines der gemerkten
       // Dokumente mehr, als Fehler markieren (statt still einen leeren Bericht zu schreiben).
@@ -2058,11 +2070,11 @@
     }
     // Zusammenfassung
     let ids=[]; const src=def.source||{type:'all'};
-    if(src.type==='all') ids=state.catalog.map(c=>c.id);
+    if(src.type==='all') ids=state.catalog.filter(c=>c.type!=='forum').map(c=>c.id);
     else if(src.type==='ids') ids=(src.ids||[]).filter(id=>state.catalog.some(c=>c.id===id));
     else if(src.type==='query'){ const {hits}=await searchArchive(src.search||{}); ids=Array.from(new Set(hits.map(h=>h.docId))); }
     if(!ids.length) throw new Error(de?'Keine Quelldokumente mehr vorhanden.':'No source documents left.');
-    let r, note='';
+    let r;
     // KI-Zusammenfassungen sind kostenpflichtige API-Aufrufe. Ein Fehler (offline,
     // kein Key) wird durchgereicht – die bestehende KI-Exportdatei bleibt dann
     // unverändert erhalten und wird NICHT still durch eine extraktive überschrieben.
@@ -2071,7 +2083,7 @@
     const items=[]; const seen=new Set();
     for(const p of (r.picked||[])){ const key=p.docId+'|'+JSON.stringify(p.ref); if(seen.has(key))continue; seen.add(key); items.push({file:p.name, ref:refLabel(p.ref), snippet:'', tags:'', date:''}); }
     return { title:(de?`Zusammenfassung – ${ids.length} Dokument(e)`:`Summary – ${ids.length} document(s)`),
-             params:(de?'Modus: ':'Mode: ')+(def.mode==='ai'?'Claude API':(de?'Extraktiv':'Extractive'))+note+' · '+stand,
+             params:(de?'Modus: ':'Mode: ')+(def.mode==='ai'?'Claude API':(de?'Extraktiv':'Extractive'))+' · '+stand,
              summary:r.text, items };
   }
 
@@ -2087,7 +2099,7 @@
           // Auswahl einzelner Treffer = bewusster Schnappschuss, wird nicht live gehalten.
           const data=buildReportItems('hits');
           if(!data.items.length){ toast(de?'Nichts ausgewählt.':'Nothing selected.','err'); return; }
-          data.params+=' · '+(de?'Stand: ':'As of: ')+new Date().toLocaleString(de?'de-DE':'en-GB');
+          data.params+=' · '+(de?'Stand: ':'As of: ')+new Date().toLocaleString(locale());
           const blob=await makeExportBlob(fmt,data);
           const name='wissensarchiv_'+(de?'auswahl':'selection')+'_'+stamp()+'.'+fmt;
           await writeExportFile(name, blob, true);
@@ -2162,7 +2174,7 @@
       const what=d.kind==='hits'
         ? (de?'Suche: ':'Search: ')+'„'+esc(d.search&&d.search.q||'')+'"'
         : (de?'Zusammenfassung':'Summary')+(d.source&&d.source.type==='query'?' „'+esc(d.source.search&&d.source.search.q||'')+'"':(d.source&&d.source.type==='all'?(de?' (gesamtes Archiv)':' (entire archive)'):''));
-      const st=d.error?`<span style="color:var(--danger)">⚠ ${esc(d.error)}</span>`:(d.updatedAt?tr('exp-updated')+' '+new Date(d.updatedAt).toLocaleString(de?'de-DE':'en-GB'):'—');
+      const st=d.error?`<span style="color:var(--danger)">⚠ ${esc(d.error)}</span>`:(d.updatedAt?tr('exp-updated')+' '+new Date(d.updatedAt).toLocaleString(locale()):'—');
       const ftCls=d.fmt==='xlsx'?'t-xlsx':d.fmt==='pdf'?'t-pdf':'t-docx';
       return `<div class="queue-item"><span class="ftype ${ftCls}">${d.fmt.toUpperCase().slice(0,3)}</span><div class="qmain"><div class="fname">${esc(defFileName(d))}</div><div class="fmeta">${what} · ${st}</div></div><button class="btn sm ghost" data-expdl="${i}" title="${de?'Herunterladen':'Download'}">⬇</button><button class="btn sm ghost" data-exprf="${i}" title="${de?'Jetzt aktualisieren':'Refresh now'}">🔄</button><button class="btn sm ghost danger" data-exprm="${i}" title="${de?'Export löschen':'Delete export'}">🗑</button></div>`;
     }).join('');
@@ -2184,7 +2196,7 @@
     }
     const ab=$('#ab-last');
     if(ab) ab.textContent=state.settings.autoBackupLast
-      ? (de?'Letztes Auto-Backup: ':'Last auto backup: ')+new Date(state.settings.autoBackupLast).toLocaleString(de?'de-DE':'en-GB')+(de?' · die letzten 5 werden aufbewahrt':' · the last 5 are kept')
+      ? (de?'Letztes Auto-Backup: ':'Last auto backup: ')+new Date(state.settings.autoBackupLast).toLocaleString(locale())+(de?' · die letzten 5 werden aufbewahrt':' · the last 5 are kept')
       : (de?'Noch kein Auto-Backup erstellt.':'No auto backup yet.');
     // „Letztes Backup vor X Tagen" + Erinnerung, damit gerade im App-Speicher-Modus
     // nichts unbemerkt verloren geht.
@@ -2192,7 +2204,7 @@
     const bl=$('#backup-last');
     if(bl){ if(last){ const days=Math.floor((Date.now()-last)/86400e3);
         const ago=days<=0?(de?'heute':'today'):days===1?(de?'vor 1 Tag':'1 day ago'):(de?`vor ${days} Tagen`:`${days} days ago`);
-        bl.textContent=(de?'Letztes Backup: ':'Last backup: ')+ago+' · '+new Date(last).toLocaleDateString(de?'de-DE':'en-GB');
+        bl.textContent=(de?'Letztes Backup: ':'Last backup: ')+ago+' · '+new Date(last).toLocaleDateString(locale());
       } else bl.textContent=de?'Noch kein Backup erstellt.':'No backup created yet.'; }
     const rem=$('#backup-reminder'), remt=$('#backup-reminder-txt');
     if(rem&&remt){ const days=last?Math.floor((Date.now()-last)/86400e3):Infinity;
@@ -2288,7 +2300,7 @@
       // Katalog aus den Index-Dateien (Quelle der Wahrheit) neu aufbauen, nichts verwaist.
       try{ state.indexCache.clear(); state.catalog=await rebuildCatalog(); await saveCatalog(); await loadSettings(); await loadExportDefs(); await loadForum();
         updateCount(); applyTheme(state.settings.theme); applyLang(state.settings.lang);
-        renderLibrary(); renderFilters(); renderBackupStats(); renderExportsPanel(); updateStorageLabels(); renderForum();
+        refreshLibrary(); renderExportsPanel(); updateStorageLabels(); renderForum();
       }catch(e2){ console.error(e2); }
       if(restored) toast((state.settings.lang==='de'?'Wiederhergestellt: ':'Restored: ')+state.catalog.length+(state.settings.lang==='de'?' Dokumente.':' documents.'),'ok');
     }
@@ -2380,6 +2392,8 @@
 
   // ---------- Navigation ----------
   function switchView(view){ $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); const gb=$('#settings-btn'); if(gb){ gb.classList.toggle('active', view==='settings'); gb.setAttribute('aria-pressed', view==='settings'?'true':'false'); } $('.main').scrollTop=0;
+    // Beim Verlassen des Forums die Anhang-Blob-URLs freigeben und laufende Loader entwerten.
+    if(view!=='forum'&&(state._forumUrls&&state._forumUrls.length)){ state._foSeq=(state._foSeq||0)+1; state._forumUrls.forEach(u=>{try{URL.revokeObjectURL(u);}catch(_){}}); state._forumUrls=[]; }
     if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();renderSearchHistory();} if(view==='summary')renderSumPicklist(); if(view==='forum')renderForum(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; syncAiBudget(); renderTagAdmin(); } }
 
   // ---------- Boot ----------
@@ -2406,7 +2420,7 @@
     if(state.storageMode==='fsa'&&state.rootHandle){ try{ localStorage.setItem('wa.lastFolder', state.rootHandle.name); }catch(e){} }
     applyTheme(state.settings.theme); applyLang(state.settings.lang);
     updateStorageLabels(); $('#api-key').value=state.apiKey||'';
-    updateCount(); renderLibrary(); renderFilters(); renderBackupStats(); renderExportsPanel();
+    updateCount(); refreshLibrary(); renderExportsPanel();
     state.booted=true;
     showScreen('app');
     toast(state.storageMode==='opfs'?(state.settings.lang==='de'?'Archiv bereit (App-Speicher).':'Archive ready (app storage).'):(state.settings.lang==='de'?'Ordner verbunden.':'Folder connected.'),'ok');
