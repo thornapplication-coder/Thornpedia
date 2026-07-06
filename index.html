@@ -174,7 +174,6 @@
     .menu .sep{height:1px;background:var(--line);margin:5px 0}
 
     /* Suche */
-    .search-layout{display:grid;grid-template-columns:240px 1fr;gap:20px;align-items:start}
     .filter-group{margin-bottom:18px}
     .filter-group h4{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:9px}
     .check{display:flex;align-items:center;gap:8px;padding:4px 0;font-size:13px;cursor:pointer}
@@ -214,16 +213,6 @@
     :root[data-theme="dark"] .notice.warn{color:#f0b757}
     :root[data-theme="dark"] .badge-scan{color:#f0b757}
 
-    .summary-out{line-height:1.7}
-    .summary-out h3{margin:14px 0 8px;font-size:16px}
-    .sourcelist{margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
-    .sourcelist ol{margin:8px 0 0;padding-left:20px}
-    .sourcelist li{margin-bottom:5px;color:var(--text-muted);font-size:13px}
-    .excerpts{margin-top:18px}
-    .excerpts>b{display:block;margin-bottom:10px;font-size:14px}
-    .excerpt{margin:0 0 10px;padding:10px 14px;border-left:3px solid var(--primary);background:var(--bg-alt);border-radius:0 8px 8px 0}
-    .excerpt .ex-text{white-space:pre-wrap;line-height:1.55}
-    .excerpt .ex-src{color:var(--text-muted);font-size:12px;margin-top:5px}
 
     .overlay{position:fixed;inset:0;background:rgba(20,24,28,.55);display:none;align-items:center;justify-content:center;z-index:70;padding:20px}
     .overlay.show{display:flex}
@@ -255,7 +244,7 @@
     @keyframes spin{to{transform:rotate(360deg)}}
 
     .cards-2{grid-template-columns:1fr 1fr}
-    @media (max-width:900px){.search-layout,.doc-view{grid-template-columns:1fr}}
+    @media (max-width:900px){.doc-view{grid-template-columns:1fr}}
     @media (max-width:860px){.app{grid-template-columns:64px 1fr}.nav-item span.txt,.nav-label,.sidebar-foot,.top-search{display:none}
       /* Schmale Icon-Leiste: der Zaehler-Badge wuerde am Rand abgeschnitten -> als kleinen Punkt auf das Icon setzen */
       .nav-item{position:relative;justify-content:center;padding:9px 0}
@@ -360,9 +349,9 @@
       <div id="lib-content"></div>
     </section>
 
-    <!-- ===== Suche & KI (Suchen · Frage · Zusammenfassung) ===== -->
+    <!-- ===== Suche & KI (Suchen · Frage) ===== -->
     <section class="view" id="view-search">
-      <div class="page-head"><div><h2 data-i18n="search-h">Suche &amp; KI</h2><p data-i18n="search-p">Durchsuchen, die KI fragen oder zusammenfassen – alles an einem Ort.</p></div></div>
+      <div class="page-head"><div><h2 data-i18n="search-h">Suche &amp; KI</h2><p data-i18n="search-p">Volltext über alle Dokumente durchsuchen – oder Claude frei fragen wie in einem Chat.</p></div></div>
 
       <!-- Was möchtest du tun? -->
       <div class="seg findmode" id="find-mode" role="group" style="margin-bottom:14px">
@@ -458,7 +447,7 @@
 
     <!-- ===== Exporte (Live-Exporte) ===== -->
     <section class="view" id="view-exporte">
-      <div class="page-head"><div><h2 data-i18n="nav-exporte">Exporte</h2><p data-i18n="exp-live-p2">Gespeicherte Exporte (Suchberichte & Zusammenfassungen). Jeder Eintrag wird bei Änderungen am Archiv automatisch neu erzeugt und liegt in /exports.</p></div></div>
+      <div class="page-head"><div><h2 data-i18n="nav-exporte">Exporte</h2><p data-i18n="exp-live-p2">Gespeicherte Suchberichte. Jeder Eintrag wird bei Änderungen am Archiv automatisch neu erzeugt und liegt in /exports.</p></div></div>
       <div class="panel panel-pad" style="max-width:900px">
         <div class="row" style="justify-content:space-between;margin-bottom:6px">
           <h4 data-i18n="exp-live-h">Live-Exporte</h4>
@@ -693,7 +682,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.8.3';
+  const APP_VERSION = '1.9.0';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -725,8 +714,7 @@
     pdfView:{docId:null,pdf:null}, // gecachtes PDF.js-Dokument fuer den Viewer
     _renderSeq:0, _renderTask:null,
     parseWorker:null,
-    sumMode:'extractive', lastSummary:null,
-    findMode:'search', sumSrc:'selected',   // vereinheitlichter Suche/KI/Zusammenfassung-Tab
+    findMode:'search',   // vereinheitlichter Suche/KI-Tab
   };
 
   // ---------- Toast ----------
@@ -762,7 +750,7 @@
     'ob-sub':['Deine persönliche, offline-fähige Wissensdatenbank. Wähle einen Ordner auf der Festplatte – dort werden alle Originaldateien, der Suchindex und deine Metadaten als echte Dateien gespeichert. Das übersteht auch das Löschen von Browser-Daten.','Your personal, offline-capable knowledge base. Choose a folder on disk – all original files, the search index and your metadata are stored there as real files. This survives clearing your browser data.'],
     'ob-yourfolder':['Dein Ordner','Your folder'],'ob-d1':['– Originaldateien','– original files'],'ob-d2':['– ein JSON-Index pro Dokument','– one JSON index per document'],'ob-d3':['– Tags, Notizen, Einstellungen, API-Key','– tags, notes, settings, API key'],'ob-d4':['– Berichte & Backups','– reports & backups'],
     'ob-choose':['Ordner wählen','Choose folder'],'ob-browser':['Erfordert Chrome oder Edge (Desktop).','Requires Chrome or Edge (desktop).'],
-    'nav-nav':['Navigation','Navigation'],'nav-actions':['Aktionen','Actions'],'nav-lib':['Bibliothek','Library'],'nav-search':['Suche','Search'],'nav-doc':['Fundstelle','Source view'],'nav-sum':['Zusammenfassung','Summary'],'nav-backup':['Backup','Backup'],'nav-set':['Einstellungen','Settings'],'nav-import':['Importieren','Import'],'nav-exporte':['Exporte','Exports'],
+    'nav-nav':['Navigation','Navigation'],'nav-actions':['Aktionen','Actions'],'nav-lib':['Bibliothek','Library'],'nav-search':['Suche','Search'],'nav-doc':['Fundstelle','Source view'],'nav-backup':['Backup','Backup'],'nav-set':['Einstellungen','Settings'],'nav-import':['Importieren','Import'],'nav-exporte':['Exporte','Exports'],
     'foot-connected':['Ordner verbunden','Folder connected'],
     'lib-h':['Bibliothek','Library'],'lib-p':['Alle Dokumente an einem Ort.','All your documents in one place.'],
     'lib-empty-h':['Noch keine Dokumente','No documents yet'],'lib-empty-p':['Importiere Dateien per Drag & Drop, Dateiauswahl oder ganzem Ordner.','Import files via drag & drop, file picker or a whole folder.'],
@@ -771,20 +759,12 @@
     'fm-search':['Suchen','Search'],'fm-ask':['KI fragen','Ask AI'],
     'fm-exactword':['Genauer Wortlaut','Exact wording'],'fm-onlysel':['Nur markierte Dokumente','Selected documents only'],'fm-filter':['Filter','Filter'],
     'search-ph':['Volltextsuche über alle Dokumente…','Full-text search across all documents…'],'search-ph2':['Suchbegriff…','Search term…'],'do-search':['Suchen','Search'],
-    'sm-text':['Volltext','Full text'],'sm-exact':['Genauer Wortlaut','Exact wording'],'sm-ask':['Frage (KI)','Ask (AI)'],'sm-title':['Such-Modus','Search mode'],
-    'sc-all':['Alle Dokumente','All documents'],'sc-selected':['Nur markierte','Selected only'],'sc-title':['Suchbereich','Search scope'],
     'scope-none':['Es sind keine Dokumente markiert. Setze in der Bibliothek Haken bei den gewünschten Dokumenten.','No documents are selected. Tick the documents you want in the library.'],
     'ask-nokey':['Für die KI-Frage wird ein Claude-API-Key benötigt (Einstellungen).','The AI question needs a Claude API key (Settings).'],
     'ask-working':['Antwort wird erstellt …','Generating answer …'],
-    'ask-nodocs':['Keine passenden Dokumente gefunden.','No matching documents found.'],
-    'f-type':['Dateityp','File type'],'f-date':['Zeitraum (Import)','Date range (import)'],'f-tags':['Tags / Kategorien','Tags / categories'],'f-reset':['Filter zurücksetzen','Reset filters'],
-    'select-all':['Alle wählen','Select all'],'sum-selected':['Ausgewählte zusammenfassen','Summarize selected'],'export':['Export','Export'],
+    'f-type':['Dateityp','File type'],'f-tags':['Tags / Kategorien','Tags / categories'],'f-reset':['Filter zurücksetzen','Reset filters'],
+    'select-all':['Alle wählen','Select all'],'export':['Export','Export'],
     'doc-original':['Original','Original'],'reindex':['Neu-Indexieren','Re-index'],
-    'sum-p':['Über ausgewählte Dokumente oder Suchtreffer · endet mit vollständigem Quellenverzeichnis.','Across selected documents or search hits · ends with a full source list.'],
-    'sum-source':['Quelle:','Source:'],'sum-src-sel':['Markierte','Selected'],'sum-src-hits':['Suchtreffer','Search hits'],'sum-src-all':['Gesamtes Archiv','Entire archive'],
-    'sum-mode':['Modus:','Mode:'],'sum-extractive':['Offline','Offline'],'sum-ai':['Claude API','Claude API'],'sum-generate':['Erstellen','Generate'],
-    'sum-hint':['Wähle links eine Quelle und erstelle eine Zusammenfassung.','Pick a source on the left and generate a summary.'],
-    'sum-sources':['Quellenverzeichnis','Source list'],'export-as':['Exportieren als:','Export as:'],
     'backup-p':['Komplettes Archiv als eine ZIP – Originale, Indizes, Tags & Notizen.','Full archive as one ZIP – originals, indexes, tags & notes.'],
     'backup-exp-h':['Archiv exportieren','Export archive'],'backup-exp-p':['Erzeugt eine ZIP mit /originals, /index und /meta (ohne API-Key). Wird in /exports gespeichert und als Download angeboten.','Creates a ZIP with /originals, /index and /meta (without the API key). Saved to /exports and offered as a download.'],
     'backup-create':['Backup-ZIP erstellen','Create backup ZIP'],'backup-imp-h':['Aus ZIP wiederherstellen','Restore from ZIP'],'backup-imp-p':['Vollständige Wiederherstellung – inklusive Tags und Notizen. Vorhandene Dokumente werden ergänzt.','Full restore – including tags and notes. Existing documents are merged in.'],'backup-drop':['Backup-ZIP hierher ziehen oder klicken','Drop a backup ZIP here or click'],
@@ -850,11 +830,11 @@
     'ob-note-opfs':['Tipp: Über „Teilen → Zum Home-Bildschirm" wird das Wissensarchiv zur App und läuft offline.','Tip: use “Share → Add to Home Screen” to install the archive as an app that works offline.'],
     'opfs-hint':['Auf diesem Gerät liegen die Daten im App-Speicher des Browsers. Erstelle regelmäßig Backup-ZIPs – wenn Website-Daten gelöscht werden, wäre das Archiv sonst weg.','On this device data lives in the browser’s app storage. Create backup ZIPs regularly – clearing site data would otherwise delete the archive.'],
     'exp-live-h':['Live-Exporte','Live exports'],
-    'exp-live-p2':['Gespeicherte Exporte (Suchberichte & Zusammenfassungen). Jeder Eintrag wird bei Änderungen am Archiv automatisch neu erzeugt und liegt in /exports.','Saved exports (search reports & summaries). Each entry is regenerated automatically on archive changes and stored in /exports.'],
+    'exp-live-p2':['Gespeicherte Suchberichte. Jeder Eintrag wird bei Änderungen am Archiv automatisch neu erzeugt und liegt in /exports.','Saved search reports. Each entry is regenerated automatically on archive changes and stored in /exports.'],
     'exp-refresh':['Jetzt aktualisieren','Refresh now'],
     'exp-auto':['Automatisch aktualisieren','Refresh automatically'],
     'exp-live-p':['Jeder Export wird hier registriert und bei jeder Änderung am Archiv (Import, Löschen, Tags …) automatisch neu erzeugt – die Dateien in /exports sind damit immer aktuell.','Every export is registered here and regenerated automatically whenever the archive changes (import, delete, tags …) – the files in /exports stay current at all times.'],
-    'exp-none':['Noch keine Exporte. Erstelle einen Export in der Suche oder bei einer Zusammenfassung.','No exports yet. Create one from search results or a summary.'],
+    'exp-none':['Noch keine Exporte. Erstelle einen Export aus den Suchtreffern.','No exports yet. Create one from search results.'],
     'exp-updated':['Stand:','Updated:'],
     'act-ocr':['Text erkennen (OCR)','Recognize text (OCR)'],
     'lock-h':['Bereits geöffnet','Already open'],
@@ -878,7 +858,7 @@
     $$('#lang-seg button, #lang-seg2 button').forEach(b=>b.classList.toggle('on',b.dataset.lang===lang));
     updateOfflineLabel(); try{localStorage.setItem('wa.lang',lang);}catch(e){}
     // dynamische Bereiche neu rendern
-    if($('#app').classList.contains('show')){ renderLibrary(); renderFilters(); renderSearchResults(); renderSearchHistory(); renderBackupStats(); renderSumPicklist(); renderExportsPanel(); renderTagAdmin(); if(state.forum)renderForum(); updateStorageLabels(); syncAiBudget(); }
+    if($('#app').classList.contains('show')){ renderLibrary(); renderFilters(); renderSearchResults(); renderSearchHistory(); renderBackupStats(); renderExportsPanel(); renderTagAdmin(); if(state.forum)renderForum(); updateStorageLabels(); syncAiBudget(); }
   }
 
   // ---------- File System ----------
@@ -1760,12 +1740,6 @@
     const data=await r.json();
     return { text:(data.content||[]).map(c=>c.text||'').join('\n').trim(), usage:data.usage||null };
   }
-  async function buildCorpus(ids, limit){
-    let corpus=''; const sources=[];
-    for(const id of ids){ const doc=await getIndex(id); sources.push(doc); corpus+=`\n\n### ${doc.name}\n`; for(const u of (doc.units||[])){ corpus+=`[${refLabel(u.ref)}] ${u.text}\n`; if(corpus.length>limit)break; } if(corpus.length>limit){ corpus=corpus.slice(0,limit); break; } }
-    return { corpus, sources };
-  }
-  const pickSources=(sources)=>sources.map(d=>({docId:d.id, name:d.name, ref: d.pageCount ? {page:(d.pageCount>1?('1–'+d.pageCount):1)} : null}));
   // „KI fragen" ist ein normaler Claude-Chat – die Antwort bezieht sich NICHT auf
   // die hochgeladenen Dokumente, sondern kommt aus dem allgemeinen Wissen von Claude.
   // Sprache folgt der App-Einstellung (Deutsch, umschaltbar auf Englisch).
@@ -1938,105 +1912,6 @@
     }
   }
 
-  // ---------- Zusammenfassung ----------
-  // liefert die Dokument-IDs UND eine reproduzierbare Spezifikation der Quelle,
-  // damit Live-Exporte die Zusammenfassung spaeter neu erzeugen koennen.
-  function getSummarySource(){
-    const src=state.sumSrc||'selected';
-    if(src==='all') return {ids:state.catalog.filter(c=>c.type!=='forum').map(c=>c.id), spec:{type:'all'}};
-    if(src==='hits'){
-      if(state.search.selected.size){
-        const ids=Array.from(new Set(Array.from(state.search.selected).map(i=>state.lastHits[i]&&state.lastHits[i].docId).filter(Boolean)));
-        return {ids, spec:{type:'ids', ids}};
-      }
-      const ids=Array.from(new Set((state.lastHits||[]).map(h=>h.docId)));
-      return {ids, spec: state.search.q?{type:'query', search:currentSearchParams()}:{type:'ids', ids}};
-    }
-    const ids=Array.from(state.lib.selected);
-    return {ids, spec:{type:'ids', ids}};
-  }
-  function renderSumPicklist(){
-    const el=$('#sum-picklist'); if(!el)return; const src=state.sumSrc||'selected';
-    if(src==='selected'){ const ids=Array.from(state.lib.selected); el.innerHTML=ids.length?ids.map(id=>{const c=state.catalog.find(x=>x.id===id);return c?`<div class="fmeta">• ${esc(c.name)}</div>`:'';}).join(''):`<div class="fmeta">${state.settings.lang==='de'?'In der Bibliothek Dokumente anhaken.':'Check documents in the library.'}</div>`; }
-    else if(src==='hits'){ el.innerHTML=`<div class="fmeta">${(state.lastHits||[]).length} ${state.settings.lang==='de'?'Treffer aus der Suche':'hits from search'}</div>`; }
-    else el.innerHTML=`<div class="fmeta">${state.catalog.length} ${state.settings.lang==='de'?'Dokumente':'documents'}</div>`;
-  }
-  function splitSentences(text){ return text.replace(/\s+/g,' ').match(/[^.!?]+[.!?]+|\S[^.!?]*$/g)||[]; }
-  async function extractiveSummary(ids, maxSentences=7){
-    const sentences=[]; const sources=[]; const SCAP=20000; // Obergrenze gegen Jank bei Riesen-Archiven
-    for(const id of ids){ const doc=await getIndex(id); sources.push(doc); for(const u of (doc.units||[])){ for(const s of splitSentences(u.text)){ const clean=s.trim(); if(clean.length>=40&&clean.length<=400) sentences.push({s:clean, docId:id, name:doc.name, ref:u.ref}); } if(sentences.length>=SCAP)break; } if(sentences.length>=SCAP)break; }
-    if(!sentences.length) return {text:(state.settings.lang==='de'?'Kein ausreichender Text für eine Zusammenfassung.':'Not enough text to summarize.'), sources:[], picked:[]};
-    // Wortfrequenz (TF) über alle Sätze
-    const freq=Object.create(null); const stop=new Set('der die das und oder ist sind ein eine einen dem den des mit von zu im in auf für als auch nicht sich the a an of to and or is are be for with on at by this that as it'.split(' '));
-    for(const {s} of sentences){ for(const w of s.toLowerCase().match(/[a-zäöüß0-9]+/g)||[]){ if(w.length<3||stop.has(w))continue; freq[w]=(freq[w]||0)+1; } }
-    sentences.forEach((o,idx)=>{ let sc=0; for(const w of o.s.toLowerCase().match(/[a-zäöüß0-9]+/g)||[]){ if(freq[w])sc+=freq[w]; } o.score=sc/Math.sqrt((o.s.match(/\S+/g)||[]).length+1); o.idx=idx; });
-    const picked=sentences.slice().sort((a,b)=>b.score-a.score).slice(0,maxSentences).sort((a,b)=>a.idx-b.idx);
-    const text=picked.map(p=>p.s).join(' ');
-    return {text, sources, picked};
-  }
-  function sourceListHtml(picked, sources){
-    // eindeutige Quellen (Datei + Fundstelle); alles escapen – Blattnamen etc. stammen aus Dateien
-    const seen=new Set(); const items=[];
-    for(const p of picked){ const key=p.docId+'|'+JSON.stringify(p.ref); if(seen.has(key))continue; seen.add(key); const lbl=refLabel(p.ref); items.push(esc(p.name)+(lbl?' — '+esc(lbl):'')); }
-    if(!items.length) sources.forEach(d=>items.push(esc(d.name)));
-    return `<div class="sourcelist"><b>${tr('sum-sources')}</b><ol>${items.map(x=>`<li>${x}</li>`).join('')}</ol></div>`;
-  }
-  // Exakte Original-Passagen aus den Quelldokumenten (wortwörtlich, mit Fundstelle).
-  // Mit Suchbegriffen: die am besten passenden Textstellen; sonst: die aussagekräftigsten
-  // Sätze (extraktive Auswahl). So enthält die Ausgabe immer echte Belege aus den Dateien.
-  async function exactPassages(ids, terms, max){
-    max=max||6; const out=[];
-    if(terms && terms.length){
-      const foldedTerms=[...new Set(terms.map(t=>fold(String(t))).filter(Boolean))];
-      const scored=[];
-      for(const id of ids){ let doc; try{ doc=await getIndex(id); }catch(_){ continue; }
-        for(const u of (doc.units||[])){ const f=foldUnit(u); let s=0; for(const t of foldedTerms){ if(f.includes(t))s++; } if(s) scored.push({s, text:String(u.text||'').trim(), name:doc.name, ref:u.ref}); } }
-      scored.sort((a,b)=>b.s-a.s);
-      for(const it of scored.slice(0,max)) out.push({text: it.text.length>500?it.text.slice(0,500)+'…':it.text, name:it.name, ref:it.ref});
-    } else {
-      const ex=await extractiveSummary(ids, max);
-      for(const p of (ex.picked||[])) out.push({text:p.s, name:p.name, ref:p.ref});
-    }
-    return out;
-  }
-  function excerptBlock(passages){
-    if(!passages || !passages.length) return '';
-    const de=state.settings.lang==='de';
-    const items=passages.map(p=>{ const lbl=esc(p.name)+(refLabel(p.ref)?' — '+esc(refLabel(p.ref)):''); return `<blockquote class="excerpt"><div class="ex-text">„${esc(p.text)}"</div><div class="ex-src">${lbl}</div></blockquote>`; }).join('');
-    return `<div class="excerpts"><b>${de?'Belegstellen (Originaltext aus den Dokumenten)':'Exact passages (verbatim from the documents)'}</b>${items}</div>`;
-  }
-  async function claudeSummary(ids){
-    if(!state.apiKey) throw new Error(state.settings.lang==='de'?'Kein API-Key hinterlegt (Einstellungen).':'No API key set (Settings).');
-    if(!navigator.onLine) throw new Error(state.settings.lang==='de'?'Keine Internetverbindung.':'No internet connection.');
-    const B=aiLimits();
-    const {corpus, sources}=await buildCorpus(ids, B.chars);
-    const lang=state.settings.lang==='de'?'Deutsch':'English';
-    const prompt=`Fasse die folgenden Dokumente prägnant auf ${lang} zusammen. Nenne am Ende KEINE Quellen (die fügt die App hinzu). Nur die inhaltliche Zusammenfassung:\n${corpus}`;
-    const {text, usage}=await claudeMessage(prompt, B.sum);
-    // Quellenverzeichnis: jedes eingeflossene Dokument mit Seitenumfang (PDF) bzw. ohne Zusatz
-    return {text, sources, picked:pickSources(sources), usage};
-  }
-  async function generateSummary(){
-    const {ids, spec}=getSummarySource(); const out=$('#sum-output');
-    if(!ids.length){ toast(state.settings.lang==='de'?'Keine Quelle ausgewählt.':'No source selected.','err'); return; }
-    out.innerHTML=`<div class="empty"><span class="busy"></span> <span style="margin-left:8px">${state.sumMode==='ai'?'Claude API…':(state.settings.lang==='de'?'Analysiere…':'Analyzing…')}</span></div>`;
-    $('#sum-export-row').style.display='none';
-    try{
-      const r = state.sumMode==='ai' ? await claudeSummary(ids) : await extractiveSummary(ids);
-      const title=state.settings.lang==='de'?`Zusammenfassung – ${ids.length} Dokument(e)`:`Summary – ${ids.length} document(s)`;
-      const cost=(state.sumMode==='ai') ? aiCostLabel(r.usage, (r.sources||[]).length) : '';
-      // Exakte Original-Passagen aus den Dokumenten anhängen. Extraktiv: die (bereits
-      // wortwörtlichen) ausgewählten Sätze mit Fundstelle; KI: passende Belegstellen.
-      const passages = state.sumMode==='ai' ? await exactPassages(ids, null, 6) : (r.picked||[]).map(p=>({text:p.s, name:p.name, ref:p.ref}));
-      // Bei „Offline" ist die Zusammenfassung selbst schon wortwörtlich → keine doppelte Prosa,
-      // stattdessen die Belegstellen mit Quelle in den Vordergrund.
-      const proseHtml = state.sumMode==='ai' ? `<p style="white-space:pre-line">${esc(r.text)}</p>` : '';
-      out.innerHTML=`<div class="summary-out"><h3>${esc(title)}</h3>${proseHtml}${costLine(cost)}${excerptBlock(passages)}${sourceListHtml(r.picked||[], r.sources||[])}</div>`;
-      state.lastSummary={ title, text:r.text, picked:r.picked||[], sources:r.sources||[], mode:state.sumMode, sourceSpec:spec };
-      $('#sum-export-row').style.display='';
-    }catch(e){ out.innerHTML=`<div class="notice err"><span>⚠</span><span>${esc(e.message)}</span></div>`; }
-  }
-
   // ---------- Export (DOCX / PDF / XLSX) ----------
   const _loaded={};
   function loadScript(src){ return new Promise((res,rej)=>{ if(_loaded[src])return res(); const s=document.createElement('script'); s.src=src; s.onload=()=>{_loaded[src]=1;res();}; s.onerror=()=>rej(new Error('load '+src)); document.head.appendChild(s); }); }
@@ -2046,9 +1921,7 @@
 
   // Ein Suchtreffer → eine Berichtszeile (identisch für Live-Bericht und Snapshot).
   const hitToItem=(h)=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), text:h.text, tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)});
-  function buildReportItems(kind){
-    // kind: 'hits' | 'summary'
-    if(kind==='summary'&&state.lastSummary){ const s=state.lastSummary; return { title:s.title, params:(state.settings.lang==='de'?'Modus: ':'Mode: ')+(s.mode==='ai'?'Claude API':(state.settings.lang==='de'?'Extraktiv':'Extractive')), summary:s.text, items:(s.picked||[]).map(p=>({file:p.name,ref:refLabel(p.ref),snippet:p.s||'',tags:'',date:''})) }; }
+  function buildReportItems(){
     const idxs = state.search.selected.size? Array.from(state.search.selected): state.lastHits.map((_,i)=>i);
     const items=idxs.map(i=>state.lastHits[i]).filter(Boolean).map(hitToItem);
     return { title:(state.settings.lang==='de'?'Suchbericht':'Search report'), params:(state.settings.lang==='de'?'Suchbegriff: ':'Query: ')+'"'+state.search.q+'" · '+items.length+' '+tr('hits'), summary:'', items };
@@ -2155,14 +2028,7 @@
       if(model.rows.length) ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:3,c:0},e:{r:3+model.rows.length,c:nc-1}})};
       XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
     };
-    if(data.summary){
-      const s1=XLSX.utils.aoa_to_sheet([[data.title],[data.params],[],[de?'Zusammenfassung':'Summary'],...String(data.summary).split(/\n{2,}/).map(p=>[p])]);
-      s1['!cols']=[{wch:110}];
-      XLSX.utils.book_append_sheet(wb, s1, de?'Zusammenfassung':'Summary');
-      addTableSheet(de?'Quellen':'Sources', sourceTableModel(data, de));
-    } else {
-      addTableSheet(de?'Treffer':'Results', tableModel(data, de));
-    }
+    addTableSheet(de?'Treffer':'Results', tableModel(data, de));
     const out=XLSX.write(wb,{type:'array',bookType:'xlsx'});
     return new Blob([out],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   }
@@ -2180,8 +2046,7 @@
     doc.setDrawColor(EXPCOL.accentRGB[0],EXPCOL.accentRGB[1],EXPCOL.accentRGB[2]); doc.setLineWidth(0.6); doc.line(M, bandH-1.5, pageW-M, bandH-1.5); doc.setLineWidth(0.2);
     y=bandH+8;
     const para=(text,{size=11,bold=false,color=EXPCOL.bodyRGB,gap=4,indent=0}={})=>{ doc.setFontSize(size); doc.setFont(undefined,bold?'bold':'normal'); setC(color); const lh=size*0.42+1; for(const ln of doc.splitTextToSize(String(text==null?'':text), W-indent)){ if(y+lh>PH-M-8){ doc.addPage(); y=M; } doc.text(ln, M+indent, y+lh-1); y+=lh; } y+=gap; };
-    if(data.summary){ para(de?'Zusammenfassung':'Summary',{size:13,bold:true,color:EXPCOL.accentRGB,gap:3}); for(const blk of String(data.summary).split(/\n{2,}/)) para(blk,{gap:5}); }
-    else { data.items.forEach((it,i)=>{ if(y+18>PH-M-8){ doc.addPage(); y=M; } para(`${it.file}${it.ref?'  ·  '+it.ref:''}`,{size:11.5,bold:true,color:EXPCOL.accentRGB,gap:1}); para((it.text||it.snippet||'').slice(0,4000),{gap:4}); if(i<data.items.length-1){ doc.setDrawColor(EXPCOL.borderRGB[0],EXPCOL.borderRGB[1],EXPCOL.borderRGB[2]); doc.line(M,y,pageW-M,y); y+=5; } }); }
+    data.items.forEach((it,i)=>{ if(y+18>PH-M-8){ doc.addPage(); y=M; } para(`${it.file}${it.ref?'  ·  '+it.ref:''}`,{size:11.5,bold:true,color:EXPCOL.accentRGB,gap:1}); para((it.text||it.snippet||'').slice(0,4000),{gap:4}); if(i<data.items.length-1){ doc.setDrawColor(EXPCOL.borderRGB[0],EXPCOL.borderRGB[1],EXPCOL.borderRGB[2]); doc.line(M,y,pageW-M,y); y+=5; } });
     const model=sourceTableModel(data, de);
     if(model.rows.length){ if(y+26>PH-M-8){ doc.addPage(); y=M; } para(srcTitle,{size:13,bold:true,color:EXPCOL.accentRGB,gap:3}); y=pdfTable(doc, model, M, y, W, {M}); }
     // Fußzeile mit Seitenzahlen auf jeder Seite.
@@ -2197,8 +2062,7 @@
       new D.Paragraph({children:[run(data.title,{bold:true,size:32,color:EXPCOL.accent})], spacing:{after:40}}),
       new D.Paragraph({children:[run(data.params,{size:18,color:EXPCOL.muted})], spacing:{after:220}, border:{bottom:{style:D.BorderStyle.SINGLE,size:8,color:EXPCOL.accent,space:6}}}),
     ];
-    if(data.summary){ kids.push(new D.Paragraph({children:[run(de?'Zusammenfassung':'Summary',{bold:true,size:26,color:EXPCOL.accent})], spacing:{before:200,after:120}})); for(const blk of String(data.summary).split(/\n{2,}/)) kids.push(new D.Paragraph({children:[run(blk,{size:22,color:EXPCOL.body})], spacing:{after:140}})); }
-    else { data.items.forEach(it=>{ kids.push(new D.Paragraph({children:[run(`${it.file}${it.ref?'  ·  '+it.ref:''}`,{bold:true,size:23,color:EXPCOL.accent})], spacing:{before:220,after:40}})); kids.push(new D.Paragraph({children:[run((it.text||it.snippet||'').slice(0,8000),{size:21,color:EXPCOL.body})], spacing:{after:120}})); }); }
+    data.items.forEach(it=>{ kids.push(new D.Paragraph({children:[run(`${it.file}${it.ref?'  ·  '+it.ref:''}`,{bold:true,size:23,color:EXPCOL.accent})], spacing:{before:220,after:40}})); kids.push(new D.Paragraph({children:[run((it.text||it.snippet||'').slice(0,8000),{size:21,color:EXPCOL.body})], spacing:{after:120}})); });
     const model=sourceTableModel(data, de);
     if(model.rows.length){ kids.push(new D.Paragraph({children:[run(srcTitle,{bold:true,size:26,color:EXPCOL.accent})], spacing:{before:280,after:140}})); kids.push(docxTable(D, model)); }
     const footer=new D.Footer({children:[ new D.Paragraph({ alignment:D.AlignmentType.CENTER, children:[ run('Thornpedia  ·  '+(de?'Seite ':'Page '),{size:16,color:EXPCOL.muted}), new D.TextRun({children:[D.PageNumber.CURRENT],size:16,color:EXPCOL.muted}), run(' / ',{size:16,color:EXPCOL.muted}), new D.TextRun({children:[D.PageNumber.TOTAL_PAGES],size:16,color:EXPCOL.muted}) ] }) ]});
@@ -2216,80 +2080,51 @@
   // zwischen Exporten, deren Slug nur in Sonderzeichen/Auswahl differiert.
   function shortHash(s){ let h=5381; s=String(s); for(let i=0;i<s.length;i++)h=(((h<<5)+h)^s.charCodeAt(i))>>>0; return h.toString(36).slice(0,6); }
   const defFileName=(def)=>def.fileBase+'.'+def.fmt;
-  async function loadExportDefs(){ try{ exportDefs=JSON.parse(await readFileText(state.dirs.meta,'exports.json')); if(!Array.isArray(exportDefs))exportDefs=[]; }catch(e){ exportDefs=[]; } }
+  async function loadExportDefs(){ try{ exportDefs=JSON.parse(await readFileText(state.dirs.meta,'exports.json')); if(!Array.isArray(exportDefs))exportDefs=[]; }catch(e){ exportDefs=[]; }
+    // Alt-Stände: das Zusammenfassungs-Feature gibt es nicht mehr → etwaige „summary"-
+    // Live-Exporte aus früheren Versionen aussortieren (nur noch Suchberichte).
+    exportDefs=exportDefs.filter(d=>d&&d.kind==='hits'); }
   async function saveExportDefs(){ try{ await writeFile(state.dirs.meta,'exports.json',JSON.stringify(exportDefs,null,2)); }catch(e){ console.warn(e); } }
 
   async function buildReportData(def){
     const de=state.settings.lang==='de';
     const stand=(de?'Stand: ':'As of: ')+new Date().toLocaleString(locale());
-    if(def.kind==='hits'){
-      // Auf „nur markierte" fixierte Exporte: existiert keines der gemerkten
-      // Dokumente mehr, als Fehler markieren (statt still einen leeren Bericht zu schreiben).
-      const pinned=def.search&&Array.isArray(def.search.ids)?def.search.ids:null;
-      if(pinned&&pinned.length&&!pinned.some(id=>state.catalog.some(c=>c.id===id))) throw new Error(de?'Markierte Quelldokumente nicht mehr vorhanden.':'Selected source documents no longer exist.');
-      const {hits}=await searchArchive(def.search||{});
-      const items=hits.map(hitToItem);
-      return { title:de?'Suchbericht':'Search report', params:(de?'Suchbegriff: ':'Query: ')+'"'+(def.search&&def.search.q||'')+'" · '+items.length+' '+tr('hits')+' · '+stand, summary:'', items };
-    }
-    // Zusammenfassung
-    let ids=[]; const src=def.source||{type:'all'};
-    if(src.type==='all') ids=state.catalog.filter(c=>c.type!=='forum').map(c=>c.id);
-    else if(src.type==='ids') ids=(src.ids||[]).filter(id=>state.catalog.some(c=>c.id===id));
-    else if(src.type==='query'){ const {hits}=await searchArchive(src.search||{}); ids=Array.from(new Set(hits.map(h=>h.docId))); }
-    if(!ids.length) throw new Error(de?'Keine Quelldokumente mehr vorhanden.':'No source documents left.');
-    let r;
-    // KI-Zusammenfassungen sind kostenpflichtige API-Aufrufe. Ein Fehler (offline,
-    // kein Key) wird durchgereicht – die bestehende KI-Exportdatei bleibt dann
-    // unverändert erhalten und wird NICHT still durch eine extraktive überschrieben.
-    if(def.mode==='ai') r=await claudeSummary(ids);
-    else r=await extractiveSummary(ids);
-    const items=[]; const seen=new Set();
-    for(const p of (r.picked||[])){ const key=p.docId+'|'+JSON.stringify(p.ref); if(seen.has(key))continue; seen.add(key); items.push({file:p.name, ref:refLabel(p.ref), snippet:'', tags:'', date:''}); }
-    return { title:(de?`Zusammenfassung – ${ids.length} Dokument(e)`:`Summary – ${ids.length} document(s)`),
-             params:(de?'Modus: ':'Mode: ')+(def.mode==='ai'?'Claude API':(de?'Extraktiv':'Extractive'))+' · '+stand,
-             summary:r.text, items };
+    // Auf „nur markierte" fixierte Exporte: existiert keines der gemerkten
+    // Dokumente mehr, als Fehler markieren (statt still einen leeren Bericht zu schreiben).
+    const pinned=def.search&&Array.isArray(def.search.ids)?def.search.ids:null;
+    if(pinned&&pinned.length&&!pinned.some(id=>state.catalog.some(c=>c.id===id))) throw new Error(de?'Markierte Quelldokumente nicht mehr vorhanden.':'Selected source documents no longer exist.');
+    const {hits}=await searchArchive(def.search||{});
+    const items=hits.map(hitToItem);
+    return { title:de?'Suchbericht':'Search report', params:(de?'Suchbegriff: ':'Query: ')+'"'+(def.search&&def.search.q||'')+'" · '+items.length+' '+tr('hits')+' · '+stand, summary:'', items };
   }
 
   async function writeExportFile(name, blob, doDownload){ await saveToExports(name, blob); if(doDownload) download(blob, name); }
 
-  async function exportReport(fmt, kind){
+  async function exportReport(fmt){
     const de=state.settings.lang==='de';
     try{
-      let def=null;
-      if(kind==='hits'){
-        if(!state.search.q){ toast(de?'Erst suchen.':'Search first.','err'); return; }
-        if(state.search.selected.size){
-          // Auswahl einzelner Treffer = bewusster Schnappschuss, wird nicht live gehalten.
-          const data=buildReportItems('hits');
-          if(!data.items.length){ toast(de?'Nichts ausgewählt.':'Nothing selected.','err'); return; }
-          data.params+=' · '+(de?'Stand: ':'As of: ')+new Date().toLocaleString(locale());
-          const blob=await makeExportBlob(fmt,data);
-          const name='wissensarchiv_'+(de?'auswahl':'selection')+'_'+stamp()+'.'+fmt;
-          await writeExportFile(name, blob, true);
-          toast(de?'Auswahl exportiert (Schnappschuss).':'Selection exported (snapshot).','ok'); return;
-        }
-        const sp=currentSearchParams(); const h=shortHash(JSON.stringify(sp));
-        def={ id:'hits-'+h+'-'+fmt, kind:'hits', fmt, search:sp,
-              fileBase:'wissensarchiv_'+(de?'bericht':'report')+'_'+slug(state.search.q)+'-'+h };
-      } else {
-        const s=state.lastSummary;
-        if(!s){ toast(de?'Erst eine Zusammenfassung erstellen.':'Generate a summary first.','err'); return; }
-        const spec=s.sourceSpec||{type:'all'};
-        const h=shortHash(JSON.stringify(spec)+'|'+s.mode);
-        const tag=spec.type==='query'?slug(spec.search&&spec.search.q):(spec.type==='all'?(de?'archiv':'archive'):(de?'auswahl':'selection'));
-        def={ id:'summary-'+h+'-'+fmt, kind:'summary', fmt, source:spec, mode:s.mode,
-              fileBase:'wissensarchiv_'+(de?'zusammenfassung':'summary')+'_'+tag+'-'+h };
+      if(!state.search.q){ toast(de?'Erst suchen.':'Search first.','err'); return; }
+      if(state.search.selected.size){
+        // Auswahl einzelner Treffer = bewusster Schnappschuss, wird nicht live gehalten.
+        const data=buildReportItems();
+        if(!data.items.length){ toast(de?'Nichts ausgewählt.':'Nothing selected.','err'); return; }
+        data.params+=' · '+(de?'Stand: ':'As of: ')+new Date().toLocaleString(locale());
+        const blob=await makeExportBlob(fmt,data);
+        const name='wissensarchiv_'+(de?'auswahl':'selection')+'_'+stamp()+'.'+fmt;
+        await writeExportFile(name, blob, true);
+        toast(de?'Auswahl exportiert (Schnappschuss).':'Selection exported (snapshot).','ok'); return;
       }
+      const sp=currentSearchParams(); const h=shortHash(JSON.stringify(sp));
+      const def={ id:'hits-'+h+'-'+fmt, kind:'hits', fmt, search:sp,
+            fileBase:'wissensarchiv_'+(de?'bericht':'report')+'_'+slug(state.search.q)+'-'+h };
       const data=await buildReportData(def);
-      if(!data.items.length&&!data.summary){ toast(de?'Nichts zu exportieren.':'Nothing to export.','err'); return; }
+      if(!data.items.length){ toast(de?'Nichts zu exportieren.':'Nothing to export.','err'); return; }
       const blob=await makeExportBlob(fmt,data);
       await writeExportFile(defFileName(def), blob, true);
       def.updatedAt=new Date().toISOString(); delete def.error;
       const i=exportDefs.findIndex(d=>d.id===def.id); if(i>=0)exportDefs[i]=def; else exportDefs.push(def);
       await saveExportDefs(); renderExportsPanel();
-      const aiSnap=def.kind==='summary'&&def.mode==='ai';
-      toast(aiSnap?(de?'Exportiert (KI-Schnappschuss – Aktualisierung nur manuell, da kostenpflichtig).':'Exported (AI snapshot – manual refresh only, since it is billed).')
-                  :(de?'Exportiert – wird ab jetzt automatisch aktuell gehalten.':'Exported – will be kept up to date automatically.'),'ok');
+      toast(de?'Exportiert – wird ab jetzt automatisch aktuell gehalten.':'Exported – will be kept up to date automatically.','ok');
     }catch(e){ console.error(e); toast('Export: '+e.message,'err'); }
   }
 
@@ -2311,10 +2146,6 @@
       do{
         _expAgain=false;
         for(const def of exportDefs.slice()){
-          // KI-Zusammenfassungen kosten pro Aufruf Geld – daher NICHT automatisch
-          // bei jeder Archiv-Änderung neu erzeugen, sondern nur auf ausdrücklichen
-          // manuellen Refresh („Jetzt aktualisieren"). Sie sind Schnappschüsse.
-          if(!manual && def.kind==='summary' && def.mode==='ai') continue;
           try{
             const data=await buildReportData(def);
             const blob=await makeExportBlob(def.fmt,data);
@@ -2334,9 +2165,7 @@
     const sw=$('#sw-autoexp'); if(sw){ const onx=state.settings.autoExports!==false; sw.classList.toggle('on', onx); sw.setAttribute('aria-checked', onx?'true':'false'); }
     if(!exportDefs.length){ el.innerHTML=`<p style="color:var(--text-muted);font-size:13px;margin:0">${tr('exp-none')}</p>`; return; }
     el.innerHTML=exportDefs.map((d,i)=>{
-      const what=d.kind==='hits'
-        ? (de?'Suche: ':'Search: ')+'„'+esc(d.search&&d.search.q||'')+'"'
-        : (de?'Zusammenfassung':'Summary')+(d.source&&d.source.type==='query'?' „'+esc(d.source.search&&d.source.search.q||'')+'"':(d.source&&d.source.type==='all'?(de?' (gesamtes Archiv)':' (entire archive)'):''));
+      const what=(de?'Suche: ':'Search: ')+'„'+esc(d.search&&d.search.q||'')+'"';
       const st=d.error?`<span style="color:var(--danger)">⚠ ${esc(d.error)}</span>`:(d.updatedAt?tr('exp-updated')+' '+new Date(d.updatedAt).toLocaleString(locale()):'—');
       const ftCls=d.fmt==='xlsx'?'t-xlsx':d.fmt==='pdf'?'t-pdf':'t-docx';
       return `<div class="queue-item"><span class="ftype ${ftCls}">${d.fmt.toUpperCase().slice(0,3)}</span><div class="qmain"><div class="fname">${esc(defFileName(d))}</div><div class="fmeta">${what} · ${st}</div></div><button class="btn sm ghost" data-expdl="${i}" title="${de?'Herunterladen':'Download'}">⬇</button><button class="btn sm ghost" data-exprf="${i}" title="${de?'Jetzt aktualisieren':'Refresh now'}">🔄</button><button class="btn sm ghost danger" data-exprm="${i}" title="${de?'Export löschen':'Delete export'}">🗑</button></div>`;
@@ -2588,12 +2417,16 @@
     const headers=Object.assign({}, opts.headers||{}, {Authorization:'Bearer '+tok});
     return fetch(url, Object.assign({}, opts, {headers}));
   }
+  // Eindeutiger Dateiname für /exports-Sicherungen (stamp ist nur minutengenau –
+  // ein Zähler verhindert, dass zwei Sicherungen derselben Minute sich überschreiben).
+  function beforeSyncName(){ OD._bkSeq=(OD._bkSeq||0)+1; return 'wissensarchiv_beforesync_'+stamp()+'_'+OD._bkSeq+'.zip'; }
   async function odRemoteMeta(){
     const r=await odGraph(OD.itemPath+'?select=eTag,cTag,size,lastModifiedDateTime');
     if(r.status===404) return null;
     if(!r.ok) throw new Error('Graph '+r.status);
     const j=await r.json();
-    return { etag:j.cTag||j.eTag||'', modified:j.lastModifiedDateTime||'', size:j.size||0 };
+    // eTag (nicht cTag): Graph prüft die If-Match-Vorbedingung gegen den eTag.
+    return { etag:j.eTag||j.cTag||'', modified:j.lastModifiedDateTime||'', size:j.size||0 };
   }
   async function odPush(opts={}){
     await loadScript('vendor/jszip.min.js');
@@ -2604,12 +2437,14 @@
     // If-Match: schützt vor „lost update" – hat ein anderes Gerät seit unserem
     // Stand hochgeladen, lehnt Graph mit 412 ab, statt dessen Version zu überschreiben.
     // Bei force (lokal-gewinnt-Konflikt) bewusst OHNE If-Match überschreiben.
-    if(!opts.fresh && !opts.force && OD.cfg.etag) headers['If-Match']=OD.cfg.etag;
+    // Beim Erst-Upload (fresh): nur anlegen, wenn noch keine Datei existiert (Wettlauf zweier Erstverbindungen).
+    if(opts.fresh) headers['If-None-Match']='*';
+    else if(!opts.force && OD.cfg.etag) headers['If-Match']=OD.cfg.etag;
     const r=await odGraph(OD.itemPath+':/content', {method:'PUT', headers, body:blob});
-    if(r.status===412) return 'conflict';   // Remote hat sich seit unserem Stand geändert → erst ziehen
+    if(r.status===412 || r.status===409) return 'conflict';   // Remote hat sich seit unserem Stand geändert → erst ziehen
     if(!r.ok) throw new Error('Upload '+r.status);
     const j=await r.json();
-    OD.cfg.etag=j.cTag||j.eTag||''; await odSaveCfg();   // dirty/Zeit setzt odSync (konfliktbewusst)
+    OD.cfg.etag=j.eTag||j.cTag||''; await odSaveCfg();   // dirty/Zeit setzt odSync (konfliktbewusst)
     return 'ok';
   }
   // Aktuellen Cloud-Stand herunterladen und in /exports sichern – bevor er beim
@@ -2617,18 +2452,17 @@
   // wiederherstellbar bleibt). Rotiert wie die uebrigen Sync-Sicherungen.
   async function odBackupRemote(){
     try{ const r=await odGraph(OD.itemPath+':/content'); if(!r.ok)return;
-      await saveToExports('wissensarchiv_beforesync_'+stamp()+'.zip', await r.blob()); await rotateBeforeSync(4);
+      await saveToExports(beforeSyncName(), await r.blob()); await rotateBeforeSync(4);
     }catch(e){}
   }
   async function odPull(meta){
     await loadScript('vendor/jszip.min.js');
-    // Sicherheitsnetz: lokalen Stand als ZIP sichern, BEVOR er durch die Cloud-Version
-    // ersetzt wird – bei echtem Konflikt (lokale, noch nicht hochgeladene Aenderungen)
-    // UND beim allerersten Abgleich (Erstverbindung mit vorhandenen lokalen Dokumenten,
-    // die sonst ohne Sicherung ueberschrieben wuerden). Sauberer Folge-Pull braucht das
-    // nicht. Sicherungen werden rotiert (die letzten paar bleiben).
-    if(OD.cfg.dirty || !OD.cfg.etag){
-      try{ await saveToExports('wissensarchiv_beforesync_'+stamp()+'.zip', await buildBackupBlob()); await rotateBeforeSync(4); }catch(e){}
+    // Sicherheitsnetz: lokalen Stand IMMER als ZIP in /exports sichern, BEVOR er durch
+    // die Cloud-Version ersetzt wird. So gehen auch Änderungen, die im Offline-Zustand
+    // gemacht wurden (und daher nicht als „dirty" markiert sind), beim Reconnect nicht
+    // verloren. Nur bei leerem Archiv überflüssig → dann übersprungen. Rotiert (letzte 4).
+    if(state.catalog.length){
+      try{ await saveToExports(beforeSyncName(), await buildBackupBlob()); await rotateBeforeSync(4); }catch(e){}
     }
     const r=await odGraph(OD.itemPath+':/content');
     if(!r.ok) throw new Error('Download '+r.status);
@@ -2671,7 +2505,9 @@
       const meta=await odRemoteMeta();
       let action='none';
       if(!meta){
-        await odPush({fresh:true}); action='push';
+        const res=await odPush({fresh:true});
+        if(res==='conflict'){ await odConflict(); action='conflict'; }   // anderes Gerät war schneller → zusammenführen
+        else action='push';
       } else if(meta.etag && meta.etag===OD.cfg.etag){
         // Remote unveraendert. Hochladen bei lokaler Aenderung – bei manuellem Klick
         // IMMER (das gleicht auch stille Abweichungen ab: „Cloud = dieses Gerät").
@@ -2985,7 +2821,7 @@
     const fft=$('#find-filter-toggle'); if(fft) fft.onclick=()=>{ const f=$('#find-filters'); f.style.display = f.style.display==='none' ? '' : 'none'; };
     $('#filter-reset').onclick=()=>{ state.search.types=new Set(SUPPORTED.map(typeOf)); state.search.tag=null; renderFilters(); if(state.search.q)runSearch(); };
     $('#sel-all-hits').onclick=()=>{ state.lastHits.forEach((_,i)=>state.search.selected.add(i)); renderSearchResults(); };
-    $('#export-hits').onclick=()=>openExport('hits');
+    $('#export-hits').onclick=()=>openExport();
 
     // Import
     const dz=$('#dropzone');
@@ -2996,7 +2832,7 @@
     $('#pick-folder').onclick=async()=>{ try{ const dir=await window.showDirectoryPicker(); const files=[]; const walk=async(d)=>{ for await(const [n,h] of d.entries()){ if(h.kind==='file')files.push(await h.getFile()); else await walk(h); } }; await walk(dir); importFiles(files); }catch(err){ if(err.name!=='AbortError')console.error(err); } };
 
     // Export-Dialog
-    $$('#dlg-export [data-expfmt]').forEach(b=>b.onclick=()=>{ $('#dlg-export').classList.remove('show'); exportReport(b.dataset.expfmt,'hits'); });
+    $$('#dlg-export [data-expfmt]').forEach(b=>b.onclick=()=>{ $('#dlg-export').classList.remove('show'); exportReport(b.dataset.expfmt); });
     $('#exp-cancel').onclick=()=>$('#dlg-export').classList.remove('show');
 
     // Backup
@@ -3023,7 +2859,7 @@
     $$('#aib-seg button').forEach(b=>b.onclick=()=>{ state.settings.aiBudget=b.dataset.aib; persistSettings(); syncAiBudget(); });
     $('#api-test').onclick=async()=>{ const st=$('#api-status'); st.innerHTML='<span class="busy"></span>'; try{ await saveApiKey($('#api-key').value); if(!state.apiKey)throw new Error(state.settings.lang==='de'?'Kein Key':'No key'); if(!navigator.onLine)throw new Error(state.settings.lang==='de'?'Offline':'Offline'); const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:anthropicHeaders(),body:JSON.stringify({model:'claude-opus-4-8',max_tokens:16,messages:[{role:'user',content:'ping'}]})}); st.innerHTML=r.ok?'<span class="chip" style="color:var(--good)">● OK</span>':`<span class="chip" style="color:var(--danger)">● ${r.status}</span>`; }catch(e){ st.innerHTML=`<span class="chip" style="color:var(--danger)">● ${esc(e.message)}</span>`; } };
   }
-  function openExport(kind){ const data=buildReportItems(kind); if(!data.items.length&&!data.summary){ toast(state.settings.lang==='de'?'Keine Treffer zum Exportieren.':'No results to export.','err'); return; } $('#exp-text').textContent=(state.settings.lang==='de'?`${data.items.length} Treffer werden exportiert.`:`${data.items.length} results will be exported.`); $('#dlg-export').classList.add('show'); }
+  function openExport(){ const data=buildReportItems(); if(!data.items.length){ toast(state.settings.lang==='de'?'Keine Treffer zum Exportieren.':'No results to export.','err'); return; } $('#exp-text').textContent=(state.settings.lang==='de'?`${data.items.length} Treffer werden exportiert.`:`${data.items.length} results will be exported.`); $('#dlg-export').classList.add('show'); }
 
   // ---------- Init ----------
   async function init(){
@@ -3041,7 +2877,7 @@
 
     if(window.__WA_MOCK_ROOT__||window.__WA_TEST__){
       // Test-Brücke – nur aktiv, wenn explizit injiziert (automatisierte Prüfung).
-      window.WA={ importFiles, runSearch, searchArchive, generateSummary, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, setMode:(m)=>{state.sumMode=m;}, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, foAddComment,
+      window.WA={ importFiles, runSearch, searchArchive, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, foAddComment,
         rebuildCatalog: async()=>{ state.indexCache.clear(); state.catalog=await rebuildCatalog(); renderLibrary(); return state.catalog; } };
     }
 
