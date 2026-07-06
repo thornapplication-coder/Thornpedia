@@ -622,7 +622,11 @@
         <div class="panel panel-pad">
           <h4 style="margin-bottom:6px" data-i18n="set-about">Über</h4>
           <p style="margin:0 0 2px;font-weight:600">Wissensarchiv</p>
-          <p style="color:var(--text-muted);margin:0;font-size:12px" id="about-version"></p>
+          <p style="color:var(--text-muted);margin:0 0 12px;font-size:12px" id="about-version"></p>
+          <div style="border-top:1px solid var(--line);padding-top:12px;line-height:1.65">
+            <p style="margin:0 0 10px" data-i18n="about-1">Wissensarchiv bündelt deine Dokumente, Notizen und Themen an einem Ort – vollständig offline und ohne Konto. PDFs, Word-, Excel- und Textdateien werden importiert, per Volltext durchsucht (inklusive OCR für Scans) und zu übersichtlichen Zusammenfassungen und Exporten verarbeitet. Ein integriertes Forum mit Themen, Untergruppen, Kommentaren und Anhängen hält alles strukturiert und auffindbar.</p>
+            <p style="margin:0" data-i18n="about-2">Auf Wunsch lässt sich das Archiv mit OneDrive verknüpfen und wird dann automatisch auf all deinen Geräten synchronisiert – über deinen eigenen Zugang, ohne fremden Server. Deine Daten bleiben immer bei dir.</p>
+          </div>
         </div>
       </div>
     </section>
@@ -704,7 +708,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.5.2';
+  const APP_VERSION = '1.5.3';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -831,6 +835,8 @@
     'set-info-opfs':['Auf diesem Gerät/Browser gibt es keinen Ordner-Zugriff. Die Daten liegen dauerhaft im App-Speicher des Browsers und bleiben nach dem Schließen erhalten. Für einen echten Ordner (z. B. auf einem USB-Stick) öffne die App in Chrome oder Edge am Computer.','This device/browser has no folder access. Data is stored permanently in the browser’s app storage and stays after closing. For a real folder (e.g. on a USB stick) open the app in Chrome or Edge on a computer.'],
     'set-offline':['Offline-Betrieb wird eingerichtet …','Setting up offline mode …'],'set-offline-on':['Offline-Betrieb aktiv (App als PWA installierbar).','Offline mode active (installable as a PWA).'],'set-offline-off':['Offline-Betrieb nicht verfügbar (nur über https/localhost).','Offline mode unavailable (needs https/localhost).'],
     'set-about':['Über','About'],
+    'about-1':['Wissensarchiv bündelt deine Dokumente, Notizen und Themen an einem Ort – vollständig offline und ohne Konto. PDFs, Word-, Excel- und Textdateien werden importiert, per Volltext durchsucht (inklusive OCR für Scans) und zu übersichtlichen Zusammenfassungen und Exporten verarbeitet. Ein integriertes Forum mit Themen, Untergruppen, Kommentaren und Anhängen hält alles strukturiert und auffindbar.','Wissensarchiv brings your documents, notes and topics together in one place – fully offline and without an account. Import PDFs, Word, Excel and text files, search them full-text (including OCR for scans) and turn them into clear summaries and exports. A built-in forum with topics, subgroups, comments and attachments keeps everything structured and findable.'],
+    'about-2':['Auf Wunsch lässt sich das Archiv mit OneDrive verknüpfen und wird dann automatisch auf all deinen Geräten synchronisiert – über deinen eigenen Zugang, ohne fremden Server. Deine Daten bleiben immer bei dir.','If you like, the archive can be linked to OneDrive and then syncs automatically across all your devices – through your own account, with no third-party server. Your data always stays with you.'],
     'rc-h':['Ordner erneut verbinden','Reconnect folder'],'rc-p':['Der Browser hat die Berechtigung für deinen Datenordner zurückgesetzt. Deine Dateien sind unverändert auf der Festplatte – bitte den Ordner einmal neu bestätigen.','The browser reset permission for your data folder. Your files are untouched on disk – please confirm the folder once more.'],'rc-other':['Anderen Ordner wählen','Choose another folder'],'rc-btn':['Verbinden','Connect'],
     'dup-h':['Duplikat gefunden','Duplicate found'],'dup-all':['Für alle weiteren Duplikate übernehmen','Apply to all further duplicates'],'dup-skip':['Überspringen','Skip'],'dup-replace':['Ersetzen','Replace'],
     'cancel':['Abbrechen','Cancel'],'ok':['OK','OK'],'close':['Schließen','Close'],
