@@ -149,6 +149,25 @@ export async function run(base) {
   });
   t.check('API-Key ist NICHT im Backup-ZIP', keyLeak === false);
 
+  // OneDrive-Kernmechanik (offline testbar): PKCE + Redirect-URI und der
+  // Spiegel-Restore, auf dem der automatische Cloud-Pull aufsetzt.
+  const cl = await page.evaluate(async () => {
+    const uri = window.WA.odRedirectUri();
+    const p = await window.WA.odPkce();
+    const before = window.WA.state.catalog.filter(c => c.type !== 'forum').length;
+    const zipBlobA = await window.WA.buildBackupBlob();          // Stand OHNE das gleich importierte Dokument
+    const extra = new File(['# Spiegeltest\nEinzigartiger Inhalt fuer den Spiegel-Restore.'], 'spiegeltest.md');
+    await window.WA.importFiles([extra]);
+    const mid = window.WA.state.catalog.filter(c => c.type !== 'forum').length;
+    const zipA = await window.JSZip.loadAsync(await zipBlobA.arrayBuffer());
+    await window.WA.applyBackupZip(zipA, { clearFirst: true });  // Spiegeln -> spiegeltest.md muss verschwinden
+    await window.WA.reloadArchiveViews();
+    const after = window.WA.state.catalog.filter(c => c.type !== 'forum').length;
+    return { uri, hasPkce: !!(p.verifier && p.challenge && p.challenge.length > 20), before, mid, after };
+  });
+  t.check('OneDrive: Redirect-URI + PKCE erzeugt', /^https?:\/\//.test(cl.uri) && cl.hasPkce, JSON.stringify(cl));
+  t.check('OneDrive: Spiegel-Restore entfernt gelöschtes Dokument', cl.mid === cl.before + 1 && cl.after === cl.before, JSON.stringify(cl));
+
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
   await browser.close();
   return t.fails();

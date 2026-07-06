@@ -3,10 +3,12 @@
 <head>
   <meta charset="utf-8">
   <!-- Defense-in-Depth: begrenzt Ausgehendes strikt. connect-src laesst NUR die
-       eigene Herkunft und die Claude-API zu – ein kompromittiertes vendor-Skript
-       koennte den API-Key nicht an einen fremden Host senden. 'wasm-unsafe-eval'
-       wird fuer PDF.js/Tesseract-WASM benoetigt. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: https://api.anthropic.com; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; manifest-src 'self'">
+       eigene Herkunft, die Claude-API und – fuer die optionale OneDrive-
+       Synchronisation – die Microsoft-Hosts zu (Anmeldung, Graph-API sowie die
+       OneDrive-Content-Hosts, auf die Graph beim Up-/Download umleitet). Ein
+       kompromittiertes vendor-Skript kann Daten damit an keinen fremden Host
+       senden. 'wasm-unsafe-eval' wird fuer PDF.js/Tesseract-WASM benoetigt. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: https://api.anthropic.com https://graph.microsoft.com https://login.microsoftonline.com https://*.1drv.com https://*.sharepoint.com https://*.svc.ms; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; manifest-src 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wissensarchiv</title>
   <meta name="description" content="Persönliche, offline-fähige Wissensdatenbank – alle Daten liegen als echte Dateien auf deiner Festplatte.">
@@ -472,6 +474,49 @@
           <div class="dropzone" id="backup-drop" style="margin-top:12px;padding:22px"><div style="font-size:24px">⬆️</div><div data-i18n="backup-drop">Backup-ZIP hierher ziehen oder klicken</div></div>
         </div>
       </div>
+
+      <!-- ===== OneDrive-Synchronisation (automatisch) ===== -->
+      <div class="panel panel-pad" style="max-width:900px;margin-top:18px">
+        <div class="row" style="justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+          <div class="row" style="gap:10px;align-items:center">
+            <div style="font-size:26px">☁️</div>
+            <div>
+              <h3 style="margin:0" data-i18n="cloud-h">OneDrive-Synchronisation</h3>
+              <p style="color:var(--text-muted);margin:2px 0 0;font-size:13px" data-i18n="cloud-p">Spiegelt das gesamte Archiv automatisch über OneDrive auf all deine Geräte – ganz ohne Ordnerzugriff (auch in Firefox & Safari).</p>
+            </div>
+          </div>
+          <span class="chip" id="cloud-status">—</span>
+        </div>
+
+        <div id="cloud-setup" style="margin-top:14px">
+          <div class="notice" style="margin-bottom:12px;font-size:13px"><span>ℹ️</span><span data-i18n="cloud-setup-note">Einmalige Einrichtung: Registriere in <b>Azure &rsaquo; App-Registrierungen</b> eine kostenlose App (Typ „Single-Page-Application"), trage unten die <b>Weiterleitungs-URI</b> ein und kopiere die <b>Anwendungs-(Client-)ID</b> hierher. Danach läuft alles automatisch.</span></div>
+          <div class="field" style="margin-bottom:8px">
+            <label data-i18n="cloud-redirect-l">Weiterleitungs-URI (in Azure als „SPA" eintragen)</label>
+            <div class="row" style="gap:8px">
+              <code id="cloud-redirect" style="flex:1;min-width:0;word-break:break-all;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">—</code>
+              <button class="btn sm neutral" id="cloud-copy-redirect" data-i18n="cloud-copy">Kopieren</button>
+            </div>
+          </div>
+          <div class="field" style="margin-bottom:10px">
+            <label data-i18n="cloud-clientid-l">Anwendungs-(Client-)ID</label>
+            <input type="text" id="cloud-clientid" placeholder="00000000-0000-0000-0000-000000000000" spellcheck="false" autocomplete="off">
+          </div>
+          <div class="row" style="gap:8px;flex-wrap:wrap">
+            <button class="btn sm" id="cloud-connect" data-i18n="cloud-connect">Mit OneDrive verbinden</button>
+          </div>
+        </div>
+
+        <div id="cloud-connected" style="margin-top:14px;display:none">
+          <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+            <label class="row" style="gap:8px;cursor:pointer"><span class="switch" id="cloud-auto-sw"></span> <span data-i18n="cloud-auto">Automatisch synchronisieren</span></label>
+            <div class="row" style="gap:8px">
+              <button class="btn sm neutral" id="cloud-sync-now">🔄 <span data-i18n="cloud-sync-now">Jetzt synchronisieren</span></button>
+              <button class="btn sm danger" id="cloud-disconnect" data-i18n="cloud-disconnect">Trennen</button>
+            </div>
+          </div>
+          <div class="fmeta" id="cloud-last" style="margin-top:10px"></div>
+        </div>
+      </div>
     </section>
 
     <!-- ===== Exporte (Live-Exporte) ===== -->
@@ -663,7 +708,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.3.0';
+  const APP_VERSION = '1.4.0';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -754,6 +799,16 @@
     'backup-p':['Komplettes Archiv als eine ZIP – Originale, Indizes, Tags & Notizen.','Full archive as one ZIP – originals, indexes, tags & notes.'],
     'backup-exp-h':['Archiv exportieren','Export archive'],'backup-exp-p':['Erzeugt eine ZIP mit /originals, /index und /meta (ohne API-Key). Wird in /exports gespeichert und als Download angeboten.','Creates a ZIP with /originals, /index and /meta (without the API key). Saved to /exports and offered as a download.'],
     'backup-create':['Backup-ZIP erstellen','Create backup ZIP'],'backup-imp-h':['Aus ZIP wiederherstellen','Restore from ZIP'],'backup-imp-p':['Vollständige Wiederherstellung – inklusive Tags und Notizen. Vorhandene Dokumente werden ergänzt.','Full restore – including tags and notes. Existing documents are merged in.'],'backup-drop':['Backup-ZIP hierher ziehen oder klicken','Drop a backup ZIP here or click'],
+    'cloud-h':['OneDrive-Synchronisation','OneDrive sync'],
+    'cloud-p':['Spiegelt das gesamte Archiv automatisch über OneDrive auf all deine Geräte – ganz ohne Ordnerzugriff (auch in Firefox & Safari).','Automatically mirrors the whole archive across your devices via OneDrive – with no folder access needed (works in Firefox & Safari too).'],
+    'cloud-setup-note':['Einmalige Einrichtung: Registriere in <b>Azure &rsaquo; App-Registrierungen</b> eine kostenlose App (Plattform „Single-Page-Application"), trage unten die <b>Weiterleitungs-URI</b> ein und kopiere die <b>Anwendungs-(Client-)ID</b> hierher. Danach läuft alles automatisch.','One-time setup: in <b>Azure &rsaquo; App registrations</b> create a free app (platform „Single-page application"), add the <b>redirect URI</b> below and paste the <b>Application (client) ID</b> here. After that everything runs automatically.'],
+    'cloud-redirect-l':['Weiterleitungs-URI (in Azure als „SPA" eintragen)','Redirect URI (add in Azure as „SPA")'],
+    'cloud-copy':['Kopieren','Copy'],
+    'cloud-clientid-l':['Anwendungs-(Client-)ID','Application (client) ID'],
+    'cloud-connect':['Mit OneDrive verbinden','Connect to OneDrive'],
+    'cloud-auto':['Automatisch synchronisieren','Sync automatically'],
+    'cloud-sync-now':['Jetzt synchronisieren','Sync now'],
+    'cloud-disconnect':['Trennen','Disconnect'],
     'import-p':['PDF · DOCX · XLSX · CSV · TXT · MD','PDF · DOCX · XLSX · CSV · TXT · MD'],
     'imp-drop':['Dateien oder ganzen Ordner hierher ziehen','Drop files or a whole folder here'],'imp-files':['Dateien wählen','Choose files'],'imp-folder':['Ordner wählen','Choose folder'],
     'imp-queue':['Import-Warteschlange','Import queue'],'imp-uihint':['Die App bleibt während des Imports bedienbar. Große PDFs werden seitenweise verarbeitet.','The app stays usable during import. Large PDFs are processed page by page.'],
@@ -886,6 +941,7 @@
     // Jede Katalog-Aenderung (Import, Loeschen, Tags, Umbenennen, Restore …)
     // stoesst den Live-Refresh der registrierten Exporte an.
     scheduleExportRefresh();
+    odMarkDirty();
   }
   // type wird auf bekannte Werte begrenzt – sonst koennte ein manipuliertes
   // Restore-Index-JSON ueber die CSS-Klasse t-${type} HTML einschleusen.
@@ -1263,7 +1319,7 @@
   // ein. Die Themen-/Untergruppen-Struktur liegt in /meta/forum.json, Anhänge als
   // echte Dateien in /forum.
   async function loadForum(){ try{ const f=JSON.parse(await readFileText(state.dirs.meta,'forum.json')); state.forum=(f&&Array.isArray(f.groups))?f:{groups:[]}; }catch(e){ state.forum={groups:[]}; } }
-  async function saveForum(){ try{ await writeFile(state.dirs.meta,'forum.json',JSON.stringify(state.forum,null,2)); }catch(e){ console.warn(e); } }
+  async function saveForum(){ try{ await writeFile(state.dirs.meta,'forum.json',JSON.stringify(state.forum,null,2)); odMarkDirty(); }catch(e){ console.warn(e); } }
   const foUuid=()=>crypto.randomUUID();
   const forumGroups=()=>((state.forum&&state.forum.groups)||[]);
   const forumGroup=(gid)=>forumGroups().find(g=>g.id===gid);
@@ -2301,48 +2357,240 @@
     }catch(e){ console.warn('Auto-Backup fehlgeschlagen', e); }
     finally{ _abBusy=false; }
   }
+  // Schreibt die (validierten) Dateien eines Backup-ZIP in die Datenordner.
+  // Gemeinsame Basis fuer den manuellen ZIP-Import und die OneDrive-Synchronisation.
+  // Mit {clearFirst:true} wird zuvor gespiegelt (auf anderen Geraeten geloeschte
+  // Dokumente verschwinden dann auch hier); apikey.txt bleibt stets unberuehrt.
+  async function applyBackupZip(zip, opts={}){
+    const de=state.settings.lang==='de';
+    if(opts.clearFirst){
+      for(const d of ['originals','index','forum']){
+        const dir=state.dirs[d]; if(!dir)continue;
+        const names=[]; for await(const [n,h] of dir.entries()){ if(h.kind==='file')names.push(n); }
+        for(const nm of names) await removeFile(dir, nm);
+      }
+    }
+    const targets={originals:state.dirs.originals, index:state.dirs.index, meta:state.dirs.meta, forum:state.dirs.forum};
+    const entries=Object.keys(zip.files);
+    // Nur meta-Dateien aus einer festen Whitelist zulassen; apikey.txt und
+    // catalog.json werden NIE aus einem fremden ZIP uebernommen.
+    const META_ALLOW=new Set(['settings.json','exports.json','forum.json']);
+    // Forum-Anhänge nur mit Medien-Endung übernehmen (Bilder/Videos), nichts Ausführbares.
+    const FORUM_EXT=new Set(['png','jpg','jpeg','gif','webp','bmp','mp4','webm','ogg','ogv','mov','m4v']);
+    // Grenzen gegen ZIP-Bomben / Speicher-DoS
+    const MAX_FILES=20000, MAX_TOTAL=2*1024*1024*1024; let n=0, total=0, skipped=0;
+    for(const path of entries){
+      const zf=zip.files[path]; if(zf.dir)continue;
+      const parts=path.split('/'); if(parts.length!==2)continue;         // genau folder/datei
+      const [folder,fname]=parts;
+      if(!targets[folder]||!fname)continue;
+      if(/[\\/]|^\.+$/.test(fname)){ skipped++; continue; }               // keine Traversal-/Sonderpfade
+      if(folder==='meta'&&!META_ALLOW.has(fname)){ skipped++; continue; } // meta streng begrenzt
+      if(folder==='index'&&!/^[A-Za-z0-9_-]+\.json$/.test(fname)){ skipped++; continue; }
+      // Originale nur mit unterstützter Endung übernehmen – blockt z. B. eine
+      // eingeschleuste originals/evil.html, die beim Öffnen als HTML rendern würde.
+      if(folder==='originals'&&!SUPPORTED.some(ext=>fname.toLowerCase().endsWith('.'+ext))){ skipped++; continue; }
+      if(folder==='forum'&&!FORUM_EXT.has((fname.split('.').pop()||'').toLowerCase())){ skipped++; continue; }
+      if(++n>MAX_FILES){ throw new Error(de?'Zu viele Dateien im Backup.':'Too many files in backup.'); }
+      const content=await zf.async('arraybuffer');
+      total+=content.byteLength; if(total>MAX_TOTAL){ throw new Error(de?'Backup ist zu groß.':'Backup too large.'); }
+      await writeFile(targets[folder], fname, content);
+    }
+  }
+  // Katalog/Ansichten nach einem Restore bzw. Cloud-Pull aus den (neuen) Index-
+  // Dateien – der Quelle der Wahrheit – neu aufbauen. Nichts bleibt verwaist.
+  async function reloadArchiveViews(){
+    state.indexCache.clear(); state.catalog=await rebuildCatalog(); await saveCatalog();
+    await loadSettings(); await loadExportDefs(); await loadForum();
+    updateCount(); applyTheme(state.settings.theme); applyLang(state.settings.lang);
+    refreshLibrary(); renderExportsPanel(); updateStorageLabels(); renderForum();
+  }
   async function importBackup(file){
     const de=state.settings.lang==='de';
     let restored=false;
     try{
       toast(de?'Backup wird eingelesen…':'Reading backup…');
       await loadScript('vendor/jszip.min.js'); const zip=await window.JSZip.loadAsync(await file.arrayBuffer());
-      const targets={originals:state.dirs.originals, index:state.dirs.index, meta:state.dirs.meta, forum:state.dirs.forum};
-      const entries=Object.keys(zip.files);
-      // Nur meta-Dateien aus einer festen Whitelist zulassen; apikey.txt und
-      // catalog.json werden NIE aus einem fremden ZIP uebernommen.
-      const META_ALLOW=new Set(['settings.json','exports.json','forum.json']);
-      // Forum-Anhänge nur mit Medien-Endung übernehmen (Bilder/Videos), nichts Ausführbares.
-      const FORUM_EXT=new Set(['png','jpg','jpeg','gif','webp','bmp','mp4','webm','ogg','ogv','mov','m4v']);
-      // Grenzen gegen ZIP-Bomben / Speicher-DoS
-      const MAX_FILES=20000, MAX_TOTAL=2*1024*1024*1024; let n=0, total=0, skipped=0;
-      for(const path of entries){
-        const zf=zip.files[path]; if(zf.dir)continue;
-        const parts=path.split('/'); if(parts.length!==2)continue;         // genau folder/datei
-        const [folder,fname]=parts;
-        if(!targets[folder]||!fname)continue;
-        if(/[\\/]|^\.+$/.test(fname)){ skipped++; continue; }               // keine Traversal-/Sonderpfade
-        if(folder==='meta'&&!META_ALLOW.has(fname)){ skipped++; continue; } // meta streng begrenzt
-        if(folder==='index'&&!/^[A-Za-z0-9_-]+\.json$/.test(fname)){ skipped++; continue; }
-        // Originale nur mit unterstützter Endung übernehmen – blockt z. B. eine
-        // eingeschleuste originals/evil.html, die beim Öffnen als HTML rendern würde.
-        if(folder==='originals'&&!SUPPORTED.some(ext=>fname.toLowerCase().endsWith('.'+ext))){ skipped++; continue; }
-        if(folder==='forum'&&!FORUM_EXT.has((fname.split('.').pop()||'').toLowerCase())){ skipped++; continue; }
-        if(++n>MAX_FILES){ throw new Error(de?'Zu viele Dateien im Backup.':'Too many files in backup.'); }
-        const content=await zf.async('arraybuffer');
-        total+=content.byteLength; if(total>MAX_TOTAL){ throw new Error(de?'Backup ist zu groß.':'Backup too large.'); }
-        await writeFile(targets[folder], fname, content);
-      }
+      await applyBackupZip(zip, {clearFirst:false});
       restored=true;
     }catch(e){ console.error(e); toast((state.settings.lang==='de'?'Import-Fehler: ':'Import error: ')+e.message,'err'); }
     finally{
-      // Auch nach einem Abbruch bereits geschriebene Index-Dateien sichtbar machen –
-      // Katalog aus den Index-Dateien (Quelle der Wahrheit) neu aufbauen, nichts verwaist.
-      try{ state.indexCache.clear(); state.catalog=await rebuildCatalog(); await saveCatalog(); await loadSettings(); await loadExportDefs(); await loadForum();
-        updateCount(); applyTheme(state.settings.theme); applyLang(state.settings.lang);
-        refreshLibrary(); renderExportsPanel(); updateStorageLabels(); renderForum();
-      }catch(e2){ console.error(e2); }
+      // Auch nach einem Abbruch bereits geschriebene Index-Dateien sichtbar machen.
+      try{ await reloadArchiveViews(); }catch(e2){ console.error(e2); }
       if(restored) toast((state.settings.lang==='de'?'Wiederhergestellt: ':'Restored: ')+state.catalog.length+(state.settings.lang==='de'?' Dokumente.':' documents.'),'ok');
+    }
+  }
+
+  // ---------- OneDrive-Synchronisation (automatisch) ----------
+  // Verbindet das Archiv per Microsoft-Graph mit OneDrive und spiegelt es als eine
+  // ZIP (thornpedia_archive.zip) auf alle Geraete. Anmeldung: OAuth2 Authorization
+  // Code + PKCE, oeffentlicher Client OHNE Secret (die App-/Client-ID ist nicht
+  // geheim). Access-/Refresh-Token liegen PRO GERAET in IndexedDB – niemals in
+  // /meta und niemals in einem Backup-ZIP. Auch die Sync-Buchhaltung (eTag, Auto-
+  // Flag, Client-ID) liegt in IndexedDB, damit sie nicht ueber das ZIP mitwandert.
+  const OD = {
+    authBase:'https://login.microsoftonline.com/common/oauth2/v2.0',
+    graph:'https://graph.microsoft.com/v1.0',
+    scope:'Files.ReadWrite offline_access openid',
+    itemPath:'/me/drive/root:/Thornpedia/thornpedia_archive.zip',
+    cfg:{ clientId:'', auto:true, etag:'', syncAt:'', dirty:false, dirtyAt:'' },
+    tokens:null,      // {access_token, refresh_token, expires_at}
+    syncing:false, _pushTimer:null, status:'off',
+  };
+  function odRedirectUri(){ return location.origin + location.pathname; }
+  function odConnected(){ return !!(OD.tokens && OD.tokens.refresh_token); }
+  async function odLoadState(){
+    try{ const c=await IDB.get('od.cfg'); if(c) OD.cfg=Object.assign(OD.cfg, c); }catch(e){}
+    try{ OD.tokens=(await IDB.get('od.tokens'))||null; }catch(e){ OD.tokens=null; }
+  }
+  async function odSaveCfg(){ try{ await IDB.set('od.cfg', OD.cfg); }catch(e){} }
+  function b64url(buf){ let s=''; const b=new Uint8Array(buf); for(let i=0;i<b.length;i++)s+=String.fromCharCode(b[i]); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
+  async function odPkce(){ const v=b64url(crypto.getRandomValues(new Uint8Array(32))); const c=b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v))); return {verifier:v, challenge:c}; }
+  async function odStoreTokens(j){
+    OD.tokens={ access_token:j.access_token, refresh_token:j.refresh_token||(OD.tokens&&OD.tokens.refresh_token)||'', expires_at: Date.now()+((j.expires_in||3600)*1000) - 60000 };
+    try{ await IDB.set('od.tokens', OD.tokens); }catch(e){}
+  }
+  async function odConnect(){
+    const de=state.settings.lang==='de';
+    const cid=(OD.cfg.clientId||'').trim();
+    if(!cid){ toast(de?'Bitte zuerst die Client-ID eintragen.':'Please enter the Client ID first.','err'); return; }
+    try{
+      const {verifier, challenge}=await odPkce();
+      const st=b64url(crypto.getRandomValues(new Uint8Array(16)));
+      await IDB.set('od.pkce', {verifier, state:st, cid});
+      const p=new URLSearchParams({ client_id:cid, response_type:'code', redirect_uri:odRedirectUri(), scope:OD.scope, code_challenge:challenge, code_challenge_method:'S256', state:st, prompt:'select_account' });
+      location.href = OD.authBase+'/authorize?'+p.toString();
+    }catch(e){ toast((de?'OneDrive-Fehler: ':'OneDrive error: ')+e.message,'err'); }
+  }
+  // Frueh in init() aufgerufen: kommt der Nutzer mit ?code= von Microsoft zurueck,
+  // wird der Code gegen Tokens getauscht und die URL sofort bereinigt.
+  async function odHandleRedirect(){
+    const q=new URLSearchParams(location.search);
+    const code=q.get('code'), st=q.get('state'), err=q.get('error');
+    if(!code && !err) return false;
+    let saved=null; try{ saved=await IDB.get('od.pkce'); await IDB.del('od.pkce'); }catch(e){}
+    history.replaceState(null, '', odRedirectUri());   // ?code= entfernen: kein Re-Trigger bei Reload
+    try{
+      if(err) throw new Error(q.get('error_description')||err);
+      if(!saved || saved.state!==st) throw new Error('state mismatch');
+      const body=new URLSearchParams({ client_id:saved.cid, grant_type:'authorization_code', code, redirect_uri:odRedirectUri(), code_verifier:saved.verifier, scope:OD.scope });
+      const r=await fetch(OD.authBase+'/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+      const j=await r.json();
+      if(!r.ok) throw new Error(j.error_description||j.error||('HTTP '+r.status));
+      OD.cfg.clientId=saved.cid; OD.cfg.auto=true; await odSaveCfg();
+      await odStoreTokens(j);
+      try{ sessionStorage.setItem('od.justConnected','1'); }catch(e){}
+    }catch(e){ try{ sessionStorage.setItem('od.connectError', e.message||String(e)); }catch(_){} }
+    return true;
+  }
+  async function odAccessToken(){
+    if(!OD.tokens||!OD.tokens.refresh_token) throw new Error('not connected');
+    if(OD.tokens.access_token && Date.now()<OD.tokens.expires_at) return OD.tokens.access_token;
+    const body=new URLSearchParams({ client_id:OD.cfg.clientId, grant_type:'refresh_token', refresh_token:OD.tokens.refresh_token, scope:OD.scope, redirect_uri:odRedirectUri() });
+    const r=await fetch(OD.authBase+'/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
+    const j=await r.json();
+    if(!r.ok){ if(j.error==='invalid_grant'){ OD.tokens=null; try{ await IDB.del('od.tokens'); }catch(e){} } throw new Error(j.error_description||j.error||('HTTP '+r.status)); }
+    await odStoreTokens(j);
+    return OD.tokens.access_token;
+  }
+  async function odGraph(path, opts={}){
+    const tok=await odAccessToken();
+    const url=/^https?:/.test(path)?path:OD.graph+path;
+    const headers=Object.assign({}, opts.headers||{}, {Authorization:'Bearer '+tok});
+    return fetch(url, Object.assign({}, opts, {headers}));
+  }
+  async function odRemoteMeta(){
+    const r=await odGraph(OD.itemPath+'?select=eTag,cTag,size,lastModifiedDateTime');
+    if(r.status===404) return null;
+    if(!r.ok) throw new Error('Graph '+r.status);
+    const j=await r.json();
+    return { etag:j.cTag||j.eTag||'', modified:j.lastModifiedDateTime||'', size:j.size||0 };
+  }
+  async function odPush(){
+    await loadScript('vendor/jszip.min.js');
+    const blob=await buildBackupBlob();
+    if(blob.size > 250*1024*1024) throw new Error(state.settings.lang==='de'?'Archiv größer als 250 MB – nutze ein manuelles Backup-ZIP.':'Archive larger than 250 MB – use a manual backup ZIP.');
+    const r=await odGraph(OD.itemPath+':/content', {method:'PUT', headers:{'Content-Type':'application/zip'}, body:blob});
+    if(!r.ok) throw new Error('Upload '+r.status);
+    const j=await r.json();
+    OD.cfg.etag=j.cTag||j.eTag||''; OD.cfg.syncAt=new Date().toISOString(); OD.cfg.dirty=false; OD.cfg.dirtyAt='';
+    await odSaveCfg();
+  }
+  async function odPull(meta){
+    await loadScript('vendor/jszip.min.js');
+    // Sicherheitsnetz: lokalen Stand vor dem Ersetzen als ZIP in /exports ablegen.
+    try{ await saveToExports('wissensarchiv_beforesync_'+stamp()+'.zip', await buildBackupBlob()); }catch(e){}
+    const r=await odGraph(OD.itemPath+':/content');
+    if(!r.ok) throw new Error('Download '+r.status);
+    const zip=await window.JSZip.loadAsync(await r.blob());
+    await applyBackupZip(zip, {clearFirst:true});
+    await reloadArchiveViews();
+    OD.cfg.etag=(meta&&meta.etag)||OD.cfg.etag; OD.cfg.syncAt=new Date().toISOString(); OD.cfg.dirty=false; OD.cfg.dirtyAt='';
+    await odSaveCfg();
+  }
+  // Zentrale, konfliktbewusste Synchronisation. Modell fuer den Einzelnutzer:
+  //  · Remote unveraendert  -> nur hochladen, wenn lokal etwas geaendert wurde.
+  //  · Remote veraendert    -> herunterladen (Spiegel). Gab es zugleich lokale
+  //    Aenderungen, wird der lokale Stand vorab als Sicherung in /exports gelegt,
+  //    sodass nichts verloren geht ("Cloud gewinnt" + Sicherheitsnetz).
+  async function odSync(manual){
+    if(!odConnected()||OD.syncing) return;
+    if(!manual && OD.cfg.auto===false) return;
+    OD.syncing=true; odSetStatus('syncing');
+    const de=state.settings.lang==='de';
+    try{
+      const meta=await odRemoteMeta();
+      if(!meta){ await odPush(); toast(de?'In OneDrive angelegt.':'Uploaded to OneDrive.','ok'); }
+      else if(meta.etag && meta.etag===OD.cfg.etag){
+        if(OD.cfg.dirty){ await odPush(); }
+      } else {
+        const hadLocal=OD.cfg.dirty;
+        await odPull(meta);
+        toast(hadLocal
+          ? (de?'Cloud-Version geladen. Deine lokalen Änderungen liegen als Sicherung in /exports.':'Loaded cloud version. Your local changes are backed up in /exports.')
+          : (de?'Vom Cloud-Stand aktualisiert.':'Updated from cloud.'), 'ok');
+      }
+      odSetStatus('connected');
+    }catch(e){ console.warn('OneDrive-Sync', e); odSetStatus('error', e.message); toast((de?'OneDrive-Sync fehlgeschlagen: ':'OneDrive sync failed: ')+e.message,'err'); }
+    finally{ OD.syncing=false; renderCloudPanel(); }
+  }
+  // Bei jeder inhaltlichen Aenderung (Import, Loeschen, Tags, Notizen, Forum):
+  // als "dirty" markieren und einen Upload leicht verzoegert anstossen.
+  function odMarkDirty(){
+    if(OD.syncing) return;   // Aenderungen waehrend eines Pulls nicht als "dirty" werten (kein Rueckschreib-Loop)
+    if(!odConnected()||OD.cfg.auto===false) return;
+    OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); odSaveCfg();
+    clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 4000);
+  }
+  async function odDisconnect(){
+    OD.tokens=null; OD.cfg.auto=false; OD.cfg.dirty=false;
+    try{ await IDB.del('od.tokens'); }catch(e){}
+    await odSaveCfg(); renderCloudPanel();
+    toast(state.settings.lang==='de'?'OneDrive getrennt (Archiv-Daten bleiben lokal).':'OneDrive disconnected (archive data stays local).','ok');
+  }
+  function odSetStatus(s, msg){ OD.status=s; OD.statusMsg=msg||''; renderCloudPanel(); }
+  function renderCloudPanel(){
+    const wrap=$('#cloud-setup'); if(!wrap)return; const de=state.settings.lang==='de';
+    const rc=$('#cloud-redirect'); if(rc)rc.textContent=odRedirectUri();
+    const ci=$('#cloud-clientid'); if(ci && document.activeElement!==ci) ci.value=OD.cfg.clientId||'';
+    const conn=odConnected();
+    $('#cloud-setup').style.display=conn?'none':'';
+    $('#cloud-connected').style.display=conn?'':'none';
+    const chip=$('#cloud-status');
+    if(chip){
+      const map={ off:[de?'Nicht verbunden':'Not connected','var(--text-muted)'], syncing:[de?'Synchronisiert…':'Syncing…','var(--accent)'], connected:[de?'Verbunden':'Connected','var(--good)'], error:[de?'Fehler':'Error','var(--danger)'] };
+      const st= conn ? (OD.status==='off'?'connected':OD.status) : 'off';
+      const [txt,col]=map[st]||map.off;
+      chip.textContent='● '+txt; chip.style.color=col; chip.title=OD.statusMsg||'';
+    }
+    const sw=$('#cloud-auto-sw'); if(sw) sw.classList.toggle('on', OD.cfg.auto!==false);
+    const last=$('#cloud-last');
+    if(last){
+      const parts=[];
+      if(OD.cfg.syncAt) parts.push((de?'Zuletzt synchronisiert: ':'Last synced: ')+new Date(OD.cfg.syncAt).toLocaleString(locale()));
+      else parts.push(de?'Noch nicht synchronisiert.':'Not synced yet.');
+      if(OD.cfg.dirty) parts.push(de?'lokale Änderungen ausstehend':'local changes pending');
+      last.textContent=parts.join(' · ');
     }
   }
 
@@ -2434,7 +2682,7 @@
   function switchView(view){ $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); const gb=$('#settings-btn'); if(gb){ gb.classList.toggle('active', view==='settings'); gb.setAttribute('aria-pressed', view==='settings'?'true':'false'); } $('.main').scrollTop=0;
     // Beim Verlassen des Forums die Anhang-Blob-URLs freigeben und laufende Loader entwerten.
     if(view!=='forum'&&(state._forumUrls&&state._forumUrls.length)){ state._foSeq=(state._foSeq||0)+1; state._forumUrls.forEach(u=>{try{URL.revokeObjectURL(u);}catch(_){}}); state._forumUrls=[]; }
-    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();renderSearchHistory();} if(view==='summary')renderSumPicklist(); if(view==='forum')renderForum(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; syncAiBudget(); renderTagAdmin(); } }
+    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();renderSearchHistory();} if(view==='summary')renderSumPicklist(); if(view==='forum')renderForum(); if(view==='backup'){renderBackupStats();renderCloudPanel();} if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; syncAiBudget(); renderTagAdmin(); } }
 
   // ---------- Boot ----------
   function updateStorageLabels(){
@@ -2465,6 +2713,13 @@
     showScreen('app');
     toast(state.storageMode==='opfs'?(state.settings.lang==='de'?'Archiv bereit (App-Speicher).':'Archive ready (app storage).'):(state.settings.lang==='de'?'Ordner verbunden.':'Folder connected.'),'ok');
     setTimeout(()=>{ maybeAutoBackup(); }, 800); // Start nicht blockieren
+    // OneDrive: Rueckkehr von der Anmeldung bzw. automatischer Abgleich beim Start.
+    renderCloudPanel();
+    let justConnected=false, connErr=null;
+    try{ justConnected=sessionStorage.getItem('od.justConnected')==='1'; if(justConnected)sessionStorage.removeItem('od.justConnected'); connErr=sessionStorage.getItem('od.connectError'); if(connErr)sessionStorage.removeItem('od.connectError'); }catch(e){}
+    if(connErr){ toast((state.settings.lang==='de'?'OneDrive-Anmeldung fehlgeschlagen: ':'OneDrive sign-in failed: ')+connErr,'err'); }
+    if(justConnected){ toast(state.settings.lang==='de'?'Mit OneDrive verbunden.':'Connected to OneDrive.','ok'); switchView('backup'); }
+    if(odConnected()) setTimeout(()=>odSync(justConnected), justConnected?400:1500);
   }
   async function pickFolder(){
     try{ const handle=window.__WA_MOCK_ROOT__ || await window.showDirectoryPicker({id:'wissensarchiv',mode:'readwrite'}); if(!(await ensurePermission(handle))){toast(tr2('perm-denied'),'err');return;} state.rootHandle=handle; await IDB.set('rootHandle',handle); await bootApp(); }
@@ -2534,6 +2789,14 @@
     bd.addEventListener('drop',(e)=>{ e.preventDefault(); bd.classList.remove('drag'); const f=(e.dataTransfer.files||[])[0]; if(f)importBackup(f); });
     bd.onclick=()=>{ const inp=document.createElement('input'); inp.type='file'; inp.accept='.zip'; inp.onchange=()=>{ if(inp.files[0])importBackup(inp.files[0]); }; inp.click(); };
 
+    // OneDrive-Synchronisation
+    const cid=$('#cloud-clientid'); if(cid) cid.oninput=()=>{ OD.cfg.clientId=cid.value.trim(); odSaveCfg(); };
+    const ccr=$('#cloud-copy-redirect'); if(ccr) ccr.onclick=async()=>{ try{ await navigator.clipboard.writeText(odRedirectUri()); toast(state.settings.lang==='de'?'Kopiert.':'Copied.','ok'); }catch(e){ toast(odRedirectUri()); } };
+    const ccn=$('#cloud-connect'); if(ccn) ccn.onclick=odConnect;
+    const cdis=$('#cloud-disconnect'); if(cdis) cdis.onclick=odDisconnect;
+    const cnow=$('#cloud-sync-now'); if(cnow) cnow.onclick=()=>odSync(true);
+    const caw=$('#cloud-auto-sw'); if(caw) caw.onclick=()=>{ OD.cfg.auto=!(OD.cfg.auto!==false); odSaveCfg(); renderCloudPanel(); if(OD.cfg.auto)odSync(true); };
+
     // API
     $('#api-save').onclick=async()=>{ await saveApiKey($('#api-key').value); toast('OK','ok'); };
     $$('#aib-seg button').forEach(b=>b.onclick=()=>{ state.settings.aiBudget=b.dataset.aib; persistSettings(); syncAiBudget(); });
@@ -2549,9 +2812,15 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc='vendor/pdf.worker.min.js';
     registerSW();
 
+    // OneDrive: gespeicherten Verbindungs-Zustand laden und – falls der Nutzer
+    // gerade von der Microsoft-Anmeldung mit ?code= zurueckkommt – den Code sofort
+    // (vor Tab-Lock/Boot) gegen Tokens tauschen. Die URL wird dabei bereinigt.
+    await odLoadState();
+    await odHandleRedirect();
+
     if(window.__WA_MOCK_ROOT__||window.__WA_TEST__){
       // Test-Brücke – nur aktiv, wenn explizit injiziert (automatisierte Prüfung).
-      window.WA={ importFiles, runSearch, searchArchive, generateSummary, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, setMode:(m)=>{state.sumMode=m;},
+      window.WA={ importFiles, runSearch, searchArchive, generateSummary, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, setMode:(m)=>{state.sumMode=m;}, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty,
         rebuildCatalog: async()=>{ state.indexCache.clear(); state.catalog=await rebuildCatalog(); renderLibrary(); return state.catalog; } };
     }
 
