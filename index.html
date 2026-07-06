@@ -708,7 +708,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.5.4';
+  const APP_VERSION = '1.5.5';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2602,6 +2602,17 @@
     OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); odSaveCfg();
     clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 4000);
   }
+  // Dauer-Synchronisation: regelmäßig (alle 45 s), beim Zurückkehren zur App und
+  // bei (Wieder-)Verbindung nach Cloud-Änderungen sehen. odSync ist ein No-Op,
+  // wenn nichts zu tun ist – dann läuft nur eine winzige Metadaten-Abfrage.
+  function odStartAutoPoll(){
+    if(OD._pollStarted) return; OD._pollStarted=true;
+    const tick=()=>{ if(odConnected() && OD.cfg.auto!==false && !document.hidden && navigator.onLine && !OD.syncing) odSync(false); };
+    OD._pollTimer=setInterval(tick, 45000);
+    document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) tick(); });
+    window.addEventListener('online', tick);
+    window.addEventListener('focus', tick);
+  }
   async function odDisconnect(){
     OD.tokens=null; OD.cfg.auto=false; OD.cfg.dirty=false;
     try{ await IDB.del('od.tokens'); }catch(e){}
@@ -2758,8 +2769,9 @@
     let justConnected=false, connErr=null;
     try{ justConnected=sessionStorage.getItem('od.justConnected')==='1'; if(justConnected)sessionStorage.removeItem('od.justConnected'); connErr=sessionStorage.getItem('od.connectError'); if(connErr)sessionStorage.removeItem('od.connectError'); }catch(e){}
     if(connErr){ toast((state.settings.lang==='de'?'OneDrive-Anmeldung fehlgeschlagen: ':'OneDrive sign-in failed: ')+connErr,'err'); }
-    if(justConnected){ toast(state.settings.lang==='de'?'Mit OneDrive verbunden.':'Connected to OneDrive.','ok'); switchView('backup'); }
+    if(justConnected){ toast(state.settings.lang==='de'?'Mit OneDrive verbunden.':'Connected to OneDrive.','ok'); switchView('settings'); }
     if(odConnected()) setTimeout(()=>odSync(justConnected), justConnected?400:1500);
+    odStartAutoPoll();
   }
   async function pickFolder(){
     try{ const handle=window.__WA_MOCK_ROOT__ || await window.showDirectoryPicker({id:'wissensarchiv',mode:'readwrite'}); if(!(await ensurePermission(handle))){toast(tr2('perm-denied'),'err');return;} state.rootHandle=handle; await IDB.set('rootHandle',handle); await bootApp(); }
