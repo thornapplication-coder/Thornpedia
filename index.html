@@ -693,7 +693,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.8.2';
+  const APP_VERSION = '1.8.3';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -767,7 +767,7 @@
     'lib-h':['Bibliothek','Library'],'lib-p':['Alle Dokumente an einem Ort.','All your documents in one place.'],
     'lib-empty-h':['Noch keine Dokumente','No documents yet'],'lib-empty-p':['Importiere Dateien per Drag & Drop, Dateiauswahl oder ganzem Ordner.','Import files via drag & drop, file picker or a whole folder.'],
     'search-h':['Suche & KI','Search & AI'],
-    'search-p':['Volltext durchsuchen – oder die KI eine Frage über alle deine Dokumente beantworten lassen.','Full-text search – or let the AI answer a question across all your documents.'],
+    'search-p':['Volltext über alle Dokumente durchsuchen – oder Claude frei fragen wie in einem Chat.','Full-text search across all documents – or chat freely with Claude.'],
     'fm-search':['Suchen','Search'],'fm-ask':['KI fragen','Ask AI'],
     'fm-exactword':['Genauer Wortlaut','Exact wording'],'fm-onlysel':['Nur markierte Dokumente','Selected documents only'],'fm-filter':['Filter','Filter'],
     'search-ph':['Volltextsuche über alle Dokumente…','Full-text search across all documents…'],'search-ph2':['Suchbegriff…','Search term…'],'do-search':['Suchen','Search'],
