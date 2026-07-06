@@ -598,6 +598,14 @@
               <label class="row" style="gap:8px;cursor:pointer"><span class="switch" id="cloud-synckey-sw"></span> <span data-i18n="cloud-synckey">API-Key mit OneDrive synchronisieren</span></label>
               <p style="color:var(--text-muted);font-size:12px;margin:6px 0 0" data-i18n="cloud-synckey-hint">Überträgt den Claude-API-Key automatisch auf alle Geräte – bequem, aber der geheime Schlüssel liegt dann in deinem OneDrive. Standardmäßig aus.</p>
             </div>
+            <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
+              <div class="fmeta" style="margin-bottom:8px" data-i18n="cloud-force-h">Bei Sync-Problemen (überschreibt eindeutig):</div>
+              <div class="row" style="gap:8px;flex-wrap:wrap">
+                <button class="btn sm neutral" id="cloud-force-push">⬆️ <span data-i18n="cloud-force-push">Dieses Gerät → Cloud</span></button>
+                <button class="btn sm neutral" id="cloud-force-pull">⬇️ <span data-i18n="cloud-force-pull">Cloud → dieses Gerät</span></button>
+              </div>
+              <p style="color:var(--text-muted);font-size:12px;margin:8px 0 0" data-i18n="cloud-force-hint">„Dieses Gerät → Cloud" macht den Stand dieses Geräts überall gültig. „Cloud → dieses Gerät" verwirft den lokalen Stand zugunsten der Cloud. Vorher wird jeweils eine Sicherung in /exports abgelegt.</p>
+            </div>
             <div class="fmeta" id="cloud-last" style="margin-top:10px"></div>
           </div>
         </div>
@@ -712,7 +720,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.5.9';
+  const APP_VERSION = '1.6.0';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -815,6 +823,10 @@
     'cloud-synckey-hint':['Überträgt den Claude-API-Key automatisch auf alle Geräte – bequem, aber der geheime Schlüssel liegt dann in deinem OneDrive. Standardmäßig aus.','Automatically carries the Claude API key to all your devices – convenient, but the secret key then lives in your OneDrive. Off by default.'],
     'cloud-sync-now':['Jetzt synchronisieren','Sync now'],
     'cloud-disconnect':['Trennen','Disconnect'],
+    'cloud-force-h':['Bei Sync-Problemen (überschreibt eindeutig):','If sync gets tangled (explicit overwrite):'],
+    'cloud-force-push':['Dieses Gerät → Cloud','This device → cloud'],
+    'cloud-force-pull':['Cloud → dieses Gerät','Cloud → this device'],
+    'cloud-force-hint':['„Dieses Gerät → Cloud" macht den Stand dieses Geräts überall gültig. „Cloud → dieses Gerät" verwirft den lokalen Stand zugunsten der Cloud. Vorher wird jeweils eine Sicherung in /exports abgelegt.','“This device → cloud” makes this device’s state authoritative everywhere. “Cloud → this device” discards the local state in favour of the cloud. A backup is saved to /exports first in each case.'],
     'import-p':['PDF · DOCX · XLSX · CSV · TXT · MD','PDF · DOCX · XLSX · CSV · TXT · MD'],
     'imp-drop':['Dateien oder ganzen Ordner hierher ziehen','Drop files or a whole folder here'],'imp-files':['Dateien wählen','Choose files'],'imp-folder':['Ordner wählen','Choose folder'],
     'imp-queue':['Import-Warteschlange','Import queue'],'imp-uihint':['Die App bleibt während des Imports bedienbar. Große PDFs werden seitenweise verarbeitet.','The app stays usable during import. Large PDFs are processed page by page.'],
@@ -2730,6 +2742,36 @@
     window.addEventListener('online', tick);
     window.addEventListener('focus', tick);
   }
+  // Eindeutige Notfall-Overrides für verworrene Sync-Zustände: bewusst OHNE
+  // Konflikt-Logik. Vorher wird jeweils gesichert (in /exports), damit nichts
+  // unwiederbringlich verloren geht.
+  async function odForcePush(){
+    const de=state.settings.lang==='de'; if(!odConnected())return;
+    if(OD.syncing){ toast(de?'Ein Abgleich läuft gerade – kurz warten.':'A sync is running – please wait.'); return; }
+    if(!confirm(de?'Den Stand DIESES Geräts in die Cloud hochladen und dort überschreiben? Alle anderen Geräte übernehmen anschließend diesen Stand.':'Upload THIS device’s state to the cloud, overwriting what’s there? Your other devices will then adopt it.')) return;
+    OD.syncing=true; odSetStatus('syncing');
+    try{
+      try{ await odBackupRemote(); }catch(e){}   // bisherige Cloud-Fassung sichern
+      await odPush({force:true});
+      OD.cfg.dirty=false; OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
+      odSetStatus('connected'); toast(de?'Hochgeladen – dieser Stand gilt jetzt überall.':'Uploaded – this state now applies everywhere.','ok');
+    }catch(e){ odSetStatus('error', e.message); toast((de?'Fehler: ':'Error: ')+e.message,'err'); }
+    finally{ OD.syncing=false; renderCloudPanel(); }
+  }
+  async function odForcePull(){
+    const de=state.settings.lang==='de'; if(!odConnected())return;
+    if(OD.syncing){ toast(de?'Ein Abgleich läuft gerade – kurz warten.':'A sync is running – please wait.'); return; }
+    if(!confirm(de?'Die Cloud-Version laden und den lokalen Stand dieses Geräts ersetzen? (Eine Sicherung wird vorher in /exports abgelegt.)':'Load the cloud version and replace this device’s local state? (A backup is saved to /exports first.)')) return;
+    OD.syncing=true; odSetStatus('syncing');
+    try{
+      const meta=await odRemoteMeta(); if(!meta) throw new Error(de?'Keine Cloud-Datei vorhanden.':'No cloud file present.');
+      OD.cfg.dirty=true;             // erzwingt die lokale Sicherung in odPull
+      await odPull(meta);
+      OD.cfg.dirty=false; await odSaveCfg();
+      odSetStatus('connected'); toast(de?'Cloud-Version geladen.':'Cloud version loaded.','ok');
+    }catch(e){ odSetStatus('error', e.message); toast((de?'Fehler: ':'Error: ')+e.message,'err'); }
+    finally{ OD.syncing=false; renderCloudPanel(); }
+  }
   async function odDisconnect(){
     OD.tokens=null; OD.cfg.auto=false; OD.cfg.dirty=false;
     try{ await IDB.del('od.tokens'); }catch(e){}
@@ -2965,6 +3007,8 @@
     const ccn=$('#cloud-connect'); if(ccn) ccn.onclick=odConnect;
     const cdis=$('#cloud-disconnect'); if(cdis) cdis.onclick=odDisconnect;
     const cnow=$('#cloud-sync-now'); if(cnow) cnow.onclick=()=>odSync(true);
+    const cfp=$('#cloud-force-push'); if(cfp) cfp.onclick=odForcePush;
+    const cfl=$('#cloud-force-pull'); if(cfl) cfl.onclick=odForcePull;
     const caw=$('#cloud-auto-sw'); if(caw) caw.onclick=()=>{ OD.cfg.auto=!(OD.cfg.auto!==false); odSaveCfg(); renderCloudPanel(); if(OD.cfg.auto)odSync(true); };
     const skw=$('#cloud-synckey-sw'); if(skw) skw.onclick=async()=>{ const de=state.settings.lang==='de'; state.settings.odSyncKey=!(state.settings.odSyncKey===true); await persistSettings(); renderCloudPanel(); if(state.settings.odSyncKey && !state.apiKey){ toast(de?'Kein API-Key auf diesem Gerät hinterlegt.':'No API key stored on this device.'); } odMarkDirty(); };
 
