@@ -143,6 +143,15 @@
     tbody td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
     tbody tr:hover{background:var(--bg-alt)}
     tbody tr.sel{background:var(--surface-accent)}
+    /* Bibliothek: nach Tags gruppierte Abschnitte */
+    .lib-group{margin-bottom:16px}
+    .lib-group-head{display:flex;align-items:center;gap:10px;width:100%;background:var(--surface-accent);border:1px solid var(--line);border-radius:10px;padding:11px 14px;cursor:pointer;font-size:14px;font-weight:bold;color:var(--text);text-align:left}
+    .lib-group-head:hover{border-color:var(--secondary)}
+    .lib-group-head .chev{color:var(--primary);font-size:11px;transition:transform .15s;display:inline-block}
+    .lib-group-head.collapsed .chev{transform:rotate(-90deg)}
+    .lib-group-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .lib-group-count{margin-left:auto;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:1px 10px;font-size:12px;color:var(--text-muted);font-weight:normal;flex:none}
+    .lib-group .panel{margin-top:8px}
     .ftype{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:6px;font-size:10px;font-weight:bold;color:#fff;flex:none}
     .t-pdf{background:#d64545}.t-docx{background:#2b6cb0}.t-xlsx{background:#2f855a}.t-csv{background:#6b7280}.t-txt{background:#8a6d3b}.t-md{background:#7048a8}.t-forum{background:#0E7C93}
     .forum-layout{display:grid;grid-template-columns:260px 1fr;gap:16px}
@@ -682,7 +691,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.0';
+  const APP_VERSION = '1.9.1';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -708,7 +717,7 @@
     catalog:[],                 // [{id,name,ext,type,size,importedAt,scanned,pageCount,tags,note,unitCount}]
     indexCache:new Map(),       // id -> vollständiges Index-Objekt
     lastHits:[],                // letzte Suchtreffer
-    lib:{ sort:'importedAt', dir:'desc', type:'all', tag:null, q:'' , selected:new Set() },
+    lib:{ sort:'importedAt', dir:'desc', type:'all', tag:null, q:'' , selected:new Set(), collapsed:new Set() },
     search:{ q:'', types:new Set(SUPPORTED.map(typeOf)), from:'', to:'', tag:null, selected:new Set(), mode:'text', scope:'all' },
     curDoc:null,                // {doc, ref, terms, page}
     pdfView:{docId:null,pdf:null}, // gecachtes PDF.js-Dokument fuer den Viewer
@@ -1074,20 +1083,63 @@
     const types=['all','pdf','docx','xlsx','csv','txt','md'];
     const tagChips=allTags().map(t=>`<span class="chip ${L.tag===t?'on':''}" data-libtag="${esc(t)}">🏷 ${esc(t)}</span>`).join(' ');
     const sel=L.selected;
-    const sortArrow=(k)=>L.sort===k?(L.dir==='asc'?'asc':'desc'):'';
-    const ariaSort=(k)=>L.sort===k?(L.dir==='asc'?'ascending':'descending'):'none';
     const de2=state.settings.lang==='de';
+
+    // Nach Tags gruppieren: jedes Dokument erscheint unter jeder seiner Kategorien,
+    // Dokumente ohne Tag in einer eigenen Gruppe am Ende. So bilden die Tags
+    // Überschriften und die Bibliothek ist übersichtlich unterteilt statt „eine Wurst".
+    const UNTAG=' untag';
+    const groups=new Map();
+    for(const r of rows){
+      const ts=(r.tags||[]).filter(Boolean);
+      if(ts.length){ for(const t of ts){ if(!groups.has(t))groups.set(t,[]); groups.get(t).push(r); } }
+      else { if(!groups.has(UNTAG))groups.set(UNTAG,[]); groups.get(UNTAG).push(r); }
+    }
+    const tagKeys=[...groups.keys()].filter(k=>k!==UNTAG).sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}));
+    const orderedKeys=tagKeys.concat(groups.has(UNTAG)?[UNTAG]:[]);
+    // Flache Liste (keine Gruppen-Kopfzeilen), wenn ohnehin nur eine Kategorie greift:
+    // ausschließlich untaggte Dokumente – oder der Nutzer hat bereits per Tag-Chip gefiltert.
+    const flat = (orderedKeys.length<=1 && orderedKeys[0]===UNTAG) || !!L.tag;
+
+    let groupsHtml;
+    if(!rows.length){
+      groupsHtml=`<div class="panel panel-pad" style="color:var(--text-muted)">${de2?'Keine Dokumente entsprechen den Filtern.':'No documents match the filters.'}</div>`;
+    } else if(flat){
+      groupsHtml=groupTableHtml(rows, sel, de2);
+    } else {
+      groupsHtml=orderedKeys.map(k=>{
+        const grp=groups.get(k);
+        const collapsed=L.collapsed.has(k);
+        const title=k===UNTAG?(de2?'Ohne Tags':'Untagged'):('🏷 '+esc(k));
+        return `<div class="lib-group">
+          <button class="lib-group-head ${collapsed?'collapsed':''}" data-grpkey="${encodeURIComponent(k)}" aria-expanded="${collapsed?'false':'true'}">
+            <span class="chev">▾</span><span class="lib-group-title">${title}</span><span class="lib-group-count">${grp.length}</span>
+          </button>
+          ${collapsed?'':groupTableHtml(grp, sel, de2)}
+        </div>`;
+      }).join('');
+    }
+
     el.innerHTML=`
       <div class="toolbar">
-        ${types.map(t=>`<span class="chip ${L.type===t?'on':''}" data-libtype="${t}">${t==='all'?(state.settings.lang==='de'?'Alle':'All'):t.toUpperCase()}</span>`).join('')}
+        ${types.map(t=>`<span class="chip ${L.type===t?'on':''}" data-libtype="${t}">${t==='all'?(de2?'Alle':'All'):t.toUpperCase()}</span>`).join('')}
         ${tagChips?'<span style="width:1px;height:22px;background:var(--line)"></span>'+tagChips:''}
         <div style="flex:1"></div>
         <div class="top-search" style="flex:0 1 220px"><input id="lib-q" placeholder="${tr('search-in-lib')}" value="${esc(L.q)}"></div>
       </div>
       ${sel.size?`<div class="notice info" style="margin-bottom:12px"><span>☑</span><span>${sel.size} ${tr('sel-count')} →</span> <button class="btn sm" id="batch-tag">🏷 ${tr('batch-tag')}</button> <button class="btn sm danger" id="batch-del">🗑 ${tr('batch-delete')}</button> <button class="btn sm ghost" id="batch-clear">✕</button></div>`:''}
-      <div class="panel"><div class="table-wrap"><table>
+      ${groupsHtml}`;
+    wireLibrary(el, rows);
+  }
+  // Eine Tabelle (Panel) mit Kopfzeile + Zeilen für eine Tag-Gruppe bzw. die flache Liste.
+  function groupTableHtml(rows, sel, de2){
+    const L=state.lib;
+    const sortArrow=(k)=>L.sort===k?(L.dir==='asc'?'asc':'desc'):'';
+    const ariaSort=(k)=>L.sort===k?(L.dir==='asc'?'ascending':'descending'):'none';
+    const allSel = rows.length && rows.every(r=>sel.has(r.id));
+    return `<div class="panel"><div class="table-wrap"><table>
         <thead><tr>
-          <th style="width:34px"><input type="checkbox" id="lib-selall" aria-label="${de2?'Alle auswählen':'Select all'}" ${sel.size&&sel.size===rows.length?'checked':''}></th>
+          <th style="width:34px"><input type="checkbox" class="grp-selall" aria-label="${de2?'Alle in dieser Gruppe auswählen':'Select all in this group'}" ${allSel?'checked':''}></th>
           <th style="width:44px"></th>
           <th class="sortable ${sortArrow('name')}" data-sort="name" tabindex="0" role="button" aria-sort="${ariaSort('name')}">${tr('col-name')}</th>
           <th class="sortable ${sortArrow('importedAt')}" data-sort="importedAt" tabindex="0" role="button" aria-sort="${ariaSort('importedAt')}">${tr('col-date')}</th>
@@ -1096,7 +1148,6 @@
         </tr></thead>
         <tbody>${rows.map(r=>rowHtml(r,sel.has(r.id))).join('')}</tbody>
       </table></div></div>`;
-    wireLibrary(el, rows);
   }
   function rowHtml(r, checked){
     const tags=(r.tags||[]).map(t=>`<span class="chip tag">${esc(t)}<button class="x" data-rmtag="${esc(t)}" data-rmid="${esc(r.id)}" aria-label="${(state.settings.lang==='de'?'Tag entfernen: ':'Remove tag: ')+esc(t)}">✕</button></span>`).join(' ')||'<span style="color:var(--text-muted)">—</span>';
@@ -1111,7 +1162,7 @@
       <td class="rowmenu"><button class="rowmenu-btn" data-menu="${esc(r.id)}" aria-label="${state.settings.lang==='de'?'Aktionen':'Actions'}" aria-haspopup="menu" aria-expanded="false">⋯</button>${menuHtml(r)}</td>
     </tr>`;
   }
-  function menuHtml(r){ return `<div class="menu" id="menu-${esc(r.id)}">`+`
+  function menuHtml(r){ return `<div class="menu">`+`
     <button data-act="open">📂 ${tr('act-open')}</button>
     <button data-act="download">⬇ ${tr('act-download')}</button>
     <div class="sep"></div>
@@ -1129,13 +1180,15 @@
     wireJump(el);
     $$('[data-libtype]',el).forEach(c=>c.onclick=()=>{ state.lib.type=c.dataset.libtype; renderLibrary(); });
     $$('[data-libtag]',el).forEach(c=>c.onclick=()=>{ state.lib.tag=state.lib.tag===c.dataset.libtag?null:c.dataset.libtag; renderLibrary(); });
+    $$('[data-grpkey]',el).forEach(h=>h.onclick=()=>{ const k=decodeURIComponent(h.dataset.grpkey); if(state.lib.collapsed.has(k))state.lib.collapsed.delete(k); else state.lib.collapsed.add(k); renderLibrary(); });
     const q=$('#lib-q',el); if(q)q.oninput=()=>{ state.lib.q=q.value; const p=q.selectionStart; renderLibrary(); const nq=$('#lib-q'); if(nq){nq.focus();nq.setSelectionRange(p,p);} };
     $$('th.sortable',el).forEach(th=>{ const doSort=()=>{ const k=th.dataset.sort; if(state.lib.sort===k)state.lib.dir=state.lib.dir==='asc'?'desc':'asc'; else{state.lib.sort=k;state.lib.dir=k==='name'?'asc':'desc';} renderLibrary(); }; th.onclick=doSort; th.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); doSort(); } }; });
-    const selall=$('#lib-selall',el); if(selall)selall.onchange=()=>{ if(selall.checked)rows.forEach(r=>state.lib.selected.add(r.id)); else state.lib.selected.clear(); renderLibrary(); };
+    // Kopf-Checkbox einer Gruppe wählt genau die Zeilen dieser Gruppen-Tabelle.
+    $$('.grp-selall',el).forEach(cb=>cb.onchange=()=>{ const ids=$$('tbody tr',cb.closest('table')).map(tr=>tr.dataset.id); if(cb.checked)ids.forEach(id=>state.lib.selected.add(id)); else ids.forEach(id=>state.lib.selected.delete(id)); renderLibrary(); });
     $$('.rowsel',el).forEach(cb=>cb.onchange=()=>{ const id=cb.closest('tr').dataset.id; if(cb.checked)state.lib.selected.add(id); else state.lib.selected.delete(id); renderLibrary(); });
     $$('.chip.tag .x',el).forEach(x=>x.onclick=async(e)=>{ e.stopPropagation(); await removeTag(x.dataset.rmid, x.dataset.rmtag); });
-    $$('[data-menu]',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const m=$('#menu-'+b.dataset.menu); const open=m.classList.contains('show'); $$('.menu.show').forEach(x=>x.classList.remove('show')); $$('.rowmenu-btn[aria-expanded="true"]').forEach(x=>x.setAttribute('aria-expanded','false')); if(!open){ m.classList.add('show'); b.setAttribute('aria-expanded','true'); positionMenu(m,b); } });
-    $$('.menu button',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const id=b.closest('.menu').id.replace('menu-',''); $$('.menu.show').forEach(x=>x.classList.remove('show')); docAction(b.dataset.act, id); });
+    $$('[data-menu]',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const m=b.parentElement.querySelector('.menu'); const open=m.classList.contains('show'); $$('.menu.show').forEach(x=>x.classList.remove('show')); $$('.rowmenu-btn[aria-expanded="true"]').forEach(x=>x.setAttribute('aria-expanded','false')); if(!open){ m.classList.add('show'); b.setAttribute('aria-expanded','true'); positionMenu(m,b); } });
+    $$('.menu button',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const tr_=b.closest('tr'); const id=tr_&&tr_.dataset.id; $$('.menu.show').forEach(x=>x.classList.remove('show')); if(id)docAction(b.dataset.act, id); });
     const bt=$('#batch-tag',el); if(bt)bt.onclick=()=>batchTag(); const bd=$('#batch-del',el); if(bd)bd.onclick=()=>batchDelete(); const bc=$('#batch-clear',el); if(bc)bc.onclick=()=>{state.lib.selected.clear();renderLibrary();};
     $$('.fname',el).forEach(f=>{ const tr_=f.closest('tr'); if(tr_)f.style.cursor='pointer', f.onclick=()=>openDoc(tr_.dataset.id); });
   }
