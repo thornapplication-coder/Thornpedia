@@ -84,6 +84,8 @@
     .seg{display:inline-flex;border:1px solid var(--line);border-radius:20px;overflow:hidden}
     .seg button{border:0;background:var(--panel);color:var(--text-muted);padding:5px 11px;font-size:12px}
     .seg button.on{background:var(--primary);color:#fff}
+    .seg.findmode{display:flex;width:100%;max-width:560px;border-radius:12px}
+    .seg.findmode button{flex:1;padding:11px 8px;font-size:14px;font-weight:600}
     .icon-btn{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:8px;width:34px;height:34px;display:grid;place-items:center;font-size:15px}
     .icon-btn:hover{background:var(--bg-alt)}
 
@@ -217,6 +219,11 @@
     .sourcelist{margin-top:18px;border-top:1px solid var(--line);padding-top:14px}
     .sourcelist ol{margin:8px 0 0;padding-left:20px}
     .sourcelist li{margin-bottom:5px;color:var(--text-muted);font-size:13px}
+    .excerpts{margin-top:18px}
+    .excerpts>b{display:block;margin-bottom:10px;font-size:14px}
+    .excerpt{margin:0 0 10px;padding:10px 14px;border-left:3px solid var(--primary);background:var(--bg-alt);border-radius:0 8px 8px 0}
+    .excerpt .ex-text{white-space:pre-wrap;line-height:1.55}
+    .excerpt .ex-src{color:var(--text-muted);font-size:12px;margin-top:5px}
 
     .overlay{position:fixed;inset:0;background:rgba(20,24,28,.55);display:none;align-items:center;justify-content:center;z-index:70;padding:20px}
     .overlay.show{display:flex}
@@ -330,7 +337,6 @@
     <button class="nav-item active" data-view="lib"><span class="ic">📚</span><span class="txt" data-i18n="nav-lib">Bibliothek</span><span class="count" id="cnt-lib">0</span></button>
     <button class="nav-item" data-view="search"><span class="ic">🔎</span><span class="txt" data-i18n="nav-search">Suche</span></button>
     <button class="nav-item" data-view="doc" id="nav-doc" style="display:none"><span class="ic">📄</span><span class="txt" data-i18n="nav-doc">Fundstelle</span></button>
-    <button class="nav-item" data-view="summary"><span class="ic">✨</span><span class="txt" data-i18n="nav-sum">Zusammenfassung</span></button>
     <button class="nav-item" data-view="forum"><span class="ic">💬</span><span class="txt" data-i18n="nav-forum">Forum</span></button>
     <div class="nav-label" data-i18n="nav-actions">Aktionen</div>
     <button class="nav-item" data-view="import"><span class="ic">⬆️</span><span class="txt" data-i18n="nav-import">Importieren</span></button>
@@ -354,50 +360,80 @@
       <div id="lib-content"></div>
     </section>
 
-    <!-- ===== Suche ===== -->
+    <!-- ===== Suche & KI (Suchen · Frage · Zusammenfassung) ===== -->
     <section class="view" id="view-search">
-      <div class="page-head"><div><h2 data-i18n="nav-search">Suche</h2><p data-i18n="search-p">Volltext über alle Indizes · Originale werden dabei nie geladen.</p></div></div>
-      <div class="top-search" style="max-width:none;margin-bottom:10px">🔎 <input id="search-input" placeholder="Suchbegriff…" data-i18n-ph="search-ph2" style="font-size:14px"><button class="btn sm" id="search-btn" data-i18n="do-search">Suchen</button></div>
-      <div class="row" id="search-history" style="gap:6px;margin-bottom:10px;flex-wrap:wrap;align-items:center;display:none"></div>
-      <div class="row" style="gap:14px;margin-bottom:18px;flex-wrap:wrap;align-items:center">
-        <div class="seg" id="search-mode" style="border-radius:8px" role="group" data-i18n-title="sm-title">
-          <button class="on" data-smode="text" data-i18n="sm-text">Volltext</button>
-          <button data-smode="exact" data-i18n="sm-exact">Genauer Wortlaut</button>
-          <button data-smode="ask" data-i18n="sm-ask">Frage (KI)</button>
-        </div>
-        <div class="seg" id="search-scope" style="border-radius:8px" role="group" data-i18n-title="sc-title">
-          <button class="on" data-sscope="all" data-i18n="sc-all">Alle Dokumente</button>
-          <button data-sscope="selected" data-i18n="sc-selected">Nur markierte</button>
-        </div>
-        <span id="search-scope-hint" style="color:var(--text-muted);font-size:12px"></span>
+      <div class="page-head"><div><h2 data-i18n="search-h">Suche &amp; KI</h2><p data-i18n="search-p">Durchsuchen, die KI fragen oder zusammenfassen – alles an einem Ort.</p></div></div>
+
+      <!-- Was möchtest du tun? -->
+      <div class="seg findmode" id="find-mode" role="group" style="margin-bottom:14px">
+        <button class="on" data-fmode="search">🔎 <span data-i18n="fm-search">Suchen</span></button>
+        <button data-fmode="ask">🤖 <span data-i18n="fm-ask">Frage (KI)</span></button>
+        <button data-fmode="summary">✨ <span data-i18n="fm-sum">Zusammenfassung</span></button>
       </div>
-      <div class="search-layout">
-        <aside class="panel panel-pad">
-          <div class="filter-group">
-            <h4 data-i18n="f-type">Dateityp</h4>
-            <div id="filter-types"></div>
-          </div>
-          <div class="filter-group">
-            <h4 data-i18n="f-date">Zeitraum (Import)</h4>
-            <div class="field" style="margin-bottom:8px"><input type="date" id="filter-from" data-i18n-title="f-from" aria-label="Von / From"></div>
-            <div class="field"><input type="date" id="filter-to" data-i18n-title="f-to" aria-label="Bis / To"></div>
-          </div>
-          <div class="filter-group">
-            <h4 data-i18n="f-tags">Tags / Kategorien</h4>
-            <div id="filter-tags" class="row"></div>
-          </div>
-          <button class="btn ghost neutral sm" id="filter-reset" style="width:100%" data-i18n="f-reset">Filter zurücksetzen</button>
-        </aside>
-        <div>
-          <div class="row" style="justify-content:space-between;margin-bottom:12px">
-            <strong id="search-count">—</strong>
-            <div class="row">
-              <button class="btn sm neutral" id="sel-all-hits" data-i18n="select-all">Alle wählen</button>
-              <button class="btn sm neutral" id="sum-hits" data-i18n="sum-selected">Ausgewählte zusammenfassen</button>
-              <button class="btn sm neutral" id="export-hits" data-i18n="export">Export</button>
+
+      <!-- Eingabe (Suchen / Frage) -->
+      <div id="find-inputrow">
+        <div class="top-search" style="max-width:none;margin-bottom:8px">🔎 <input id="search-input" placeholder="Suchbegriff…" data-i18n-ph="search-ph2" style="font-size:14px"><button class="btn sm" id="search-btn" data-i18n="do-search">Suchen</button></div>
+        <div class="row" id="search-history" style="gap:6px;margin-bottom:8px;flex-wrap:wrap;align-items:center;display:none"></div>
+        <div class="row" id="find-subrow" style="gap:14px;margin-bottom:14px;flex-wrap:wrap;align-items:center">
+          <label class="check" id="opt-exact" style="width:auto;margin:0"><input type="checkbox" id="chk-exact"> <span data-i18n="fm-exactword">Genauer Wortlaut</span></label>
+          <label class="check" id="opt-scope" style="width:auto;margin:0"><input type="checkbox" id="chk-scope"> <span data-i18n="fm-onlysel">Nur markierte Dokumente</span></label>
+          <button class="btn sm neutral" id="find-filter-toggle">⚙️ <span data-i18n="fm-filter">Filter</span></button>
+          <span id="search-scope-hint" style="color:var(--text-muted);font-size:12px"></span>
+        </div>
+      </div>
+
+      <!-- Steuerung (Zusammenfassung) -->
+      <div id="find-sumrow" class="panel panel-pad" style="display:none;margin-bottom:14px;padding:14px">
+        <div class="row" style="gap:18px;flex-wrap:wrap;align-items:center">
+          <div class="row" style="gap:8px;align-items:center"><span class="fmeta" data-i18n="sum-source">Quelle:</span>
+            <div class="seg" id="sum-src-seg" style="border-radius:8px" role="group">
+              <button class="on" data-sumsrc="selected" data-i18n="sum-src-sel">Markierte</button>
+              <button data-sumsrc="hits" data-i18n="sum-src-hits">Suchtreffer</button>
+              <button data-sumsrc="all" data-i18n="sum-src-all">Gesamtes Archiv</button>
             </div>
           </div>
-          <div id="search-results"></div>
+          <div class="row" style="gap:8px;align-items:center"><span class="fmeta" data-i18n="sum-mode">Modus:</span>
+            <div class="seg" id="sum-mode" style="border-radius:8px" role="group">
+              <button class="on" data-mode="extractive" data-i18n="sum-extractive">Offline</button>
+              <button data-mode="ai" data-i18n="sum-ai">Claude API</button>
+            </div>
+          </div>
+          <button class="btn" id="sum-generate">✨ <span data-i18n="sum-generate">Erstellen</span></button>
+        </div>
+        <div id="sum-picklist" class="fmeta" style="margin-top:8px"></div>
+      </div>
+
+      <!-- Filter (einklappbar) -->
+      <div id="find-filters" class="panel panel-pad" style="display:none;margin-bottom:14px">
+        <div class="row" style="gap:28px;flex-wrap:wrap;align-items:flex-start">
+          <div class="filter-group" style="min-width:150px"><h4 data-i18n="f-type">Dateityp</h4><div id="filter-types"></div></div>
+          <div class="filter-group" style="min-width:150px;flex:1"><h4 data-i18n="f-tags">Tags / Kategorien</h4><div id="filter-tags" class="row"></div></div>
+        </div>
+        <button class="btn ghost neutral sm" id="filter-reset" style="margin-top:10px" data-i18n="f-reset">Filter zurücksetzen</button>
+      </div>
+
+      <!-- Aktionsleiste (Suchtreffer) -->
+      <div class="row" id="find-actionbar" style="justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px">
+        <strong id="search-count">—</strong>
+        <div class="row" style="flex-wrap:wrap;gap:6px">
+          <button class="btn sm neutral" id="sel-all-hits" data-i18n="select-all">Alle wählen</button>
+          <button class="btn sm neutral" id="sum-hits" data-i18n="sum-selected">Ausgewählte zusammenfassen</button>
+          <button class="btn sm neutral" id="export-hits" data-i18n="export">Export</button>
+        </div>
+      </div>
+
+      <!-- Ausgabe: Suchtreffer / KI-Antwort -->
+      <div id="search-results"></div>
+
+      <!-- Ausgabe: Zusammenfassung -->
+      <div id="sum-wrap" class="panel panel-pad" style="display:none">
+        <div id="sum-output"><div class="empty"><div class="big">✨</div><p data-i18n="sum-hint">Wähle oben Quelle &amp; Modus und erstelle eine Zusammenfassung.</p></div></div>
+        <div class="row" id="sum-export-row" style="margin-top:16px;display:none">
+          <span style="color:var(--text-muted);font-size:12px" data-i18n="export-as">Exportieren als:</span>
+          <button class="btn neutral sm" data-export="docx">⬇ DOCX</button>
+          <button class="btn neutral sm" data-export="pdf">⬇ PDF</button>
+          <button class="btn neutral sm" data-export="xlsx">⬇ XLSX</button>
         </div>
       </div>
     </section>
@@ -414,35 +450,6 @@
       <div class="doc-view">
         <div id="doc-main"></div>
         <aside class="panel panel-pad" id="doc-info"></aside>
-      </div>
-    </section>
-
-    <!-- ===== Zusammenfassung ===== -->
-    <section class="view" id="view-summary">
-      <div class="page-head"><div><h2 data-i18n="nav-sum">Zusammenfassung</h2><p data-i18n="sum-p">Über ausgewählte Dokumente oder Suchtreffer · endet mit vollständigem Quellenverzeichnis.</p></div></div>
-      <div class="search-layout">
-        <aside class="panel panel-pad">
-          <h4 style="margin-bottom:10px" data-i18n="sum-source">Quelle</h4>
-          <label class="check"><input type="radio" name="sumsrc" value="selected" checked> <span data-i18n="sum-src-sel">Ausgewählte Dokumente</span></label>
-          <label class="check"><input type="radio" name="sumsrc" value="hits"> <span data-i18n="sum-src-hits">Aktuelle Suchtreffer</span></label>
-          <label class="check"><input type="radio" name="sumsrc" value="all"> <span data-i18n="sum-src-all">Gesamtes Archiv</span></label>
-          <div id="sum-picklist" style="margin-top:12px"></div>
-          <h4 style="margin:18px 0 10px" data-i18n="sum-mode">Modus</h4>
-          <div class="seg" id="sum-mode" style="border-radius:8px;width:100%">
-            <button class="on" data-mode="extractive" style="flex:1" data-i18n="sum-extractive">Extraktiv (offline)</button>
-            <button data-mode="ai" style="flex:1" data-i18n="sum-ai">Claude API</button>
-          </div>
-          <button class="btn" id="sum-generate" style="width:100%;margin-top:14px;justify-content:center">✨ <span data-i18n="sum-generate">Erstellen</span></button>
-        </aside>
-        <div class="panel panel-pad">
-          <div id="sum-output"><div class="empty"><div class="big">✨</div><p data-i18n="sum-hint">Wähle links eine Quelle und erstelle eine Zusammenfassung.</p></div></div>
-          <div class="row" id="sum-export-row" style="margin-top:16px;display:none">
-            <span style="color:var(--text-muted);font-size:12px" data-i18n="export-as">Exportieren als:</span>
-            <button class="btn neutral sm" data-export="docx">⬇ DOCX</button>
-            <button class="btn neutral sm" data-export="pdf">⬇ PDF</button>
-            <button class="btn neutral sm" data-export="xlsx">⬇ XLSX</button>
-          </div>
-        </div>
       </div>
     </section>
 
@@ -720,7 +727,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.6.0';
+  const APP_VERSION = '1.7.0';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -753,6 +760,7 @@
     _renderSeq:0, _renderTask:null,
     parseWorker:null,
     sumMode:'extractive', lastSummary:null,
+    findMode:'search', sumSrc:'selected',   // vereinheitlichter Suche/KI/Zusammenfassung-Tab
   };
 
   // ---------- Toast ----------
@@ -792,7 +800,10 @@
     'foot-connected':['Ordner verbunden','Folder connected'],
     'lib-h':['Bibliothek','Library'],'lib-p':['Alle Dokumente an einem Ort.','All your documents in one place.'],
     'lib-empty-h':['Noch keine Dokumente','No documents yet'],'lib-empty-p':['Importiere Dateien per Drag & Drop, Dateiauswahl oder ganzem Ordner.','Import files via drag & drop, file picker or a whole folder.'],
-    'search-p':['Volltext über alle Indizes · Originale werden dabei nie geladen.','Full-text across all indexes · originals are never loaded.'],
+    'search-h':['Suche & KI','Search & AI'],
+    'search-p':['Durchsuchen, die KI fragen oder zusammenfassen – alles an einem Ort.','Search, ask the AI, or summarise – all in one place.'],
+    'fm-search':['Suchen','Search'],'fm-ask':['Frage (KI)','Ask (AI)'],'fm-sum':['Zusammenfassung','Summary'],
+    'fm-exactword':['Genauer Wortlaut','Exact wording'],'fm-onlysel':['Nur markierte Dokumente','Selected documents only'],'fm-filter':['Filter','Filter'],
     'search-ph':['Volltextsuche über alle Dokumente…','Full-text search across all documents…'],'search-ph2':['Suchbegriff…','Search term…'],'do-search':['Suchen','Search'],
     'sm-text':['Volltext','Full text'],'sm-exact':['Genauer Wortlaut','Exact wording'],'sm-ask':['Frage (KI)','Ask (AI)'],'sm-title':['Such-Modus','Search mode'],
     'sc-all':['Alle Dokumente','All documents'],'sc-selected':['Nur markierte','Selected only'],'sc-title':['Suchbereich','Search scope'],
@@ -804,8 +815,8 @@
     'select-all':['Alle wählen','Select all'],'sum-selected':['Ausgewählte zusammenfassen','Summarize selected'],'export':['Export','Export'],
     'doc-original':['Original','Original'],'reindex':['Neu-Indexieren','Re-index'],
     'sum-p':['Über ausgewählte Dokumente oder Suchtreffer · endet mit vollständigem Quellenverzeichnis.','Across selected documents or search hits · ends with a full source list.'],
-    'sum-source':['Quelle','Source'],'sum-src-sel':['Ausgewählte Dokumente','Selected documents'],'sum-src-hits':['Aktuelle Suchtreffer','Current search hits'],'sum-src-all':['Gesamtes Archiv','Entire archive'],
-    'sum-mode':['Modus','Mode'],'sum-extractive':['Extraktiv (offline)','Extractive (offline)'],'sum-ai':['Claude API','Claude API'],'sum-generate':['Erstellen','Generate'],
+    'sum-source':['Quelle:','Source:'],'sum-src-sel':['Markierte','Selected'],'sum-src-hits':['Suchtreffer','Search hits'],'sum-src-all':['Gesamtes Archiv','Entire archive'],
+    'sum-mode':['Modus:','Mode:'],'sum-extractive':['Offline','Offline'],'sum-ai':['Claude API','Claude API'],'sum-generate':['Erstellen','Generate'],
     'sum-hint':['Wähle links eine Quelle und erstelle eine Zusammenfassung.','Pick a source on the left and generate a summary.'],
     'sum-sources':['Quellenverzeichnis','Source list'],'export-as':['Exportieren als:','Export as:'],
     'backup-p':['Komplettes Archiv als eine ZIP – Originale, Indizes, Tags & Notizen.','Full archive as one ZIP – originals, indexes, tags & notes.'],
@@ -1783,7 +1794,10 @@
     try{
       const ans=await claudeAnswer(q, ids);
       const cost=aiCostLabel(ans.usage, (ans.sources||[]).length);
-      resEl.innerHTML=`<div class="panel panel-pad"><div class="r-title" style="font-weight:600;margin-bottom:10px">🤖 ${esc(q)}</div><div class="section-text" style="max-height:none">${esc(ans.text)}</div>${costLine(cost)}${sourceListHtml(ans.picked, ans.sources)}</div>`;
+      // Exakte Belegstellen aus den Dokumenten, passend zur Frage.
+      const words=[...new Set(fold(q).split(/[^a-z0-9]+/).filter(w=>w.length>=3 && !STOP.has(w)))];
+      const passages=await exactPassages(ids, words, 6);
+      resEl.innerHTML=`<div class="panel panel-pad"><div class="r-title" style="font-weight:600;margin-bottom:10px">🤖 ${esc(q)}</div><div class="section-text" style="max-height:none">${esc(ans.text)}</div>${costLine(cost)}${excerptBlock(passages)}${sourceListHtml(ans.picked, ans.sources)}</div>`;
     }catch(e){ resEl.innerHTML=`<div class="empty"><p style="color:var(--danger)">${esc(e.message)}</p></div>`; }
   }
   // ---------- Gemeinsame Bausteine der Claude-API-Aufrufe ----------
@@ -1850,13 +1864,36 @@
     if(ftg)$$('[data-stag]',ftg).forEach(c=>c.onclick=()=>{ state.search.tag=state.search.tag===c.dataset.stag?null:c.dataset.stag; renderFilters(); if(state.search.q)runSearch(); });
     syncSearchControls();
   }
-  // Haelt Such-Modus/-Bereich-Umschalter, Eingabe-Platzhalter und Markiert-Hinweis synchron.
+  // Haelt Eingabe-Platzhalter, Genau-/Markiert-Haken und den Markiert-Hinweis synchron.
   function syncSearchControls(){
     const de=state.settings.lang==='de';
-    $$('#search-mode button').forEach(b=>{ const on=b.dataset.smode===state.search.mode; b.classList.toggle('on',on); b.setAttribute('aria-pressed', on?'true':'false'); });
-    $$('#search-scope button').forEach(b=>{ const on=b.dataset.sscope===state.search.scope; b.classList.toggle('on',on); b.setAttribute('aria-pressed', on?'true':'false'); });
+    const ce=$('#chk-exact'); if(ce) ce.checked = state.search.mode==='exact';
+    const cs=$('#chk-scope'); if(cs) cs.checked = state.search.scope==='selected';
     const inp=$('#search-input'); if(inp) inp.placeholder = state.search.mode==='ask' ? (de?'Frage stellen, z. B. „Was steht zu Mietverträgen?"':'Ask a question, e.g. "What do the docs say about lease agreements?"') : (state.search.mode==='exact' ? (de?'Genauer Wortlaut …':'Exact wording …') : (de?'Suchbegriff…':'Search term…'));
+    const btn=$('#search-btn'); if(btn) btn.textContent = state.search.mode==='ask' ? (de?'Fragen':'Ask') : (de?'Suchen':'Search');
     const hint=$('#search-scope-hint'); if(hint) hint.textContent = state.search.scope==='selected' ? (state.lib.selected.size ? (state.lib.selected.size+' '+(de?'markiert (in der Bibliothek)':'selected (in library)')) : (de?'Keine Dokumente markiert – bitte in der Bibliothek Haken setzen.':'No documents selected – tick them in the library.')) : '';
+  }
+  // Primärer Umschalter des vereinheitlichten Tabs: Suchen · Frage (KI) · Zusammenfassung.
+  function setFindMode(m){
+    state.findMode=m;
+    $$('#find-mode button').forEach(b=>b.classList.toggle('on', b.dataset.fmode===m));
+    const isSum=m==='summary', isAsk=m==='ask';
+    const show=(id,on)=>{ const el=$(id); if(el)el.style.display=on?'':'none'; };
+    show('#find-inputrow', !isSum);
+    show('#find-sumrow', isSum);
+    show('#find-actionbar', !isSum);
+    show('#search-results', !isSum);
+    show('#sum-wrap', isSum);
+    show('#opt-exact', !isAsk);                 // „Genauer Wortlaut" nur beim Suchen
+    if(isSum){
+      $('#find-filters').style.display='none';
+      $$('#sum-src-seg button').forEach(b=>b.classList.toggle('on', b.dataset.sumsrc===(state.sumSrc||'selected')));
+      $$('#sum-mode button').forEach(b=>b.classList.toggle('on', b.dataset.mode===(state.sumMode||'extractive')));
+      renderSumPicklist(); return;
+    }
+    state.search.mode = isAsk ? 'ask' : ($('#chk-exact') && $('#chk-exact').checked ? 'exact' : 'text');
+    syncSearchControls(); renderSearchHistory();
+    if(state.search.q) runSearch(); else renderSearchResults();
   }
 
   // ---------- Fundstelle ----------
@@ -1963,7 +2000,7 @@
   // liefert die Dokument-IDs UND eine reproduzierbare Spezifikation der Quelle,
   // damit Live-Exporte die Zusammenfassung spaeter neu erzeugen koennen.
   function getSummarySource(){
-    const src=($('input[name=sumsrc]:checked')||{}).value||'selected';
+    const src=state.sumSrc||'selected';
     if(src==='all') return {ids:state.catalog.filter(c=>c.type!=='forum').map(c=>c.id), spec:{type:'all'}};
     if(src==='hits'){
       if(state.search.selected.size){
@@ -1977,7 +2014,7 @@
     return {ids, spec:{type:'ids', ids}};
   }
   function renderSumPicklist(){
-    const el=$('#sum-picklist'); if(!el)return; const src=($('input[name=sumsrc]:checked')||{}).value||'selected';
+    const el=$('#sum-picklist'); if(!el)return; const src=state.sumSrc||'selected';
     if(src==='selected'){ const ids=Array.from(state.lib.selected); el.innerHTML=ids.length?ids.map(id=>{const c=state.catalog.find(x=>x.id===id);return c?`<div class="fmeta">• ${esc(c.name)}</div>`:'';}).join(''):`<div class="fmeta">${state.settings.lang==='de'?'In der Bibliothek Dokumente anhaken.':'Check documents in the library.'}</div>`; }
     else if(src==='hits'){ el.innerHTML=`<div class="fmeta">${(state.lastHits||[]).length} ${state.settings.lang==='de'?'Treffer aus der Suche':'hits from search'}</div>`; }
     else el.innerHTML=`<div class="fmeta">${state.catalog.length} ${state.settings.lang==='de'?'Dokumente':'documents'}</div>`;
@@ -2002,6 +2039,30 @@
     if(!items.length) sources.forEach(d=>items.push(esc(d.name)));
     return `<div class="sourcelist"><b>${tr('sum-sources')}</b><ol>${items.map(x=>`<li>${x}</li>`).join('')}</ol></div>`;
   }
+  // Exakte Original-Passagen aus den Quelldokumenten (wortwörtlich, mit Fundstelle).
+  // Mit Suchbegriffen: die am besten passenden Textstellen; sonst: die aussagekräftigsten
+  // Sätze (extraktive Auswahl). So enthält die Ausgabe immer echte Belege aus den Dateien.
+  async function exactPassages(ids, terms, max){
+    max=max||6; const out=[];
+    if(terms && terms.length){
+      const foldedTerms=[...new Set(terms.map(t=>fold(String(t))).filter(Boolean))];
+      const scored=[];
+      for(const id of ids){ let doc; try{ doc=await getIndex(id); }catch(_){ continue; }
+        for(const u of (doc.units||[])){ const f=foldUnit(u); let s=0; for(const t of foldedTerms){ if(f.includes(t))s++; } if(s) scored.push({s, text:String(u.text||'').trim(), name:doc.name, ref:u.ref}); } }
+      scored.sort((a,b)=>b.s-a.s);
+      for(const it of scored.slice(0,max)) out.push({text: it.text.length>500?it.text.slice(0,500)+'…':it.text, name:it.name, ref:it.ref});
+    } else {
+      const ex=await extractiveSummary(ids, max);
+      for(const p of (ex.picked||[])) out.push({text:p.s, name:p.name, ref:p.ref});
+    }
+    return out;
+  }
+  function excerptBlock(passages){
+    if(!passages || !passages.length) return '';
+    const de=state.settings.lang==='de';
+    const items=passages.map(p=>{ const lbl=esc(p.name)+(refLabel(p.ref)?' — '+esc(refLabel(p.ref)):''); return `<blockquote class="excerpt"><div class="ex-text">„${esc(p.text)}"</div><div class="ex-src">${lbl}</div></blockquote>`; }).join('');
+    return `<div class="excerpts"><b>${de?'Belegstellen (Originaltext aus den Dokumenten)':'Exact passages (verbatim from the documents)'}</b>${items}</div>`;
+  }
   async function claudeSummary(ids){
     if(!state.apiKey) throw new Error(state.settings.lang==='de'?'Kein API-Key hinterlegt (Einstellungen).':'No API key set (Settings).');
     if(!navigator.onLine) throw new Error(state.settings.lang==='de'?'Keine Internetverbindung.':'No internet connection.');
@@ -2022,7 +2083,13 @@
       const r = state.sumMode==='ai' ? await claudeSummary(ids) : await extractiveSummary(ids);
       const title=state.settings.lang==='de'?`Zusammenfassung – ${ids.length} Dokument(e)`:`Summary – ${ids.length} document(s)`;
       const cost=(state.sumMode==='ai') ? aiCostLabel(r.usage, (r.sources||[]).length) : '';
-      out.innerHTML=`<div class="summary-out"><h3>${esc(title)}</h3><p style="white-space:pre-line">${esc(r.text)}</p>${costLine(cost)}${sourceListHtml(r.picked||[], r.sources||[])}</div>`;
+      // Exakte Original-Passagen aus den Dokumenten anhängen. Extraktiv: die (bereits
+      // wortwörtlichen) ausgewählten Sätze mit Fundstelle; KI: passende Belegstellen.
+      const passages = state.sumMode==='ai' ? await exactPassages(ids, null, 6) : (r.picked||[]).map(p=>({text:p.s, name:p.name, ref:p.ref}));
+      // Bei „Offline" ist die Zusammenfassung selbst schon wortwörtlich → keine doppelte Prosa,
+      // stattdessen die Belegstellen mit Quelle in den Vordergrund.
+      const proseHtml = state.sumMode==='ai' ? `<p style="white-space:pre-line">${esc(r.text)}</p>` : '';
+      out.innerHTML=`<div class="summary-out"><h3>${esc(title)}</h3>${proseHtml}${costLine(cost)}${excerptBlock(passages)}${sourceListHtml(r.picked||[], r.sources||[])}</div>`;
       state.lastSummary={ title, text:r.text, picked:r.picked||[], sources:r.sources||[], mode:state.sumMode, sourceSpec:spec };
       $('#sum-export-row').style.display='';
     }catch(e){ out.innerHTML=`<div class="notice err"><span>⚠</span><span>${esc(e.message)}</span></div>`; }
@@ -2039,7 +2106,7 @@
   const hitToItem=(h)=>({file:h.name, ref:refLabel(h.ref), snippet:h.text.slice(0,300), text:h.text, tags:(h.tags||[]).join(', '), date:fmtDate(h.importedAt)});
   function buildReportItems(kind){
     // kind: 'hits' | 'summary'
-    if(kind==='summary'&&state.lastSummary){ const s=state.lastSummary; return { title:s.title, params:(state.settings.lang==='de'?'Modus: ':'Mode: ')+(s.mode==='ai'?'Claude API':(state.settings.lang==='de'?'Extraktiv':'Extractive')), summary:s.text, items:(s.picked||[]).map(p=>({file:p.name,ref:refLabel(p.ref),snippet:'',tags:'',date:''})) }; }
+    if(kind==='summary'&&state.lastSummary){ const s=state.lastSummary; return { title:s.title, params:(state.settings.lang==='de'?'Modus: ':'Mode: ')+(s.mode==='ai'?'Claude API':(state.settings.lang==='de'?'Extraktiv':'Extractive')), summary:s.text, items:(s.picked||[]).map(p=>({file:p.name,ref:refLabel(p.ref),snippet:p.s||'',tags:'',date:''})) }; }
     const idxs = state.search.selected.size? Array.from(state.search.selected): state.lastHits.map((_,i)=>i);
     const items=idxs.map(i=>state.lastHits[i]).filter(Boolean).map(hitToItem);
     return { title:(state.settings.lang==='de'?'Suchbericht':'Search report'), params:(state.settings.lang==='de'?'Suchbegriff: ':'Query: ')+'"'+state.search.q+'" · '+items.length+' '+tr('hits'), summary:'', items };
@@ -2890,10 +2957,13 @@
   }
 
   // ---------- Navigation ----------
-  function switchView(view){ $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); const gb=$('#settings-btn'); if(gb){ gb.classList.toggle('active', view==='settings'); gb.setAttribute('aria-pressed', view==='settings'?'true':'false'); } $('.main').scrollTop=0;
+  function switchView(view){
+    // „summary" ist jetzt ein Modus im vereinheitlichten „search"-Tab.
+    if(view==='summary'){ state.findMode='summary'; view='search'; }
+    $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); const gb=$('#settings-btn'); if(gb){ gb.classList.toggle('active', view==='settings'); gb.setAttribute('aria-pressed', view==='settings'?'true':'false'); } $('.main').scrollTop=0;
     // Beim Verlassen des Forums die Anhang-Blob-URLs freigeben und laufende Loader entwerten.
     if(view!=='forum'&&(state._forumUrls&&state._forumUrls.length)){ state._foSeq=(state._foSeq||0)+1; state._forumUrls.forEach(u=>{try{URL.revokeObjectURL(u);}catch(_){}}); state._forumUrls=[]; }
-    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();renderSearchHistory();} if(view==='summary')renderSumPicklist(); if(view==='forum')renderForum(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; syncAiBudget(); renderTagAdmin(); renderCloudPanel(); } }
+    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchHistory();setFindMode(state.findMode||'search');} if(view==='forum')renderForum(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; syncAiBudget(); renderTagAdmin(); renderCloudPanel(); } }
 
   // ---------- Boot ----------
   function updateStorageLabels(){
@@ -2965,14 +3035,15 @@
 
     // Suche
     $('#search-btn').onclick=runSearch; $('#search-input').onkeydown=(e)=>{ if(e.key==='Enter')runSearch(); };
-    $('#top-search-input').onkeydown=(e)=>{ if(e.key==='Enter'){ $('#search-input').value=e.target.value; state.search.mode='text'; state.search.scope='all'; syncSearchControls(); switchView('search'); runSearch(); } };
-    $$('#search-mode button').forEach(b=>b.onclick=()=>{ state.search.mode=b.dataset.smode; syncSearchControls(); if(state.search.q)runSearch(); });
-    $$('#search-scope button').forEach(b=>b.onclick=()=>{ state.search.scope=b.dataset.sscope; syncSearchControls(); if(state.search.q)runSearch(); });
-    $('#filter-from').onchange=(e)=>{state.search.from=e.target.value; if(state.search.q)runSearch();};
-    $('#filter-to').onchange=(e)=>{state.search.to=e.target.value; if(state.search.q)runSearch();};
-    $('#filter-reset').onclick=()=>{ state.search.types=new Set(SUPPORTED.map(typeOf)); state.search.tag=null; state.search.from=''; state.search.to=''; $('#filter-from').value=''; $('#filter-to').value=''; renderFilters(); if(state.search.q)runSearch(); };
+    $('#top-search-input').onkeydown=(e)=>{ if(e.key==='Enter'){ $('#search-input').value=e.target.value; state.search.scope='all'; switchView('search'); setFindMode('search'); runSearch(); } };
+    // Primär-Umschalter: Suchen · Frage (KI) · Zusammenfassung
+    $$('#find-mode button').forEach(b=>b.onclick=()=>setFindMode(b.dataset.fmode));
+    const cke=$('#chk-exact'); if(cke) cke.onchange=()=>{ state.search.mode=cke.checked?'exact':'text'; syncSearchControls(); if(state.search.q)runSearch(); };
+    const cks=$('#chk-scope'); if(cks) cks.onchange=()=>{ state.search.scope=cks.checked?'selected':'all'; syncSearchControls(); if(state.search.q)runSearch(); };
+    const fft=$('#find-filter-toggle'); if(fft) fft.onclick=()=>{ const f=$('#find-filters'); f.style.display = f.style.display==='none' ? '' : 'none'; };
+    $('#filter-reset').onclick=()=>{ state.search.types=new Set(SUPPORTED.map(typeOf)); state.search.tag=null; renderFilters(); if(state.search.q)runSearch(); };
     $('#sel-all-hits').onclick=()=>{ state.lastHits.forEach((_,i)=>state.search.selected.add(i)); renderSearchResults(); };
-    $('#sum-hits').onclick=()=>{ switchView('summary'); $('input[name=sumsrc][value=hits]').checked=true; renderSumPicklist(); };
+    $('#sum-hits').onclick=()=>{ state.sumSrc = state.search.selected.size ? 'hits' : (state.lastHits.length ? 'hits' : 'selected'); setFindMode('summary'); };
     $('#export-hits').onclick=()=>openExport('hits');
 
     // Import
@@ -2983,9 +3054,9 @@
     $('#pick-files').onclick=async()=>{ if(window.showOpenFilePicker){ try{ const handles=await window.showOpenFilePicker({multiple:true}); const files=await Promise.all(handles.map(h=>h.getFile())); importFiles(files); }catch(err){ if(err.name!=='AbortError')console.error(err); } } else { const inp=document.createElement('input'); inp.type='file'; inp.multiple=true; inp.accept='.pdf,.docx,.xlsx,.xls,.csv,.txt,.md'; inp.onchange=()=>importFiles(Array.from(inp.files)); inp.click(); } };
     $('#pick-folder').onclick=async()=>{ try{ const dir=await window.showDirectoryPicker(); const files=[]; const walk=async(d)=>{ for await(const [n,h] of d.entries()){ if(h.kind==='file')files.push(await h.getFile()); else await walk(h); } }; await walk(dir); importFiles(files); }catch(err){ if(err.name!=='AbortError')console.error(err); } };
 
-    // Summary
+    // Zusammenfassung (im vereinheitlichten Tab)
     $$('#sum-mode button').forEach(b=>b.onclick=()=>{ $$('#sum-mode button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); state.sumMode=b.dataset.mode; });
-    $$('input[name=sumsrc]').forEach(r=>r.onchange=renderSumPicklist);
+    $$('#sum-src-seg button').forEach(b=>b.onclick=()=>{ state.sumSrc=b.dataset.sumsrc; $$('#sum-src-seg button').forEach(x=>x.classList.toggle('on', x===b)); renderSumPicklist(); });
     $('#sum-generate').onclick=generateSummary;
     $$('#sum-export-row [data-export]').forEach(b=>b.onclick=()=>exportReport(b.dataset.export,'summary'));
 

@@ -122,17 +122,18 @@ export async function run(base) {
   });
   t.check('PDF-Fundstelle als Canvas gerendert', doc.rendered);
 
-  // Zusammenfassung (extraktiv, gesamtes Archiv) mit Quellenverzeichnis
+  // Zusammenfassung (extraktiv, gesamtes Archiv) mit Quellenverzeichnis + Belegstellen
   const sum = await page.evaluate(async () => {
-    window.WA.switchView('summary');
-    document.querySelector('input[name=sumsrc][value=all]').checked = true;
+    window.WA.switchView('summary');       // jetzt Modus im vereinheitlichten Suche-Tab
+    window.WA.state.sumSrc = 'all';
     window.WA.setMode('extractive');
     await window.WA.generateSummary();
     await new Promise(r => setTimeout(r, 300));
-    return { text: document.querySelector('#sum-output').innerText.length, sources: !!document.querySelector('.sourcelist') };
+    return { text: document.querySelector('#sum-output').innerText.length, sources: !!document.querySelector('.sourcelist'), excerpts: !!document.querySelector('.excerpt') };
   });
   t.check('Zusammenfassung erzeugt', sum.text > 100);
   t.check('Quellenverzeichnis vorhanden', sum.sources);
+  t.check('Belegstellen (Originaltext) vorhanden', sum.excerpts);
 
   // Exporte in allen drei Formaten + Backup-ZIP
   const exp = await page.evaluate(async () => {
