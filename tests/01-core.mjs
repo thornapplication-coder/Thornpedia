@@ -107,6 +107,35 @@ export async function run(base) {
     return { hasAtt: !!(last.attachments && last.attachments.length === 1 && last.attachments[0].kind === 'image'), text: last.text, fileOk };
   });
   t.check('Forum: Kommentar mit Bild-Anhang gespeichert', cc.hasAtt && cc.fileOk && cc.text === 'Kommentar mit Bild', JSON.stringify(cc));
+
+  // Der Bild-Anhang oben lädt seinen Blob asynchron; das nächste renderForum (im
+  // PDF-Block) widerruft alle Anhang-Blob-URLs. Erst abwarten, bis der Ladeversuch
+  // abgeschlossen ist (complete=true, auch bei ungültigem Bild) – sonst Revoke-
+  // während-Ladevorgang → net::ERR_FILE_NOT_FOUND im Konsolen-Check.
+  await page.waitForFunction(() => { const im = [...document.querySelectorAll('#forum-content img')]; return im.length > 0 && im.every(x => x.complete); }, { timeout: 4000 }).catch(() => {});
+
+  // Forum: Dokument-Anhang (PDF) – eigener Eintrag (ohne Bild → keine Blob-Bild-Race),
+  // Nachweis: kind 'file' und Darstellung als Download-Link (kein <img>/<video>).
+  const docAtt = await page.evaluate(async () => {
+    const id = 'forumtest-pdf';
+    await window.WA.foSaveEntry({ id, name: 'Dokument-Anhang', body: '', type: 'forum', ext: 'forum', importedAt: new Date().toISOString(), tags: [], status: '', forum: { gid: 'g1', sid: null }, comments: [], attachments: [] });
+    // Erst auf den (bildlosen) PDF-Eintrag umschalten, DANN den Anhang hinzufügen,
+    // damit kein renderForum mehr einen Bild-Blob des anderen Eintrags anfasst.
+    window.WA.state.forumEntryId = id; window.WA.state.forumView = 'entry'; window.WA.switchView('forum');
+    const e = await window.WA.getIndex(id);
+    const pdf = new File([new Uint8Array([37, 80, 68, 70, 45, 49, 46, 52])], 'handbuch.pdf', { type: 'application/pdf' });
+    await window.WA.foAddComment(e, 'Kommentar mit PDF', [pdf]);
+    const saved = await window.WA.getIndex(id);
+    const last = saved.comments[saved.comments.length - 1];
+    const att = last.attachments && last.attachments[0];
+    let fileOk = false; try { if (att) { await window.WA.state.dirs.forum.getFileHandle(att.storedAs); fileOk = true; } } catch (_) {}
+    await new Promise(r => setTimeout(r, 200));
+    const html = document.querySelector('#forum-content').innerHTML;
+    return { kind: att && att.kind, fileOk, asLink: html.includes('handbuch.pdf') && /⬇/.test(html) };
+  });
+  t.check('Forum: PDF-Anhang gespeichert (kind file)', docAtt.kind === 'file' && docAtt.fileOk, JSON.stringify(docAtt));
+  t.check('Forum: Datei-Anhang als Download-Link', docAtt.asLink === true, JSON.stringify(docAtt));
+
   await page.evaluate(() => { window.WA.state.forumView = 'list'; window.WA.switchView('search'); });
   // Zurück zur Basissuche, damit die folgenden Prüfungen unbeeinflusst bleiben
   await page.evaluate(async () => { document.querySelector('#search-input').value = 'Kuendigungsfrist'; window.WA.state.search.q = 'Kuendigungsfrist'; await window.WA.runSearch(); });

@@ -691,7 +691,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.2';
+  const APP_VERSION = '1.9.3';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -805,14 +805,14 @@
     'tags-none':['Noch keine Tags vergeben.','No tags yet.'],'tag-rename':['Umbenennen','Rename'],'tag-del':['Löschen','Delete'],
     'sh-recent':['Zuletzt gesucht:','Recent searches:'],'sh-clear':['Verlauf leeren','Clear history'],
     'f-from':['Von (Importdatum)','From (import date)'],'f-to':['Bis (Importdatum)','To (import date)'],
-    'nav-forum':['Forum','Forum'],'forum-p':['Eigene Themen und Untergruppen mit Einträgen, Kommentaren und Anhängen (Bild/Video) – alles wird durchsucht.','Your own topics and subgroups with entries, comments and attachments (image/video) – all searchable.'],
+    'nav-forum':['Forum','Forum'],'forum-p':['Eigene Themen und Untergruppen mit Einträgen, Kommentaren und Anhängen (Bild, Video, PDF, Word, Excel …) – alles wird durchsucht.','Your own topics and subgroups with entries, comments and attachments (image, video, PDF, Word, Excel …) – all searchable.'],
     'fo-themes':['Themen','Topics'],'fo-newtheme':['+ Thema','+ Topic'],'fo-newsub':['+ Untergruppe','+ Subgroup'],'fo-allentries':['Alle Einträge','All entries'],
     'fo-sub':['Untergruppe','Subgroup'],
     'fo-refs':['Querverweise','Cross-references'],'fo-addref':['Querverweis','Reference'],'fo-export':['Thema exportieren:','Export topic:'],
     'fo-newentry':['+ Neuer Eintrag','+ New entry'],'fo-noentries':['Noch keine Einträge hier. Lege einen an.','No entries here yet. Create one.'],'fo-nothemes':['Noch keine Themen. Lege links ein Thema an.','No topics yet. Create a topic on the left.'],
     'fo-title-ph':['Titel des Eintrags','Entry title'],'fo-body-ph':['Text / Beschreibung …','Text / description …'],'fo-save':['Speichern','Save'],'fo-cancel':['Abbrechen','Cancel'],
-    'fo-edit':['Bearbeiten','Edit'],'fo-delete':['Löschen','Delete'],'fo-attach':['Anhang (Bild/Video)','Attachment (image/video)'],'fo-comments':['Kommentare','Comments'],
-    'fo-comment-ph':['Kommentar hinzufügen …','Add a comment …'],'fo-addcomment':['Kommentar','Comment'],'fo-cmt-img':['Bild/Video','Image/video'],'fo-back':['← Zurück','← Back'],'fo-rename':['Umbenennen','Rename'],
+    'fo-edit':['Bearbeiten','Edit'],'fo-delete':['Löschen','Delete'],'fo-attach':['Anhang (Bild, Video, Datei)','Attachment (image, video, file)'],'fo-comments':['Kommentare','Comments'],
+    'fo-comment-ph':['Kommentar hinzufügen …','Add a comment …'],'fo-addcomment':['Kommentar','Comment'],'fo-cmt-img':['Bild, Video oder Datei anhängen','Attach image, video or file'],'fo-back':['← Zurück','← Back'],'fo-rename':['Umbenennen','Rename'],
     'fo-theme-name':['Name des Themas','Topic name'],'fo-sub-name':['Name der Untergruppe','Subgroup name'],'fo-del-theme':['Thema mit allen Einträgen löschen?','Delete topic with all its entries?'],
     'fo-del-sub':['Untergruppe löschen? Einträge rücken ins Thema.','Delete subgroup? Its entries move up to the topic.'],'fo-del-entry':['Diesen Eintrag löschen?','Delete this entry?'],'fo-untitled':['(ohne Titel)','(untitled)'],
     'set-info-fsa':['Solange dieser Ordner verbunden ist, werden Dokumente, API-Key und Einstellungen dort dauerhaft gespeichert – auch nach dem Schließen. „Ordner wechseln" verbindet einen anderen Ordner, „Trennen" löst nur die Verbindung (die Dateien im Ordner bleiben erhalten).','As long as this folder is connected, documents, API key and settings are stored there permanently – even after closing. "Change folder" connects a different folder, "Disconnect" only releases the link (the files in the folder stay).'],
@@ -1088,7 +1088,7 @@
     // Nach Tags gruppieren: jedes Dokument erscheint unter jeder seiner Kategorien,
     // Dokumente ohne Tag in einer eigenen Gruppe am Ende. So bilden die Tags
     // Überschriften und die Bibliothek ist übersichtlich unterteilt statt „eine Wurst".
-    const UNTAG=' untag';
+    const UNTAG='__untagged__';
     const groups=new Map();
     for(const r of rows){
       const ts=(r.tags||[]).filter(Boolean);
@@ -1352,6 +1352,10 @@
   const forumLoc=(e)=>{ const g=forumGroup(e.forum&&e.forum.gid); const s=forumSub(g,e.forum&&e.forum.sid); return [g&&g.name,s&&s.name].filter(Boolean).join(' · '); };
   const forumEntries=()=>state.catalog.filter(c=>c.type==='forum');
   function foMediaKind(name, mime){ const e=(String(name).split('.').pop()||'').toLowerCase(); if((mime&&mime.startsWith('image/'))||['png','jpg','jpeg','gif','webp','bmp'].includes(e))return 'image'; if((mime&&mime.startsWith('video/'))||['mp4','webm','ogg','ogv','mov','m4v'].includes(e))return 'video'; return 'file'; }
+  // Erlaubte Anhang-Typen im Forum: Bilder/Videos plus gängige Dokumente
+  // (PDF, Word, Excel, PowerPoint, Text/CSV, Archive). Nicht-Medien werden als
+  // Download-Link angezeigt; die Speicher-/Sync-Logik behandelt sie ohnehin generisch.
+  const FO_ACCEPT='image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.rtf,.ppt,.pptx,.odt,.ods,.odp,.zip';
   function foBuildUnits(e){ const u=[{ref:{section:'Titel'},text:String(e.name||'')}]; if(e.body)u.push({ref:{section:'Text'},text:String(e.body)}); (e.comments||[]).forEach((c,i)=>{ if(c.text)u.push({ref:{section:'Kommentar '+(i+1)},text:String(c.text)}); }); (e.attachments||[]).forEach(a=>u.push({ref:{section:'Anhang'},text:String(a.name||'')})); if((e.tags||[]).length)u.push({ref:{section:'Tags'},text:(e.tags||[]).join(', ')}); if((e.refs||[]).length)u.push({ref:{section:'Querverweise'},text:(e.refs||[]).map(r=>r.name).join(', ')}); return u; }
   async function foSaveEntry(e){ e.type='forum'; e.ext='forum'; e.tags=Array.isArray(e.tags)?e.tags:[]; e.units=foBuildUnits(e); e.size=(e.body||'').length; const now=new Date().toISOString(); if(!e.importedAt)e.importedAt=now; e.updatedAt=now; await writeIndex(e); const i=state.catalog.findIndex(c=>c.id===e.id); if(i>=0)state.catalog[i]=summaryOf(e); else state.catalog.push(summaryOf(e)); await saveCatalog(); }
   // Status (frei lassen oder einer der drei) + kleine Chips.
@@ -1465,7 +1469,7 @@
       ${(e.tags||[]).length?`<div style="margin-bottom:12px">${(e.tags||[]).map(t=>`<span class="chip">🏷 ${esc(t)}</span>`).join(' ')}</div>`:''}
       <div style="line-height:1.6" class="fo-body">${foMd(e.body||'')}</div>
       <div style="margin-top:12px">${atts}</div>
-      <div style="margin-top:14px"><button class="btn sm neutral" id="fo-attach">📎 ${tr('fo-attach')}</button><input type="file" id="fo-attach-input" accept="image/*,video/*" style="display:none"></div>
+      <div style="margin-top:14px"><button class="btn sm neutral" id="fo-attach">📎 ${tr('fo-attach')}</button><input type="file" id="fo-attach-input" accept="${FO_ACCEPT}" style="display:none"></div>
       <h4 style="margin:20px 0 8px;border-top:1px solid var(--line);padding-top:14px">🔗 ${tr('fo-refs')}</h4>
       <div>${refsHtml||`<p style="color:var(--text-muted);font-size:13px">—</p>`}</div>
       <div class="row" style="gap:8px;margin-top:8px"><select id="fo-ref-sel" style="padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:14px;flex:1;min-width:0">${refOpts}</select><button class="btn sm neutral" id="fo-ref-add">+ ${tr('fo-addref')}</button></div>
@@ -1473,7 +1477,7 @@
       <div>${comments||`<p style="color:var(--text-muted);font-size:13px">—</p>`}</div>
       <div class="row" style="margin-top:10px;gap:6px"><input id="fo-comment-input" placeholder="${tr('fo-comment-ph')}" style="flex:1"><button class="btn sm neutral" id="fo-comment-attach" title="${tr('fo-cmt-img')}">📎</button><button class="btn sm" id="fo-addcomment">${tr('fo-addcomment')}</button></div>
       <div class="fmeta" id="fo-comment-staged" style="margin-top:4px;display:none"></div>
-      <input type="file" id="fo-comment-file" accept="image/*,video/*" multiple style="display:none">
+      <input type="file" id="fo-comment-file" accept="${FO_ACCEPT}" multiple style="display:none">
     </div>`;
     // Anhänge als Blob-URLs anzeigen (Bild/Video inline)
     // Anhänge per DOM-API einsetzen (nicht per innerHTML mit "src="+URL): so taucht
@@ -1501,7 +1505,7 @@
     $$('[data-foattdel]',el).forEach(b=>b.onclick=()=>foDelAttachment(e, +b.dataset.foattdel));
     $$('[data-focmtdel]',el).forEach(b=>b.onclick=()=>foDelComment(e, +b.dataset.focmtdel));
     // Bilder/Videos an einen bestehenden Kommentar anhängen bzw. entfernen
-    $$('[data-focmtattadd]',el).forEach(b=>b.onclick=()=>{ const cix=+b.dataset.focmtattadd; const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*,video/*'; inp.onchange=()=>{ if(inp.files[0])foAddCommentAttachment(e, cix, inp.files[0]); }; inp.click(); });
+    $$('[data-focmtattadd]',el).forEach(b=>b.onclick=()=>{ const cix=+b.dataset.focmtattadd; const inp=document.createElement('input'); inp.type='file'; inp.accept=FO_ACCEPT; inp.onchange=()=>{ if(inp.files[0])foAddCommentAttachment(e, cix, inp.files[0]); }; inp.click(); });
     $$('[data-focmtattdel]',el).forEach(b=>b.onclick=()=>{ const [cix,aix]=b.dataset.focmtattdel.split('|').map(Number); foDelCommentAttachment(e, cix, aix); });
     // Kommentar verfassen – mit optionalen Bild-/Video-Anhängen (staged bis zum Absenden)
     if(state._foCmtStagedFor!==e.id){ state._foCmtStaged=[]; state._foCmtStagedFor=e.id; }
