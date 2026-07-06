@@ -44,6 +44,44 @@ export async function run(base) {
   const count = await page.evaluate(() => window.WA.state.catalog.length);
   t.check('Überspringen behält 3 Dokumente', count === 3, 'count='+count);
 
+  // Tag-Gruppierung: Tags bilden Abschnitts-Überschriften.
+  await page.evaluate(async () => {
+    const WA = window.WA;
+    const idOf = n => WA.state.catalog.find(c => c.name === n).id;
+    const setTags = async (name, tags) => {
+      const id = idOf(name);
+      const doc = await WA.getIndex(id);
+      doc.tags = tags;
+      // Index-Datei direkt aktualisieren, danach Katalog neu aufbauen (öffentliche API).
+      const h = await WA.state.dirs.index.getFileHandle(id + '.json', { create: true });
+      const w = await h.createWritable(); await w.write(JSON.stringify(doc)); await w.close();
+    };
+    await setTags('mietvertrag.pdf', ['Recht']);
+    await setTags('budget.xlsx', ['Finanzen']);
+    await setTags('projektkonzept.docx', ['Recht', 'Finanzen']);
+    await WA.rebuildCatalog();   // liest Indizes neu, aktualisiert Katalog + rendert Bibliothek
+    WA.switchView('lib');
+  });
+  await page.waitForTimeout(200);
+
+  const grp = await page.evaluate(() => {
+    const heads = [...document.querySelectorAll('#lib-content .lib-group-head .lib-group-title')].map(e => e.textContent.trim());
+    return {
+      heads,
+      groups: document.querySelectorAll('#lib-content .lib-group').length,
+      // projektkonzept.docx hat 2 Tags → erscheint in 2 Gruppen (2 Zeilen)
+      pkRows: [...document.querySelectorAll('#lib-content tbody tr .fname')].filter(e => e.textContent === 'projektkonzept.docx').length,
+    };
+  });
+  t.check('Tags bilden Gruppen-Überschriften', grp.heads.some(h => h.includes('Finanzen')) && grp.heads.some(h => h.includes('Recht')), JSON.stringify(grp));
+  t.check('Dokument mit 2 Tags in 2 Gruppen', grp.pkRows === 2, JSON.stringify(grp));
+
+  // Gruppe einklappen blendet ihre Tabelle aus.
+  await page.click('#lib-content .lib-group-head');
+  await page.waitForTimeout(120);
+  const afterCollapse = await page.evaluate(() => document.querySelectorAll('#lib-content .lib-group-head.collapsed').length);
+  t.check('Gruppe lässt sich einklappen', afterCollapse === 1, 'collapsed='+afterCollapse);
+
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
   await browser.close();
   return t.fails();
