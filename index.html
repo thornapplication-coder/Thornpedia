@@ -367,8 +367,7 @@
       <!-- Was möchtest du tun? -->
       <div class="seg findmode" id="find-mode" role="group" style="margin-bottom:14px">
         <button class="on" data-fmode="search">🔎 <span data-i18n="fm-search">Suchen</span></button>
-        <button data-fmode="ask">🤖 <span data-i18n="fm-ask">Frage (KI)</span></button>
-        <button data-fmode="summary">✨ <span data-i18n="fm-sum">Zusammenfassung</span></button>
+        <button data-fmode="ask">🤖 <span data-i18n="fm-ask">KI fragen</span></button>
       </div>
 
       <!-- Eingabe (Suchen / Frage) -->
@@ -381,27 +380,6 @@
           <button class="btn sm neutral" id="find-filter-toggle">⚙️ <span data-i18n="fm-filter">Filter</span></button>
           <span id="search-scope-hint" style="color:var(--text-muted);font-size:12px"></span>
         </div>
-      </div>
-
-      <!-- Steuerung (Zusammenfassung) -->
-      <div id="find-sumrow" class="panel panel-pad" style="display:none;margin-bottom:14px;padding:14px">
-        <div class="row" style="gap:18px;flex-wrap:wrap;align-items:center">
-          <div class="row" style="gap:8px;align-items:center"><span class="fmeta" data-i18n="sum-source">Quelle:</span>
-            <div class="seg" id="sum-src-seg" style="border-radius:8px" role="group">
-              <button class="on" data-sumsrc="selected" data-i18n="sum-src-sel">Markierte</button>
-              <button data-sumsrc="hits" data-i18n="sum-src-hits">Suchtreffer</button>
-              <button data-sumsrc="all" data-i18n="sum-src-all">Gesamtes Archiv</button>
-            </div>
-          </div>
-          <div class="row" style="gap:8px;align-items:center"><span class="fmeta" data-i18n="sum-mode">Modus:</span>
-            <div class="seg" id="sum-mode" style="border-radius:8px" role="group">
-              <button class="on" data-mode="extractive" data-i18n="sum-extractive">Offline</button>
-              <button data-mode="ai" data-i18n="sum-ai">Claude API</button>
-            </div>
-          </div>
-          <button class="btn" id="sum-generate">✨ <span data-i18n="sum-generate">Erstellen</span></button>
-        </div>
-        <div id="sum-picklist" class="fmeta" style="margin-top:8px"></div>
       </div>
 
       <!-- Filter (einklappbar) -->
@@ -418,24 +396,12 @@
         <strong id="search-count">—</strong>
         <div class="row" style="flex-wrap:wrap;gap:6px">
           <button class="btn sm neutral" id="sel-all-hits" data-i18n="select-all">Alle wählen</button>
-          <button class="btn sm neutral" id="sum-hits" data-i18n="sum-selected">Ausgewählte zusammenfassen</button>
           <button class="btn sm neutral" id="export-hits" data-i18n="export">Export</button>
         </div>
       </div>
 
       <!-- Ausgabe: Suchtreffer / KI-Antwort -->
       <div id="search-results"></div>
-
-      <!-- Ausgabe: Zusammenfassung -->
-      <div id="sum-wrap" class="panel panel-pad" style="display:none">
-        <div id="sum-output"><div class="empty"><div class="big">✨</div><p data-i18n="sum-hint">Wähle oben Quelle &amp; Modus und erstelle eine Zusammenfassung.</p></div></div>
-        <div class="row" id="sum-export-row" style="margin-top:16px;display:none">
-          <span style="color:var(--text-muted);font-size:12px" data-i18n="export-as">Exportieren als:</span>
-          <button class="btn neutral sm" data-export="docx">⬇ DOCX</button>
-          <button class="btn neutral sm" data-export="pdf">⬇ PDF</button>
-          <button class="btn neutral sm" data-export="xlsx">⬇ XLSX</button>
-        </div>
-      </div>
     </section>
 
     <!-- ===== Fundstelle ===== -->
@@ -727,7 +693,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.7.0';
+  const APP_VERSION = '1.8.0';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -801,8 +767,8 @@
     'lib-h':['Bibliothek','Library'],'lib-p':['Alle Dokumente an einem Ort.','All your documents in one place.'],
     'lib-empty-h':['Noch keine Dokumente','No documents yet'],'lib-empty-p':['Importiere Dateien per Drag & Drop, Dateiauswahl oder ganzem Ordner.','Import files via drag & drop, file picker or a whole folder.'],
     'search-h':['Suche & KI','Search & AI'],
-    'search-p':['Durchsuchen, die KI fragen oder zusammenfassen – alles an einem Ort.','Search, ask the AI, or summarise – all in one place.'],
-    'fm-search':['Suchen','Search'],'fm-ask':['Frage (KI)','Ask (AI)'],'fm-sum':['Zusammenfassung','Summary'],
+    'search-p':['Volltext durchsuchen – oder die KI eine Frage über alle deine Dokumente beantworten lassen.','Full-text search – or let the AI answer a question across all your documents.'],
+    'fm-search':['Suchen','Search'],'fm-ask':['KI fragen','Ask AI'],
     'fm-exactword':['Genauer Wortlaut','Exact wording'],'fm-onlysel':['Nur markierte Dokumente','Selected documents only'],'fm-filter':['Filter','Filter'],
     'search-ph':['Volltextsuche über alle Dokumente…','Full-text search across all documents…'],'search-ph2':['Suchbegriff…','Search term…'],'do-search':['Suchen','Search'],
     'sm-text':['Volltext','Full text'],'sm-exact':['Genauer Wortlaut','Exact wording'],'sm-ask':['Frage (KI)','Ask (AI)'],'sm-title':['Such-Modus','Search mode'],
@@ -1777,11 +1743,16 @@
   // Fragewoerter ranken (ODER), begrenzt die an die API gesendete Textmenge.
   const STOP=new Set('der die das und oder in im am zur zum ein eine einen eines dem den des mit von vom fur für auf ist sind war waren wie was wo wer welche welcher alles über uber about the a an of to in on for is are what which where who all and or with from find finde raus mir mich'.split(/\s+/));
   function retrieveDocs(q, max){
+    // Nur echte hochgeladene Dokumente (kein Forum) – über ALLE davon wird gesucht.
+    const docs=state.catalog.filter(c=>c.type!=='forum');
     const words=[...new Set(fold(q).split(/[^a-z0-9]+/).filter(w=>w.length>=3 && !STOP.has(w)))];
-    if(!words.length) return state.catalog.slice(0,max).map(c=>c.id);
+    if(!words.length) return docs.slice(0,max).map(c=>c.id);
     const scored=[];
-    for(const c of state.catalog){ const doc=state.indexCache.get(c.id); if(!doc)continue; let s=0; for(const u of (doc.units||[])){ const f=foldUnit(u); for(const w of words){ if(f.includes(w))s++; } } if(s)scored.push({id:c.id,s}); }
+    for(const c of docs){ const doc=state.indexCache.get(c.id); if(!doc)continue; let s=0; for(const u of (doc.units||[])){ const f=foldUnit(u); for(const w of words){ if(f.includes(w))s++; } } if(s)scored.push({id:c.id,s}); }
     scored.sort((a,b)=>b.s-a.s);
+    // Findet kein Wort einen Treffer, trotzdem die ersten Dokumente heranziehen,
+    // damit die KI immer aus den vorhandenen Dokumenten antworten kann.
+    if(!scored.length) return docs.slice(0,max).map(c=>c.id);
     return scored.slice(0,max).map(x=>x.id);
   }
   async function askQuestion(q){
@@ -1789,7 +1760,8 @@
     if(!state.apiKey){ resEl.innerHTML=`<div class="empty"><div class="big">🤖</div><p>${tr('ask-nokey')}</p><button class="btn sm" data-view-jump="settings" style="margin-top:8px">⚙️ ${tr('nav-set')}</button></div>`; wireJump(resEl); return; }
     resEl.innerHTML=`<div class="empty"><span class="busy"></span> <span style="margin-left:8px">${tr('ask-working')}</span></div>`;
     await loadAllIndexes();
-    let ids = state.search.scope==='selected' ? Array.from(state.lib.selected) : retrieveDocs(q, aiLimits().docs);
+    // Die KI durchsucht IMMER alle hochgeladenen Dokumente und trägt die Antwort daraus zusammen.
+    let ids = retrieveDocs(q, aiLimits().docs);
     if(!ids.length){ resEl.innerHTML=`<div class="empty"><p>${tr('ask-nodocs')}</p></div>`; return; }
     try{
       const ans=await claudeAnswer(q, ids);
@@ -1873,24 +1845,15 @@
     const btn=$('#search-btn'); if(btn) btn.textContent = state.search.mode==='ask' ? (de?'Fragen':'Ask') : (de?'Suchen':'Search');
     const hint=$('#search-scope-hint'); if(hint) hint.textContent = state.search.scope==='selected' ? (state.lib.selected.size ? (state.lib.selected.size+' '+(de?'markiert (in der Bibliothek)':'selected (in library)')) : (de?'Keine Dokumente markiert – bitte in der Bibliothek Haken setzen.':'No documents selected – tick them in the library.')) : '';
   }
-  // Primärer Umschalter des vereinheitlichten Tabs: Suchen · Frage (KI) · Zusammenfassung.
+  // Primärer Umschalter des Tabs: Suchen · KI fragen.
   function setFindMode(m){
+    if(m!=='ask') m='search';
     state.findMode=m;
     $$('#find-mode button').forEach(b=>b.classList.toggle('on', b.dataset.fmode===m));
-    const isSum=m==='summary', isAsk=m==='ask';
-    const show=(id,on)=>{ const el=$(id); if(el)el.style.display=on?'':'none'; };
-    show('#find-inputrow', !isSum);
-    show('#find-sumrow', isSum);
-    show('#find-actionbar', !isSum);
-    show('#search-results', !isSum);
-    show('#sum-wrap', isSum);
-    show('#opt-exact', !isAsk);                 // „Genauer Wortlaut" nur beim Suchen
-    if(isSum){
-      $('#find-filters').style.display='none';
-      $$('#sum-src-seg button').forEach(b=>b.classList.toggle('on', b.dataset.sumsrc===(state.sumSrc||'selected')));
-      $$('#sum-mode button').forEach(b=>b.classList.toggle('on', b.dataset.mode===(state.sumMode||'extractive')));
-      renderSumPicklist(); return;
-    }
+    const isAsk=m==='ask';
+    // „Genauer Wortlaut"/„Nur markierte" nur beim Suchen – die KI durchsucht immer ALLE Dokumente.
+    const oe=$('#opt-exact'); if(oe)oe.style.display=isAsk?'none':'';
+    const os=$('#opt-scope'); if(os)os.style.display=isAsk?'none':'';
     state.search.mode = isAsk ? 'ask' : ($('#chk-exact') && $('#chk-exact').checked ? 'exact' : 'text');
     syncSearchControls(); renderSearchHistory();
     if(state.search.q) runSearch(); else renderSearchResults();
@@ -2958,8 +2921,8 @@
 
   // ---------- Navigation ----------
   function switchView(view){
-    // „summary" ist jetzt ein Modus im vereinheitlichten „search"-Tab.
-    if(view==='summary'){ state.findMode='summary'; view='search'; }
+    // „summary" gibt es nicht mehr – auf den Suche-Tab umleiten.
+    if(view==='summary') view='search';
     $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); const gb=$('#settings-btn'); if(gb){ gb.classList.toggle('active', view==='settings'); gb.setAttribute('aria-pressed', view==='settings'?'true':'false'); } $('.main').scrollTop=0;
     // Beim Verlassen des Forums die Anhang-Blob-URLs freigeben und laufende Loader entwerten.
     if(view!=='forum'&&(state._forumUrls&&state._forumUrls.length)){ state._foSeq=(state._foSeq||0)+1; state._forumUrls.forEach(u=>{try{URL.revokeObjectURL(u);}catch(_){}}); state._forumUrls=[]; }
@@ -3036,14 +2999,13 @@
     // Suche
     $('#search-btn').onclick=runSearch; $('#search-input').onkeydown=(e)=>{ if(e.key==='Enter')runSearch(); };
     $('#top-search-input').onkeydown=(e)=>{ if(e.key==='Enter'){ $('#search-input').value=e.target.value; state.search.scope='all'; switchView('search'); setFindMode('search'); runSearch(); } };
-    // Primär-Umschalter: Suchen · Frage (KI) · Zusammenfassung
+    // Primär-Umschalter: Suchen · KI fragen
     $$('#find-mode button').forEach(b=>b.onclick=()=>setFindMode(b.dataset.fmode));
     const cke=$('#chk-exact'); if(cke) cke.onchange=()=>{ state.search.mode=cke.checked?'exact':'text'; syncSearchControls(); if(state.search.q)runSearch(); };
     const cks=$('#chk-scope'); if(cks) cks.onchange=()=>{ state.search.scope=cks.checked?'selected':'all'; syncSearchControls(); if(state.search.q)runSearch(); };
     const fft=$('#find-filter-toggle'); if(fft) fft.onclick=()=>{ const f=$('#find-filters'); f.style.display = f.style.display==='none' ? '' : 'none'; };
     $('#filter-reset').onclick=()=>{ state.search.types=new Set(SUPPORTED.map(typeOf)); state.search.tag=null; renderFilters(); if(state.search.q)runSearch(); };
     $('#sel-all-hits').onclick=()=>{ state.lastHits.forEach((_,i)=>state.search.selected.add(i)); renderSearchResults(); };
-    $('#sum-hits').onclick=()=>{ state.sumSrc = state.search.selected.size ? 'hits' : (state.lastHits.length ? 'hits' : 'selected'); setFindMode('summary'); };
     $('#export-hits').onclick=()=>openExport('hits');
 
     // Import
@@ -3053,12 +3015,6 @@
     dz.addEventListener('drop',async(e)=>{ e.preventDefault(); dz.classList.remove('drag'); const files=await filesFromDataTransfer(e.dataTransfer); importFiles(files); });
     $('#pick-files').onclick=async()=>{ if(window.showOpenFilePicker){ try{ const handles=await window.showOpenFilePicker({multiple:true}); const files=await Promise.all(handles.map(h=>h.getFile())); importFiles(files); }catch(err){ if(err.name!=='AbortError')console.error(err); } } else { const inp=document.createElement('input'); inp.type='file'; inp.multiple=true; inp.accept='.pdf,.docx,.xlsx,.xls,.csv,.txt,.md'; inp.onchange=()=>importFiles(Array.from(inp.files)); inp.click(); } };
     $('#pick-folder').onclick=async()=>{ try{ const dir=await window.showDirectoryPicker(); const files=[]; const walk=async(d)=>{ for await(const [n,h] of d.entries()){ if(h.kind==='file')files.push(await h.getFile()); else await walk(h); } }; await walk(dir); importFiles(files); }catch(err){ if(err.name!=='AbortError')console.error(err); } };
-
-    // Zusammenfassung (im vereinheitlichten Tab)
-    $$('#sum-mode button').forEach(b=>b.onclick=()=>{ $$('#sum-mode button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); state.sumMode=b.dataset.mode; });
-    $$('#sum-src-seg button').forEach(b=>b.onclick=()=>{ state.sumSrc=b.dataset.sumsrc; $$('#sum-src-seg button').forEach(x=>x.classList.toggle('on', x===b)); renderSumPicklist(); });
-    $('#sum-generate').onclick=generateSummary;
-    $$('#sum-export-row [data-export]').forEach(b=>b.onclick=()=>exportReport(b.dataset.export,'summary'));
 
     // Export-Dialog
     $$('#dlg-export [data-expfmt]').forEach(b=>b.onclick=()=>{ $('#dlg-export').classList.remove('show'); exportReport(b.dataset.expfmt,'hits'); });
