@@ -621,15 +621,8 @@
         </div>
         <div class="panel panel-pad">
           <h4 style="margin-bottom:6px" data-i18n="set-about">Über</h4>
-          <p style="color:var(--text-muted);margin:0 0 4px" data-i18n="set-about-p">Wissensarchiv · Keine Konten, kein Server – deine Daten bleiben bei dir.</p>
-          <p style="color:var(--text-muted);margin:0 0 12px;font-size:12px" id="about-version"></p>
-          <div style="border-top:1px solid var(--line);padding-top:12px;line-height:1.65">
-            <p style="margin:0 0 10px" data-i18n="about-1">Thornpedia ist eine digitale Wissensplattform für die zivile Luftfahrt, die zur Unterstützung von Aus- und Weiterbildungsmaßnahmen im EASA-regulierten Flugbetrieb entwickelt wurde. Sie dient als zentrale Informationsquelle für flugbetriebliche, technische und regulatorische Themen und unterstützt einen strukturierten, standardisierten sowie nachhaltigen Wissenstransfer.</p>
-            <p style="margin:0 0 10px" data-i18n="about-2">Die Plattform stellt fundierte Informationen zu Luftfahrzeugen, Flugzeugsystemen, Betriebsverfahren, Performance, Navigation, Meteorologie, Human Factors sowie den geltenden EASA-Regularien bereit. Thornpedia unterstützt Pilotinnen und Piloten, Fluglehrende, Prüfer sowie Trainingsverantwortliche bei der Vorbereitung, Durchführung und Nachbereitung von Ausbildungs- und Qualifizierungsmaßnahmen.</p>
-            <p style="margin:0 0 10px" data-i18n="about-3">Zur effizienten Aufbereitung umfangreicher Fachinformationen nutzt Thornpedia moderne Verfahren der Künstlichen Intelligenz. Diese werden eingesetzt, um Inhalte zu analysieren, zusammenzufassen und übersichtlich darzustellen. Dadurch können relevante Informationen schneller erfasst werden, ohne den fachlichen Kontext aus dem Blick zu verlieren.</p>
-            <p style="margin:0" data-i18n="about-4">Ziel ist es, komplexe Fachinhalte verständlich und praxisnah aufzubereiten, den selbstständigen Wissenserwerb zu fördern und einen einheitlichen Ausbildungsstandard im Einklang mit den Anforderungen der EASA zu unterstützen.</p>
-            <p style="margin:12px 0 0;font-size:12px;color:var(--text-muted)"><span data-i18n="about-oss">Nutzt quelloffene Bibliotheken (PDF.js, Tesseract.js, SheetJS, Mammoth, docx, jsPDF, JSZip).</span> <a href="THIRD-PARTY-NOTICES.md" target="_blank" rel="noopener" data-i18n="about-oss-link">Lizenzhinweise</a></p>
-          </div>
+          <p style="margin:0 0 2px;font-weight:600">Wissensarchiv</p>
+          <p style="color:var(--text-muted);margin:0;font-size:12px" id="about-version"></p>
         </div>
       </div>
     </section>
@@ -711,7 +704,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.5.1';
+  const APP_VERSION = '1.5.2';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -824,7 +817,6 @@
     'tags-none':['Noch keine Tags vergeben.','No tags yet.'],'tag-rename':['Umbenennen','Rename'],'tag-del':['Löschen','Delete'],
     'sh-recent':['Zuletzt gesucht:','Recent searches:'],'sh-clear':['Verlauf leeren','Clear history'],
     'f-from':['Von (Importdatum)','From (import date)'],'f-to':['Bis (Importdatum)','To (import date)'],
-    'about-oss':['Nutzt quelloffene Bibliotheken (PDF.js, Tesseract.js, SheetJS, Mammoth, docx, jsPDF, JSZip).','Uses open-source libraries (PDF.js, Tesseract.js, SheetJS, Mammoth, docx, jsPDF, JSZip).'],'about-oss-link':['Lizenzhinweise','License notices'],
     'nav-forum':['Forum','Forum'],'forum-p':['Eigene Themen und Untergruppen mit Einträgen, Kommentaren und Anhängen (Bild/Video) – alles wird durchsucht.','Your own topics and subgroups with entries, comments and attachments (image/video) – all searchable.'],
     'fo-themes':['Themen','Topics'],'fo-newtheme':['+ Thema','+ Topic'],'fo-newsub':['+ Untergruppe','+ Subgroup'],'fo-allentries':['Alle Einträge','All entries'],
     'fo-sub':['Untergruppe','Subgroup'],
@@ -835,14 +827,10 @@
     'fo-comment-ph':['Kommentar hinzufügen …','Add a comment …'],'fo-addcomment':['Kommentar','Comment'],'fo-cmt-img':['Bild/Video','Image/video'],'fo-back':['← Zurück','← Back'],'fo-rename':['Umbenennen','Rename'],
     'fo-theme-name':['Name des Themas','Topic name'],'fo-sub-name':['Name der Untergruppe','Subgroup name'],'fo-del-theme':['Thema mit allen Einträgen löschen?','Delete topic with all its entries?'],
     'fo-del-sub':['Untergruppe löschen? Einträge rücken ins Thema.','Delete subgroup? Its entries move up to the topic.'],'fo-del-entry':['Diesen Eintrag löschen?','Delete this entry?'],'fo-untitled':['(ohne Titel)','(untitled)'],
-    'about-1':['Thornpedia ist eine digitale Wissensplattform für die zivile Luftfahrt, die zur Unterstützung von Aus- und Weiterbildungsmaßnahmen im EASA-regulierten Flugbetrieb entwickelt wurde. Sie dient als zentrale Informationsquelle für flugbetriebliche, technische und regulatorische Themen und unterstützt einen strukturierten, standardisierten sowie nachhaltigen Wissenstransfer.','Thornpedia is a digital knowledge platform for civil aviation, developed to support training and continuing-education measures in EASA-regulated flight operations. It serves as a central source of information on operational, technical and regulatory topics and supports a structured, standardised and sustainable transfer of knowledge.'],
-    'about-2':['Die Plattform stellt fundierte Informationen zu Luftfahrzeugen, Flugzeugsystemen, Betriebsverfahren, Performance, Navigation, Meteorologie, Human Factors sowie den geltenden EASA-Regularien bereit. Thornpedia unterstützt Pilotinnen und Piloten, Fluglehrende, Prüfer sowie Trainingsverantwortliche bei der Vorbereitung, Durchführung und Nachbereitung von Ausbildungs- und Qualifizierungsmaßnahmen.','The platform provides well-founded information on aircraft, aircraft systems, operating procedures, performance, navigation, meteorology, human factors and the applicable EASA regulations. Thornpedia supports pilots, flight instructors, examiners and training managers in preparing, conducting and following up training and qualification measures.'],
-    'about-3':['Zur effizienten Aufbereitung umfangreicher Fachinformationen nutzt Thornpedia moderne Verfahren der Künstlichen Intelligenz. Diese werden eingesetzt, um Inhalte zu analysieren, zusammenzufassen und übersichtlich darzustellen. Dadurch können relevante Informationen schneller erfasst werden, ohne den fachlichen Kontext aus dem Blick zu verlieren.','To efficiently process extensive specialist information, Thornpedia uses modern artificial-intelligence techniques. These are used to analyse, summarise and clearly present content, so that relevant information can be grasped faster without losing the technical context.'],
-    'about-4':['Ziel ist es, komplexe Fachinhalte verständlich und praxisnah aufzubereiten, den selbstständigen Wissenserwerb zu fördern und einen einheitlichen Ausbildungsstandard im Einklang mit den Anforderungen der EASA zu unterstützen.','The goal is to present complex specialist content in an understandable and practical way, to promote independent learning and to support a consistent training standard in line with EASA requirements.'],
     'set-info-fsa':['Solange dieser Ordner verbunden ist, werden Dokumente, API-Key und Einstellungen dort dauerhaft gespeichert – auch nach dem Schließen. „Ordner wechseln" verbindet einen anderen Ordner, „Trennen" löst nur die Verbindung (die Dateien im Ordner bleiben erhalten).','As long as this folder is connected, documents, API key and settings are stored there permanently – even after closing. "Change folder" connects a different folder, "Disconnect" only releases the link (the files in the folder stay).'],
     'set-info-opfs':['Auf diesem Gerät/Browser gibt es keinen Ordner-Zugriff. Die Daten liegen dauerhaft im App-Speicher des Browsers und bleiben nach dem Schließen erhalten. Für einen echten Ordner (z. B. auf einem USB-Stick) öffne die App in Chrome oder Edge am Computer.','This device/browser has no folder access. Data is stored permanently in the browser’s app storage and stays after closing. For a real folder (e.g. on a USB stick) open the app in Chrome or Edge on a computer.'],
     'set-offline':['Offline-Betrieb wird eingerichtet …','Setting up offline mode …'],'set-offline-on':['Offline-Betrieb aktiv (App als PWA installierbar).','Offline mode active (installable as a PWA).'],'set-offline-off':['Offline-Betrieb nicht verfügbar (nur über https/localhost).','Offline mode unavailable (needs https/localhost).'],
-    'set-about':['Über','About'],'set-about-p':['Wissensarchiv v{v} · Keine Konten, kein Server – deine Daten bleiben bei dir.','Knowledge Archive v{v} · No accounts, no server – your data stays with you.'],
+    'set-about':['Über','About'],
     'rc-h':['Ordner erneut verbinden','Reconnect folder'],'rc-p':['Der Browser hat die Berechtigung für deinen Datenordner zurückgesetzt. Deine Dateien sind unverändert auf der Festplatte – bitte den Ordner einmal neu bestätigen.','The browser reset permission for your data folder. Your files are untouched on disk – please confirm the folder once more.'],'rc-other':['Anderen Ordner wählen','Choose another folder'],'rc-btn':['Verbinden','Connect'],
     'dup-h':['Duplikat gefunden','Duplicate found'],'dup-all':['Für alle weiteren Duplikate übernehmen','Apply to all further duplicates'],'dup-skip':['Überspringen','Skip'],'dup-replace':['Ersetzen','Replace'],
     'cancel':['Abbrechen','Cancel'],'ok':['OK','OK'],'close':['Schließen','Close'],
