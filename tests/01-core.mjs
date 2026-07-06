@@ -59,19 +59,25 @@ export async function run(base) {
   });
   t.check('UND-Suche trifft nur Dokument mit beiden Begriffen', s4.length === 1 && s4[0] === 'mietvertrag.pdf', JSON.stringify(s4));
 
-  // Forum: Eintrag anlegen → fließt in die Suche ein (Typ 'forum')
+  // Forum: Eintrag mit Status/Tags/Markdown → fließt in die Suche ein, rendert sauber
   const fo = await page.evaluate(async () => {
     const id = 'forumtest-1';
-    await window.WA.foSaveEntry({ id, name: 'Checkliste Vorflugkontrolle', body: 'Wichtiges Stichwort: Zwlfkontrolle vor jedem Flug.', type: 'forum', ext: 'forum', importedAt: new Date().toISOString(), tags: [], forum: { gid: 'g1', sid: null }, comments: [], attachments: [] });
-    document.querySelector('#search-input').value = 'Zwlfkontrolle';
-    document.querySelector('#search-input').dispatchEvent(new Event('input'));
+    await window.WA.foSaveEntry({ id, name: 'Checkliste Vorflugkontrolle', body: '## Ablauf\n- **Zwlfkontrolle** vor jedem Flug\n- Papiere pruefen', type: 'forum', ext: 'forum', importedAt: new Date().toISOString(), tags: ['checkliste'], status: 'important', forum: { gid: 'g1', sid: null }, comments: [], attachments: [] });
     window.WA.state.search.q = 'Zwlfkontrolle';
+    document.querySelector('#search-input').value = 'Zwlfkontrolle';
     await window.WA.runSearch();
     const h = window.WA.state.lastHits;
-    return { count: h.length, type: h[0] && h[0].type, name: h[0] && h[0].name, inCatalog: window.WA.state.catalog.some(c => c.type === 'forum') };
+    // Detailansicht rendern (Markdown/Status)
+    window.WA.state.forumEntryId = id; window.WA.state.forumView = 'entry';
+    window.WA.switchView('forum');
+    await new Promise(r => setTimeout(r, 350));
+    const html = document.querySelector('#forum-content').innerHTML;
+    return { count: h.length, type: h[0] && h[0].type, name: h[0] && h[0].name, inCatalog: window.WA.state.catalog.some(c => c.type === 'forum'), byTag: (window.WA.state.catalog.find(c => c.id === id) || {}).tags, md: html.includes('<strong>Zwlfkontrolle</strong>') && /<h4/.test(html), status: html.includes('⭐') };
   });
   t.check('Forum-Eintrag ist durchsuchbar', fo.count === 1 && fo.type === 'forum' && fo.name === 'Checkliste Vorflugkontrolle', JSON.stringify(fo));
-  t.check('Forum-Eintrag steht im Katalog (Typ forum)', fo.inCatalog === true);
+  t.check('Forum-Eintrag steht im Katalog (Typ forum, mit Tags)', fo.inCatalog === true && Array.isArray(fo.byTag) && fo.byTag.includes('checkliste'));
+  t.check('Forum-Detail rendert Markdown + Status', fo.md === true && fo.status === true, JSON.stringify({ md: fo.md, status: fo.status }));
+  await page.evaluate(() => { window.WA.state.forumView = 'list'; window.WA.switchView('search'); });
   // Zurück zur Basissuche, damit die folgenden Prüfungen unbeeinflusst bleiben
   await page.evaluate(async () => { document.querySelector('#search-input').value = 'Kuendigungsfrist'; window.WA.state.search.q = 'Kuendigungsfrist'; await window.WA.runSearch(); });
 
