@@ -8,7 +8,7 @@
        OneDrive-Content-Hosts, auf die Graph beim Up-/Download umleitet). Ein
        kompromittiertes vendor-Skript kann Daten damit an keinen fremden Host
        senden. 'wasm-unsafe-eval' wird fuer PDF.js/Tesseract-WASM benoetigt. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: https://api.anthropic.com https://graph.microsoft.com https://login.microsoftonline.com https://*.1drv.com https://*.sharepoint.com https://*.svc.ms; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; manifest-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: https://api.anthropic.com https://graph.microsoft.com https://login.microsoftonline.com https://*.1drv.com https://*.livefilestore.com https://*.microsoftpersonalcontent.com https://storage.live.com https://*.sharepoint.com https://*.svc.ms; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; manifest-src 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wissensarchiv</title>
   <meta name="description" content="Persönliche, offline-fähige Wissensdatenbank – alle Daten liegen als echte Dateien auf deiner Festplatte.">
@@ -708,7 +708,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.5.3';
+  const APP_VERSION = '1.5.4';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
