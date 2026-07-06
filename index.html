@@ -712,7 +712,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.5.6';
+  const APP_VERSION = '1.5.7';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2578,10 +2578,18 @@
     const zip=await window.JSZip.loadAsync(await r.blob());
     // Cloud-Pull darf einen (opt-in) mitsynchronisierten API-Key uebernehmen –
     // der stammt aus deiner eigenen OneDrive, nicht aus einem fremden ZIP.
+    const keyInZip = !!zip.files['meta/apikey.txt'];
     await applyBackupZip(zip, {clearFirst:true, allowKey:true});
     await reloadArchiveViews();
     OD.cfg.etag=(meta&&meta.etag)||OD.cfg.etag; OD.cfg.syncAt=new Date().toISOString(); OD.cfg.dirty=false; OD.cfg.dirtyAt='';
     await odSaveCfg();
+    // Key-Sync aktiv, dieses Gerät HAT einen Key, die Cloud aber noch nicht:
+    // genau einmal hochladen. Sobald der Key in der Cloud ist, tritt das bei
+    // keinem Gerät mehr ein → kein Loop.
+    if(state.settings.odSyncKey===true && state.apiKey && !keyInZip){
+      OD.cfg.dirty=true; await odSaveCfg();
+      clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 1500);
+    }
   }
   // Zentrale, konfliktbewusste Synchronisation. Modell fuer den Einzelnutzer:
   //  · Remote unveraendert  -> nur hochladen, wenn lokal etwas geaendert wurde.
