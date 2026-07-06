@@ -95,6 +95,18 @@ export async function run(base) {
   });
   t.check('Querverweis wird gespeichert', fx.refSaved === true);
   t.check('Themen-Export erzeugt Dateien ohne Fehler', fx.err === null && fx.topicFiles >= 2, JSON.stringify(fx));
+
+  // Forum: Bild-Anhang an einem Kommentar
+  const cc = await page.evaluate(async () => {
+    const e = await window.WA.getIndex('forumtest-1');
+    const img = new File([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], 'kommentarbild.png', { type: 'image/png' });
+    await window.WA.foAddComment(e, 'Kommentar mit Bild', [img]);
+    const saved = await window.WA.getIndex('forumtest-1');
+    const last = saved.comments[saved.comments.length - 1];
+    let fileOk = false; try { await window.WA.state.dirs.forum.getFileHandle(last.attachments[0].storedAs); fileOk = true; } catch (_) {}
+    return { hasAtt: !!(last.attachments && last.attachments.length === 1 && last.attachments[0].kind === 'image'), text: last.text, fileOk };
+  });
+  t.check('Forum: Kommentar mit Bild-Anhang gespeichert', cc.hasAtt && cc.fileOk && cc.text === 'Kommentar mit Bild', JSON.stringify(cc));
   await page.evaluate(() => { window.WA.state.forumView = 'list'; window.WA.switchView('search'); });
   // Zurück zur Basissuche, damit die folgenden Prüfungen unbeeinflusst bleiben
   await page.evaluate(async () => { document.querySelector('#search-input').value = 'Kuendigungsfrist'; window.WA.state.search.q = 'Kuendigungsfrist'; await window.WA.runSearch(); });

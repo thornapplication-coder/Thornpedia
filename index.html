@@ -151,8 +151,12 @@
     .forum-sub{margin-left:16px;font-size:13px}
     .forum-card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--panel);cursor:pointer}
     .forum-card:hover{border-color:var(--secondary)}
-    .forum-att{max-width:100%;border-radius:8px;border:1px solid var(--line);margin:6px 8px 0 0}
-    .forum-att.img{max-height:340px}
+    .forum-att{max-width:100%;border-radius:8px;border:1px solid var(--line);margin:6px 8px 0 0;vertical-align:top}
+    .forum-att.img{width:150px;height:150px;object-fit:cover;cursor:zoom-in}
+    .forum-att.video{max-height:170px;max-width:260px}
+    .fo-cmt-att{border-radius:6px;border:1px solid var(--line);margin:4px 6px 0 0;vertical-align:top}
+    .fo-cmt-att.img{width:92px;height:92px;object-fit:cover;cursor:zoom-in}
+    .fo-cmt-att.video{max-height:100px;max-width:150px}
     .btn.xs{padding:2px 7px;font-size:11px;line-height:1.5}
     .fname{font-weight:bold}
     .fmeta{color:var(--text-muted);font-size:12px}
@@ -474,49 +478,6 @@
           <div class="dropzone" id="backup-drop" style="margin-top:12px;padding:22px"><div style="font-size:24px">⬆️</div><div data-i18n="backup-drop">Backup-ZIP hierher ziehen oder klicken</div></div>
         </div>
       </div>
-
-      <!-- ===== OneDrive-Synchronisation (automatisch) ===== -->
-      <div class="panel panel-pad" style="max-width:900px;margin-top:18px">
-        <div class="row" style="justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
-          <div class="row" style="gap:10px;align-items:center">
-            <div style="font-size:26px">☁️</div>
-            <div>
-              <h3 style="margin:0" data-i18n="cloud-h">OneDrive-Synchronisation</h3>
-              <p style="color:var(--text-muted);margin:2px 0 0;font-size:13px" data-i18n="cloud-p">Spiegelt das gesamte Archiv automatisch über OneDrive auf all deine Geräte – ganz ohne Ordnerzugriff (auch in Firefox & Safari).</p>
-            </div>
-          </div>
-          <span class="chip" id="cloud-status">—</span>
-        </div>
-
-        <div id="cloud-setup" style="margin-top:14px">
-          <div class="notice" style="margin-bottom:12px;font-size:13px"><span>ℹ️</span><span data-i18n="cloud-setup-note">Einmalige Einrichtung: Registriere in <b>Azure &rsaquo; App-Registrierungen</b> eine kostenlose App (Typ „Single-Page-Application"), trage unten die <b>Weiterleitungs-URI</b> ein und kopiere die <b>Anwendungs-(Client-)ID</b> hierher. Danach läuft alles automatisch.</span></div>
-          <div class="field" style="margin-bottom:8px">
-            <label data-i18n="cloud-redirect-l">Weiterleitungs-URI (in Azure als „SPA" eintragen)</label>
-            <div class="row" style="gap:8px">
-              <code id="cloud-redirect" style="flex:1;min-width:0;word-break:break-all;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">—</code>
-              <button class="btn sm neutral" id="cloud-copy-redirect" data-i18n="cloud-copy">Kopieren</button>
-            </div>
-          </div>
-          <div class="field" style="margin-bottom:10px">
-            <label data-i18n="cloud-clientid-l">Anwendungs-(Client-)ID</label>
-            <input type="text" id="cloud-clientid" placeholder="00000000-0000-0000-0000-000000000000" spellcheck="false" autocomplete="off">
-          </div>
-          <div class="row" style="gap:8px;flex-wrap:wrap">
-            <button class="btn sm" id="cloud-connect" data-i18n="cloud-connect">Mit OneDrive verbinden</button>
-          </div>
-        </div>
-
-        <div id="cloud-connected" style="margin-top:14px;display:none">
-          <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
-            <label class="row" style="gap:8px;cursor:pointer"><span class="switch" id="cloud-auto-sw"></span> <span data-i18n="cloud-auto">Automatisch synchronisieren</span></label>
-            <div class="row" style="gap:8px">
-              <button class="btn sm neutral" id="cloud-sync-now">🔄 <span data-i18n="cloud-sync-now">Jetzt synchronisieren</span></button>
-              <button class="btn sm danger" id="cloud-disconnect" data-i18n="cloud-disconnect">Trennen</button>
-            </div>
-          </div>
-          <div class="fmeta" id="cloud-last" style="margin-top:10px"></div>
-        </div>
-      </div>
     </section>
 
     <!-- ===== Exporte (Live-Exporte) ===== -->
@@ -592,6 +553,45 @@
               </div>
             </div>
             <p style="color:var(--text-muted);font-size:12px;margin:8px 0 0" id="aib-hint"></p>
+          </div>
+        </div>
+        <div class="panel panel-pad">
+          <div class="row" style="justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px">
+            <div class="row" style="gap:10px;align-items:center">
+              <div style="font-size:24px">☁️</div>
+              <div>
+                <h4 style="margin:0" data-i18n="cloud-h">OneDrive-Synchronisation</h4>
+                <p style="color:var(--text-muted);margin:2px 0 0;font-size:13px" data-i18n="cloud-p">Spiegelt das gesamte Archiv automatisch über OneDrive auf all deine Geräte – ganz ohne Ordnerzugriff (auch in Firefox & Safari).</p>
+              </div>
+            </div>
+            <span class="chip" id="cloud-status">—</span>
+          </div>
+          <div id="cloud-setup" style="margin-top:14px">
+            <div class="notice" style="margin-bottom:12px;font-size:13px"><span>ℹ️</span><span data-i18n="cloud-setup-note">Einmalige Einrichtung: Registriere in <b>Azure &rsaquo; App-Registrierungen</b> eine kostenlose App (Typ „Single-Page-Application"), trage unten die <b>Weiterleitungs-URI</b> ein und kopiere die <b>Anwendungs-(Client-)ID</b> hierher. Danach läuft alles automatisch.</span></div>
+            <div class="field" style="margin-bottom:8px">
+              <label data-i18n="cloud-redirect-l">Weiterleitungs-URI (in Azure als „SPA" eintragen)</label>
+              <div class="row" style="gap:8px">
+                <code id="cloud-redirect" style="flex:1;min-width:0;word-break:break-all;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg)">—</code>
+                <button class="btn sm neutral" id="cloud-copy-redirect" data-i18n="cloud-copy">Kopieren</button>
+              </div>
+            </div>
+            <div class="field" style="margin-bottom:10px">
+              <label data-i18n="cloud-clientid-l">Anwendungs-(Client-)ID</label>
+              <input type="text" id="cloud-clientid" placeholder="00000000-0000-0000-0000-000000000000" spellcheck="false" autocomplete="off">
+            </div>
+            <div class="row" style="gap:8px;flex-wrap:wrap">
+              <button class="btn sm" id="cloud-connect" data-i18n="cloud-connect">Mit OneDrive verbinden</button>
+            </div>
+          </div>
+          <div id="cloud-connected" style="margin-top:14px;display:none">
+            <div class="row" style="justify-content:space-between;flex-wrap:wrap;gap:10px">
+              <label class="row" style="gap:8px;cursor:pointer"><span class="switch" id="cloud-auto-sw"></span> <span data-i18n="cloud-auto">Automatisch synchronisieren</span></label>
+              <div class="row" style="gap:8px">
+                <button class="btn sm neutral" id="cloud-sync-now">🔄 <span data-i18n="cloud-sync-now">Jetzt synchronisieren</span></button>
+                <button class="btn sm danger" id="cloud-disconnect" data-i18n="cloud-disconnect">Trennen</button>
+              </div>
+            </div>
+            <div class="fmeta" id="cloud-last" style="margin-top:10px"></div>
           </div>
         </div>
         <div class="panel panel-pad">
@@ -708,7 +708,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.4.0';
+  const APP_VERSION = '1.5.0';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -829,7 +829,7 @@
     'fo-newentry':['+ Neuer Eintrag','+ New entry'],'fo-noentries':['Noch keine Einträge hier. Lege einen an.','No entries here yet. Create one.'],'fo-nothemes':['Noch keine Themen. Lege links ein Thema an.','No topics yet. Create a topic on the left.'],
     'fo-title-ph':['Titel des Eintrags','Entry title'],'fo-body-ph':['Text / Beschreibung …','Text / description …'],'fo-save':['Speichern','Save'],'fo-cancel':['Abbrechen','Cancel'],
     'fo-edit':['Bearbeiten','Edit'],'fo-delete':['Löschen','Delete'],'fo-attach':['Anhang (Bild/Video)','Attachment (image/video)'],'fo-comments':['Kommentare','Comments'],
-    'fo-comment-ph':['Kommentar hinzufügen …','Add a comment …'],'fo-addcomment':['Kommentar','Comment'],'fo-back':['← Zurück','← Back'],'fo-rename':['Umbenennen','Rename'],
+    'fo-comment-ph':['Kommentar hinzufügen …','Add a comment …'],'fo-addcomment':['Kommentar','Comment'],'fo-cmt-img':['Bild/Video','Image/video'],'fo-back':['← Zurück','← Back'],'fo-rename':['Umbenennen','Rename'],
     'fo-theme-name':['Name des Themas','Topic name'],'fo-sub-name':['Name der Untergruppe','Subgroup name'],'fo-del-theme':['Thema mit allen Einträgen löschen?','Delete topic with all its entries?'],
     'fo-del-sub':['Untergruppe löschen? Einträge rücken ins Thema.','Delete subgroup? Its entries move up to the topic.'],'fo-del-entry':['Diesen Eintrag löschen?','Delete this entry?'],'fo-untitled':['(ohne Titel)','(untitled)'],
     'about-1':['Thornpedia ist eine digitale Wissensplattform für die zivile Luftfahrt, die zur Unterstützung von Aus- und Weiterbildungsmaßnahmen im EASA-regulierten Flugbetrieb entwickelt wurde. Sie dient als zentrale Informationsquelle für flugbetriebliche, technische und regulatorische Themen und unterstützt einen strukturierten, standardisierten sowie nachhaltigen Wissenstransfer.','Thornpedia is a digital knowledge platform for civil aviation, developed to support training and continuing-education measures in EASA-regulated flight operations. It serves as a central source of information on operational, technical and regulatory topics and supports a structured, standardised and sustainable transfer of knowledge.'],
@@ -1204,7 +1204,7 @@
   async function persistDoc(doc){ await writeIndex(doc); return updateCatalogEntry(doc); }
   // Guard: existiert das Dokument noch (nicht zwischenzeitlich gelöscht)? Sonst Toast + false.
   function guardExists(doc){ if(state.catalog.some(c=>c.id===doc.id))return true; toast(state.settings.lang==='de'?'Dokument wurde inzwischen gelöscht.':'Document was deleted in the meantime.','err'); return false; }
-  async function deleteDoc(id, silent){ const doc=await getIndex(id).catch(()=>null); if(doc){ if(doc.type==='forum'){ for(const a of (doc.attachments||[])) await removeFile(state.dirs.forum, a.storedAs); } else { await removeFile(state.dirs.originals, doc.storedAs); } } await removeFile(state.dirs.index, id+'.json'); state.indexCache.delete(id); state.catalog=state.catalog.filter(c=>c.id!==id); state.lib.selected.delete(id);
+  async function deleteDoc(id, silent){ const doc=await getIndex(id).catch(()=>null); if(doc){ if(doc.type==='forum'){ for(const a of (doc.attachments||[])) await removeFile(state.dirs.forum, a.storedAs); for(const c of (doc.comments||[])) for(const a of (c.attachments||[])) await removeFile(state.dirs.forum, a.storedAs); } else { await removeFile(state.dirs.originals, doc.storedAs); } } await removeFile(state.dirs.index, id+'.json'); state.indexCache.delete(id); state.catalog=state.catalog.filter(c=>c.id!==id); state.lib.selected.delete(id);
     if(state.pdfView.docId===id) closePdfView();
     if(state.curDoc&&state.curDoc.doc&&state.curDoc.doc.id===id){ state.curDoc=null; const nd=$('#nav-doc'); if(nd)nd.style.display='none'; }
     state.lastHits=state.lastHits.filter(h=>h.docId!==id); state.search.selected.clear();
@@ -1422,7 +1422,10 @@
     if(!e||e.type!=='forum'){ state.forumView='list'; return renderForum(); }
     const loc=forumLoc(e);
     const atts=(e.attachments||[]).map((a,i)=>`<div style="display:inline-block;vertical-align:top;position:relative"><span data-foatt="${i}"></span><button class="btn xs danger" data-foattdel="${i}" style="position:absolute;top:10px;right:14px" aria-label="${tr('fo-delete')}">✕</button></div>`).join('');
-    const comments=(e.comments||[]).map((c,i)=>`<div class="notice info" style="margin-top:8px;align-items:flex-start"><span>💬</span><span style="flex:1;min-width:0"><div style="white-space:pre-wrap">${esc(c.text)}</div><div class="fmeta" style="margin-top:2px">${fmtDateTime(c.at)}</div></span><button class="btn xs danger" data-focmtdel="${i}" aria-label="${tr('fo-delete')}">✕</button></div>`).join('');
+    const comments=(e.comments||[]).map((c,i)=>{
+      const catts=(c.attachments||[]).map((a,ai)=>`<span style="display:inline-block;position:relative;vertical-align:top"><span data-focmtatt="${i}|${ai}"></span><button class="btn xs danger" data-focmtattdel="${i}|${ai}" style="position:absolute;top:2px;right:8px" aria-label="${tr('fo-delete')}">✕</button></span>`).join('');
+      return `<div class="notice info" style="margin-top:8px;align-items:flex-start"><span>💬</span><span style="flex:1;min-width:0"><div style="white-space:pre-wrap">${esc(c.text)}</div>${catts?`<div style="margin-top:4px">${catts}</div>`:''}<div class="row" style="gap:8px;margin-top:4px;align-items:center"><span class="fmeta">${fmtDateTime(c.at)}</span><button class="btn xs neutral" data-focmtattadd="${i}">📎 ${tr('fo-cmt-img')}</button></div></span><button class="btn xs danger" data-focmtdel="${i}" aria-label="${tr('fo-delete')}">✕</button></div>`;
+    }).join('');
     // Querverweise (auf Dokumente oder andere Forum-Einträge)
     const refExists=(r)=> r.kind==='forum' ? forumEntries().some(c=>c.id===r.id) : state.catalog.some(c=>c.id===r.id&&c.type!=='forum');
     const refsHtml=(e.refs||[]).map((r,i)=>`<div class="row" style="gap:6px;margin-top:4px;justify-content:space-between"><a href="#" data-foref="${esc(r.kind)}|${esc(r.id)}" style="min-width:0;word-break:break-word${refExists(r)?'':';text-decoration:line-through;color:var(--text-muted)'}">${r.kind==='forum'?'💬':'📄'} ${esc(r.name||'?')}</a><button class="btn xs danger" data-forefdel="${i}" aria-label="${tr('fo-delete')}">✕</button></div>`).join('');
@@ -1443,7 +1446,9 @@
       <div class="row" style="gap:8px;margin-top:8px"><select id="fo-ref-sel" style="padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--text);font-family:inherit;font-size:14px;flex:1;min-width:0">${refOpts}</select><button class="btn sm neutral" id="fo-ref-add">+ ${tr('fo-addref')}</button></div>
       <h4 style="margin:20px 0 8px;border-top:1px solid var(--line);padding-top:14px">${tr('fo-comments')} (${(e.comments||[]).length})</h4>
       <div>${comments||`<p style="color:var(--text-muted);font-size:13px">—</p>`}</div>
-      <div class="row" style="margin-top:10px"><input id="fo-comment-input" placeholder="${tr('fo-comment-ph')}" style="flex:1"><button class="btn sm" id="fo-addcomment">${tr('fo-addcomment')}</button></div>
+      <div class="row" style="margin-top:10px;gap:6px"><input id="fo-comment-input" placeholder="${tr('fo-comment-ph')}" style="flex:1"><button class="btn sm neutral" id="fo-comment-attach" title="${tr('fo-cmt-img')}">📎</button><button class="btn sm" id="fo-addcomment">${tr('fo-addcomment')}</button></div>
+      <div class="fmeta" id="fo-comment-staged" style="margin-top:4px;display:none"></div>
+      <input type="file" id="fo-comment-file" accept="image/*,video/*" multiple style="display:none">
     </div>`;
     // Anhänge als Blob-URLs anzeigen (Bild/Video inline)
     // Anhänge per DOM-API einsetzen (nicht per innerHTML mit "src="+URL): so taucht
@@ -1452,18 +1457,36 @@
     (e.attachments||[]).forEach(async(a,i)=>{ try{ const f=await (await state.dirs.forum.getFileHandle(a.storedAs)).getFile(); const url=URL.createObjectURL(f);
       if(seq!==state._foSeq){ try{URL.revokeObjectURL(url);}catch(_){} return; } // inzwischen anderer Eintrag/Ansicht → verwerfen
       state._forumUrls.push(url); const h=$(`[data-foatt="${i}"]`,el); if(!h)return; let node;
-      if(a.kind==='image'){ node=document.createElement('img'); node.className='forum-att img'; node.alt=a.name||''; node.src=url; }
-      else if(a.kind==='video'){ node=document.createElement('video'); node.className='forum-att'; node.controls=true; node.style.maxHeight='340px'; node.src=url; }
+      if(a.kind==='image'){ node=document.createElement('img'); node.className='forum-att img'; node.alt=a.name||''; node.title=a.name||''; node.src=url; node.onclick=()=>openMediaLightbox(url,'image'); }
+      else if(a.kind==='video'){ node=document.createElement('video'); node.className='forum-att video'; node.controls=true; node.src=url; }
       else { node=document.createElement('a'); node.className='btn sm neutral'; node.download=a.name||'attachment'; node.textContent='⬇ '+(a.name||''); node.href=url; }
       h.innerHTML=''; h.appendChild(node); }catch(_){}} );
+    // Kommentar-Anhänge als kleine Vorschau (per DOM-API, s. o.)
+    (e.comments||[]).forEach((c,ci)=>{ (c.attachments||[]).forEach(async(a,ai)=>{ try{ const f=await (await state.dirs.forum.getFileHandle(a.storedAs)).getFile(); const url=URL.createObjectURL(f);
+      if(seq!==state._foSeq){ try{URL.revokeObjectURL(url);}catch(_){} return; }
+      state._forumUrls.push(url); const h=$(`[data-focmtatt="${ci}|${ai}"]`,el); if(!h)return; let node;
+      if(a.kind==='image'){ node=document.createElement('img'); node.className='fo-cmt-att img'; node.alt=a.name||''; node.title=a.name||''; node.src=url; node.onclick=()=>openMediaLightbox(url,'image'); }
+      else if(a.kind==='video'){ node=document.createElement('video'); node.className='fo-cmt-att video'; node.controls=true; node.src=url; }
+      else { node=document.createElement('a'); node.className='btn xs neutral'; node.download=a.name||'attachment'; node.textContent='⬇ '+(a.name||''); node.href=url; }
+      h.appendChild(node); }catch(_){}} ); });
     $('#fo-back',el).onclick=()=>{ state.forumView='list'; renderForum(); };
     $('#fo-edit',el).onclick=()=>{ state.forumEditId=e.id; state.forumView='edit'; renderForum(); };
     $('#fo-delentry',el).onclick=async()=>{ if(!confirm(tr('fo-del-entry')))return; await deleteDoc(e.id); state.forumView='list'; state.forumEntryId=null; renderForum(); };
     const ai=$('#fo-attach-input',el); $('#fo-attach',el).onclick=()=>ai.click(); ai.onchange=()=>{ if(ai.files[0])foAddAttachment(e, ai.files[0]); };
     $$('[data-foattdel]',el).forEach(b=>b.onclick=()=>foDelAttachment(e, +b.dataset.foattdel));
     $$('[data-focmtdel]',el).forEach(b=>b.onclick=()=>foDelComment(e, +b.dataset.focmtdel));
-    const ci=$('#fo-comment-input',el); const addC=()=>{ const v=ci.value; ci.value=''; foAddComment(e, v); };
+    // Bilder/Videos an einen bestehenden Kommentar anhängen bzw. entfernen
+    $$('[data-focmtattadd]',el).forEach(b=>b.onclick=()=>{ const cix=+b.dataset.focmtattadd; const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*,video/*'; inp.onchange=()=>{ if(inp.files[0])foAddCommentAttachment(e, cix, inp.files[0]); }; inp.click(); });
+    $$('[data-focmtattdel]',el).forEach(b=>b.onclick=()=>{ const [cix,aix]=b.dataset.focmtattdel.split('|').map(Number); foDelCommentAttachment(e, cix, aix); });
+    // Kommentar verfassen – mit optionalen Bild-/Video-Anhängen (staged bis zum Absenden)
+    if(state._foCmtStagedFor!==e.id){ state._foCmtStaged=[]; state._foCmtStagedFor=e.id; }
+    const ci=$('#fo-comment-input',el); const cf=$('#fo-comment-file',el); const cstage=$('#fo-comment-staged',el);
+    const updStage=()=>{ const n=state._foCmtStaged.length; if(n){ cstage.style.display=''; cstage.textContent='📎 '+state._foCmtStaged.map(f=>f.name).join(', '); } else { cstage.style.display='none'; cstage.textContent=''; } };
+    $('#fo-comment-attach',el).onclick=()=>cf.click();
+    cf.onchange=()=>{ for(const f of cf.files)state._foCmtStaged.push(f); cf.value=''; updStage(); };
+    const addC=()=>{ const v=ci.value; const files=state._foCmtStaged.slice(); ci.value=''; state._foCmtStaged=[]; updStage(); foAddComment(e, v, files); };
     $('#fo-addcomment',el).onclick=addC; ci.onkeydown=(ev)=>{ if(ev.key==='Enter')addC(); };
+    updStage();
     // Querverweise: öffnen / entfernen / hinzufügen
     $$('[data-foref]',el).forEach(a=>a.onclick=(ev)=>{ ev.preventDefault(); const [kind,id]=a.dataset.foref.split('|');
       if(kind==='forum'){ if(!forumEntries().some(c=>c.id===id)){ toast(de?'Eintrag nicht mehr vorhanden.':'Entry no longer exists.','err'); return; } state.forumEntryId=id; state.forumView='entry'; renderForum(); }
@@ -1511,14 +1534,34 @@
   function foAddSub(gid){ const g=forumGroup(gid); if(!g)return; promptDlg({title:tr('fo-newsub'),label:tr('fo-sub-name'),icon:'↳'},'',async(v)=>{ v=(v||'').trim(); if(!v)return; g.subs=g.subs||[]; g.subs.push({id:foUuid(),name:v}); await saveForum(); renderForum(); }); }
   function foRenameSub(gid,sid){ const s=forumSub(forumGroup(gid),sid); if(!s)return; promptDlg({title:tr('fo-rename'),label:tr('fo-sub-name'),icon:'✎'},s.name,async(v)=>{ v=(v||'').trim(); if(!v)return; s.name=v; await saveForum(); renderForum(); }); }
   async function foDeleteSub(gid,sid){ if(!confirm(tr('fo-del-sub')))return; const g=forumGroup(gid); if(!g)return; g.subs=(g.subs||[]).filter(s=>s.id!==sid); for(const c of forumEntries().filter(e=>e.forum&&e.forum.gid===gid&&e.forum.sid===sid)){ const full=await getIndex(c.id).catch(()=>null); if(full){ full.forum=full.forum||{}; full.forum.sid=null; await foSaveEntry(full); } } if(state.forumSel&&state.forumSel.gid===gid&&state.forumSel.sid===sid)state.forumSel={gid,sid:null}; await saveForum(); renderForum(); }
-  async function foAddComment(e, text){ text=(text||'').trim(); if(!text)return; e.comments=e.comments||[]; e.comments.push({id:foUuid(), text, at:new Date().toISOString()}); await foSaveEntry(e); renderForum(); }
-  async function foDelComment(e, i){ (e.comments||[]).splice(i,1); await foSaveEntry(e); renderForum(); }
-  async function foAddAttachment(e, file){ if(!file)return; const de=state.settings.lang==='de'; if(file.size>300*1024*1024){ toast(de?'Anhang zu groß (max. 300 MB).':'Attachment too large (max. 300 MB).','err'); return; }
+  // Eine Datei (Bild/Video) im Forum-Ordner ablegen und die Metadaten liefern.
+  // Gemeinsame Basis fuer Eintrags- und Kommentar-Anhaenge.
+  async function foStoreMedia(file){ if(!file)return null; const de=state.settings.lang==='de';
+    if(file.size>300*1024*1024){ toast(de?'Anhang zu groß (max. 300 MB).':'Attachment too large (max. 300 MB).','err'); return null; }
     const storedAs=foUuid()+'__'+String(file.name).replace(/[\\/]/g,'_');
-    try{ await writeFile(state.dirs.forum, storedAs, await file.arrayBuffer()); }catch(err){ toast(de?'Anhang konnte nicht gespeichert werden.':'Could not save attachment.','err'); return; }
-    e.attachments=e.attachments||[]; e.attachments.push({name:file.name, storedAs, kind:foMediaKind(file.name,file.type), size:file.size});
-    await foSaveEntry(e); renderForum(); }
+    try{ await writeFile(state.dirs.forum, storedAs, await file.arrayBuffer()); }catch(err){ toast(de?'Anhang konnte nicht gespeichert werden.':'Could not save attachment.','err'); return null; }
+    return {name:file.name, storedAs, kind:foMediaKind(file.name,file.type), size:file.size};
+  }
+  async function foAddComment(e, text, files){ text=(text||'').trim(); files=files||[]; if(!text&&!files.length)return;
+    const atts=[]; for(const f of files){ const a=await foStoreMedia(f); if(a)atts.push(a); }
+    e.comments=e.comments||[]; e.comments.push({id:foUuid(), text, at:new Date().toISOString(), attachments:atts}); await foSaveEntry(e); renderForum(); }
+  async function foDelComment(e, i){ const c=(e.comments||[])[i]; if(c){ for(const a of (c.attachments||[])) await removeFile(state.dirs.forum, a.storedAs); } (e.comments||[]).splice(i,1); await foSaveEntry(e); renderForum(); }
+  async function foAddCommentAttachment(e, ci, file){ const c=(e.comments||[])[ci]; if(!c)return; const a=await foStoreMedia(file); if(!a)return; c.attachments=c.attachments||[]; c.attachments.push(a); await foSaveEntry(e); renderForum(); }
+  async function foDelCommentAttachment(e, ci, ai){ const c=(e.comments||[])[ci]; if(!c)return; const a=(c.attachments||[])[ai]; if(a) await removeFile(state.dirs.forum, a.storedAs); (c.attachments||[]).splice(ai,1); await foSaveEntry(e); renderForum(); }
+  async function foAddAttachment(e, file){ const a=await foStoreMedia(file); if(!a)return; e.attachments=e.attachments||[]; e.attachments.push(a); await foSaveEntry(e); renderForum(); }
   async function foDelAttachment(e, i){ const a=(e.attachments||[])[i]; if(a) await removeFile(state.dirs.forum, a.storedAs); (e.attachments||[]).splice(i,1); await foSaveEntry(e); renderForum(); }
+  // Medienvorschau in voller Größe (Klick auf ein Thumbnail).
+  function openMediaLightbox(url, kind){
+    const ov=document.createElement('div');
+    ov.style.cssText='position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.72);cursor:zoom-out';
+    const m=kind==='video'?document.createElement('video'):document.createElement('img');
+    if(kind==='video'){ m.controls=true; m.autoplay=true; } m.src=url;
+    m.style.cssText='max-width:94vw;max-height:90vh;border-radius:10px;box-shadow:0 12px 44px rgba(0,0,0,.55)';
+    const close=()=>{ ov.remove(); document.removeEventListener('keydown',esc); };
+    const esc=(ev)=>{ if(ev.key==='Escape')close(); };
+    ov.onclick=close; document.addEventListener('keydown',esc);
+    ov.appendChild(m); document.body.appendChild(ov);
+  }
   // Ganzes Thema (inkl. Untergruppen) als aufgeräumtes Dokument exportieren –
   // nutzt dieselbe Export-Pipeline wie Suchberichte (Quelle je Eintrag + Text +
   // Kommentare, plus Quellen-Tabelle am Ende).
@@ -2682,7 +2725,7 @@
   function switchView(view){ $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); const gb=$('#settings-btn'); if(gb){ gb.classList.toggle('active', view==='settings'); gb.setAttribute('aria-pressed', view==='settings'?'true':'false'); } $('.main').scrollTop=0;
     // Beim Verlassen des Forums die Anhang-Blob-URLs freigeben und laufende Loader entwerten.
     if(view!=='forum'&&(state._forumUrls&&state._forumUrls.length)){ state._foSeq=(state._foSeq||0)+1; state._forumUrls.forEach(u=>{try{URL.revokeObjectURL(u);}catch(_){}}); state._forumUrls=[]; }
-    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();renderSearchHistory();} if(view==='summary')renderSumPicklist(); if(view==='forum')renderForum(); if(view==='backup'){renderBackupStats();renderCloudPanel();} if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; syncAiBudget(); renderTagAdmin(); } }
+    if(view==='lib')renderLibrary(); if(view==='search'){renderFilters();renderSearchResults();renderSearchHistory();} if(view==='summary')renderSumPicklist(); if(view==='forum')renderForum(); if(view==='backup')renderBackupStats(); if(view==='exporte')renderExportsPanel(); if(view==='settings'){ const av=$('#about-version'); if(av)av.textContent='Version '+APP_VERSION; syncAiBudget(); renderTagAdmin(); renderCloudPanel(); } }
 
   // ---------- Boot ----------
   function updateStorageLabels(){
@@ -2820,7 +2863,7 @@
 
     if(window.__WA_MOCK_ROOT__||window.__WA_TEST__){
       // Test-Brücke – nur aktiv, wenn explizit injiziert (automatisierte Prüfung).
-      window.WA={ importFiles, runSearch, searchArchive, generateSummary, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, setMode:(m)=>{state.sumMode=m;}, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty,
+      window.WA={ importFiles, runSearch, searchArchive, generateSummary, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, setMode:(m)=>{state.sumMode=m;}, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, foAddComment,
         rebuildCatalog: async()=>{ state.indexCache.clear(); state.catalog=await rebuildCatalog(); renderLibrary(); return state.catalog; } };
     }
 
