@@ -77,6 +77,24 @@ export async function run(base) {
   t.check('Forum-Eintrag ist durchsuchbar', fo.count === 1 && fo.type === 'forum' && fo.name === 'Checkliste Vorflugkontrolle', JSON.stringify(fo));
   t.check('Forum-Eintrag steht im Katalog (Typ forum, mit Tags)', fo.inCatalog === true && Array.isArray(fo.byTag) && fo.byTag.includes('checkliste'));
   t.check('Forum-Detail rendert Markdown + Status', fo.md === true && fo.status === true, JSON.stringify({ md: fo.md, status: fo.status }));
+
+  // Forum: Querverweis auf ein Dokument + Themen-Export
+  const fx = await page.evaluate(async () => {
+    // Thema anlegen, damit exportForumTopic die Gruppe findet
+    window.WA.state.forum = { groups: [{ id: 'g1', name: 'Checklisten', subs: [] }] };
+    await window.WA.saveForum();
+    const e = await window.WA.getIndex('forumtest-1');
+    const docId = window.WA.state.catalog.find(c => c.name === 'mietvertrag.pdf').id;
+    e.refs = [{ kind: 'doc', id: docId, name: 'mietvertrag.pdf' }];
+    await window.WA.foSaveEntry(e);
+    const before = []; for await (const [n] of window.WA.state.dirs.exports.entries()) before.push(n);
+    let err = null; try { await window.WA.exportForumTopic('g1', 'docx'); await window.WA.exportForumTopic('g1', 'pdf'); } catch (x) { err = x.message; }
+    const after = []; for await (const [n] of window.WA.state.dirs.exports.entries()) after.push(n);
+    const saved = await window.WA.getIndex('forumtest-1');
+    return { err, refSaved: (saved.refs || []).some(r => r.name === 'mietvertrag.pdf'), topicFiles: after.filter(f => /^thornpedia_thema_/.test(f)).length };
+  });
+  t.check('Querverweis wird gespeichert', fx.refSaved === true);
+  t.check('Themen-Export erzeugt Dateien ohne Fehler', fx.err === null && fx.topicFiles >= 2, JSON.stringify(fx));
   await page.evaluate(() => { window.WA.state.forumView = 'list'; window.WA.switchView('search'); });
   // Zurück zur Basissuche, damit die folgenden Prüfungen unbeeinflusst bleiben
   await page.evaluate(async () => { document.querySelector('#search-input').value = 'Kuendigungsfrist'; window.WA.state.search.q = 'Kuendigungsfrist'; await window.WA.runSearch(); });
