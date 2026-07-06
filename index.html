@@ -712,7 +712,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.5.7';
+  const APP_VERSION = '1.5.8';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2487,7 +2487,7 @@
     itemPath:'/me/drive/root:/Thornpedia/thornpedia_archive.zip',
     cfg:{ clientId:'', auto:true, etag:'', syncAt:'', dirty:false, dirtyAt:'' },
     tokens:null,      // {access_token, refresh_token, expires_at}
-    syncing:false, _pushTimer:null, status:'off',
+    syncing:false, applying:false, _pushTimer:null, status:'off',
   };
   function odRedirectUri(){ return location.origin + location.pathname; }
   function odConnected(){ return !!(OD.tokens && OD.tokens.refresh_token); }
@@ -2566,8 +2566,7 @@
     const r=await odGraph(OD.itemPath+':/content', {method:'PUT', headers:{'Content-Type':'application/zip'}, body:blob});
     if(!r.ok) throw new Error('Upload '+r.status);
     const j=await r.json();
-    OD.cfg.etag=j.cTag||j.eTag||''; OD.cfg.syncAt=new Date().toISOString(); OD.cfg.dirty=false; OD.cfg.dirtyAt='';
-    await odSaveCfg();
+    OD.cfg.etag=j.cTag||j.eTag||''; await odSaveCfg();   // dirty/Zeit setzt odSync (konfliktbewusst)
   }
   async function odPull(meta){
     await loadScript('vendor/jszip.min.js');
@@ -2579,16 +2578,17 @@
     // Cloud-Pull darf einen (opt-in) mitsynchronisierten API-Key uebernehmen –
     // der stammt aus deiner eigenen OneDrive, nicht aus einem fremden ZIP.
     const keyInZip = !!zip.files['meta/apikey.txt'];
-    await applyBackupZip(zip, {clearFirst:true, allowKey:true});
-    await reloadArchiveViews();
-    OD.cfg.etag=(meta&&meta.etag)||OD.cfg.etag; OD.cfg.syncAt=new Date().toISOString(); OD.cfg.dirty=false; OD.cfg.dirtyAt='';
-    await odSaveCfg();
+    // Waehrend die Cloud-Version lokal eingespielt wird, sind die dabei ausgeloesten
+    // saveCatalog/saveForum-Aufrufe KEINE Nutzer-Aenderungen → nicht als dirty werten.
+    OD.applying=true;
+    try{ await applyBackupZip(zip, {clearFirst:true, allowKey:true}); await reloadArchiveViews(); }
+    finally{ OD.applying=false; }
+    OD.cfg.etag=(meta&&meta.etag)||OD.cfg.etag; await odSaveCfg();   // dirty/Zeit setzt odSync
     // Key-Sync aktiv, dieses Gerät HAT einen Key, die Cloud aber noch nicht:
     // genau einmal hochladen. Sobald der Key in der Cloud ist, tritt das bei
     // keinem Gerät mehr ein → kein Loop.
     if(state.settings.odSyncKey===true && state.apiKey && !keyInZip){
-      OD.cfg.dirty=true; await odSaveCfg();
-      clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 1500);
+      OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); await odSaveCfg();
     }
   }
   // Zentrale, konfliktbewusste Synchronisation. Modell fuer den Einzelnutzer:
@@ -2601,6 +2601,7 @@
     if(!manual && OD.cfg.auto===false) return;
     OD.syncing=true; odSetStatus('syncing');
     const de=state.settings.lang==='de';
+    const startDirtyAt=OD.cfg.dirtyAt;   // Aenderungen, die WAEHREND des Syncs eintreffen, erkennen
     try{
       const meta=await odRemoteMeta();
       let action='none';
@@ -2611,6 +2612,10 @@
         action = OD.cfg.dirty ? 'pull-conflict' : 'pull';
         await odPull(meta);
       }
+      // dirty NUR zuruecksetzen, wenn seit Sync-Beginn keine NEUE Nutzer-Aenderung
+      // kam – sonst wuerde eine waehrend des Uploads getaetigte Aenderung (z. B. eine
+      // Loeschung) verschluckt und nie hochgeladen.
+      if(OD.cfg.dirtyAt===startDirtyAt) OD.cfg.dirty=false;
       // Zeitstempel IMMER aktualisieren – auch wenn nichts zu tun war –, damit
       // „Jetzt synchronisieren" sichtbar reagiert.
       OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
@@ -2625,12 +2630,19 @@
         toast(action==='push' ? (de?'Hochgeladen.':'Uploaded.') : (de?'Bereits aktuell.':'Already up to date.'), 'ok');
       }
     }catch(e){ console.warn('OneDrive-Sync', e); odSetStatus('error', e.message); toast((de?'OneDrive-Sync fehlgeschlagen: ':'OneDrive sync failed: ')+e.message,'err'); }
-    finally{ OD.syncing=false; renderCloudPanel(); }
+    finally{
+      OD.syncing=false; renderCloudPanel();
+      // Kam waehrend des Syncs eine Aenderung rein (dirty noch gesetzt): bald nachziehen.
+      if(OD.cfg.dirty && odConnected() && OD.cfg.auto!==false){ clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 1500); }
+    }
   }
   // Bei jeder inhaltlichen Aenderung (Import, Loeschen, Tags, Notizen, Forum):
   // als "dirty" markieren und einen Upload leicht verzoegert anstossen.
   function odMarkDirty(){
-    if(OD.syncing) return;   // Aenderungen waehrend eines Pulls nicht als "dirty" werten (kein Rueckschreib-Loop)
+    // Nur die Schreibvorgaenge des Pulls selbst ignorieren (kein Rueckschreib-Loop).
+    // ECHTE Nutzer-Aenderungen waehrend eines laufenden Uploads/Abgleichs muessen
+    // sehr wohl als "zu uebertragen" gemerkt werden – sonst gehen sie verloren.
+    if(OD.applying) return;
     if(!odConnected()||OD.cfg.auto===false) return;
     OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); odSaveCfg();
     clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 4000);
