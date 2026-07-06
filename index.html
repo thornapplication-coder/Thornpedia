@@ -594,6 +594,10 @@
                 <button class="btn sm danger" id="cloud-disconnect" data-i18n="cloud-disconnect">Trennen</button>
               </div>
             </div>
+            <div style="border-top:1px solid var(--line);margin-top:12px;padding-top:12px">
+              <label class="row" style="gap:8px;cursor:pointer"><span class="switch" id="cloud-synckey-sw"></span> <span data-i18n="cloud-synckey">API-Key mit OneDrive synchronisieren</span></label>
+              <p style="color:var(--text-muted);font-size:12px;margin:6px 0 0" data-i18n="cloud-synckey-hint">Überträgt den Claude-API-Key automatisch auf alle Geräte – bequem, aber der geheime Schlüssel liegt dann in deinem OneDrive. Standardmäßig aus.</p>
+            </div>
             <div class="fmeta" id="cloud-last" style="margin-top:10px"></div>
           </div>
         </div>
@@ -708,7 +712,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.5.5';
+  const APP_VERSION = '1.5.6';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -807,6 +811,8 @@
     'cloud-clientid-l':['Anwendungs-(Client-)ID','Application (client) ID'],
     'cloud-connect':['Mit OneDrive verbinden','Connect to OneDrive'],
     'cloud-auto':['Automatisch synchronisieren','Sync automatically'],
+    'cloud-synckey':['API-Key mit OneDrive synchronisieren','Sync API key via OneDrive'],
+    'cloud-synckey-hint':['Überträgt den Claude-API-Key automatisch auf alle Geräte – bequem, aber der geheime Schlüssel liegt dann in deinem OneDrive. Standardmäßig aus.','Automatically carries the Claude API key to all your devices – convenient, but the secret key then lives in your OneDrive. Off by default.'],
     'cloud-sync-now':['Jetzt synchronisieren','Sync now'],
     'cloud-disconnect':['Trennen','Disconnect'],
     'import-p':['PDF · DOCX · XLSX · CSV · TXT · MD','PDF · DOCX · XLSX · CSV · TXT · MD'],
@@ -2351,12 +2357,14 @@
         : (de?`Dein letztes Backup ist ${days} Tage alt. Erstelle regelmäßig ein Backup-ZIP.`:`Your last backup is ${days} days old. Create a backup ZIP regularly.`);
     }
   }
-  async function buildBackupBlob(){
+  async function buildBackupBlob(opts={}){
     await loadScript('vendor/jszip.min.js'); const zip=new window.JSZip();
-    // apikey.txt bleibt bewusst draussen: Backups wandern auf andere Rechner /
-    // Cloud-Speicher – der API-Key gehoert dort nicht hinein.
+    // apikey.txt bleibt standardmaessig draussen: herunterladbare/automatische
+    // Backups wandern auf andere Rechner – der API-Key gehoert dort nicht hinein.
+    // Nur die OneDrive-Sync darf ihn (mit ausdruecklichem Opt-in) mitnehmen.
     const add=async(dirHandle, folder, skip)=>{ for await(const [name,h] of dirHandle.entries()){ if(h.kind==='file'){ if(skip&&skip.has(name))continue; const f=await h.getFile(); zip.file(folder+'/'+name, await f.arrayBuffer()); } } };
-    await add(state.dirs.originals,'originals'); await add(state.dirs.index,'index'); await add(state.dirs.meta,'meta', new Set(['apikey.txt']));
+    const metaSkip = opts.includeKey ? new Set() : new Set(['apikey.txt']);
+    await add(state.dirs.originals,'originals'); await add(state.dirs.index,'index'); await add(state.dirs.meta,'meta', metaSkip);
     if(state.dirs.forum) await add(state.dirs.forum,'forum'); // Forum-Anhänge (Bilder/Videos)
     return await zip.generateAsync({type:'blob'});
   }
@@ -2415,6 +2423,9 @@
     // Nur meta-Dateien aus einer festen Whitelist zulassen; apikey.txt und
     // catalog.json werden NIE aus einem fremden ZIP uebernommen.
     const META_ALLOW=new Set(['settings.json','exports.json','forum.json']);
+    // apikey.txt nur beim Cloud-Pull mit ausdruecklichem Opt-in uebernehmen –
+    // niemals aus einem manuell importierten Fremd-ZIP.
+    if(opts.allowKey) META_ALLOW.add('apikey.txt');
     // Forum-Anhänge nur mit Medien-Endung übernehmen (Bilder/Videos), nichts Ausführbares.
     const FORUM_EXT=new Set(['png','jpg','jpeg','gif','webp','bmp','mp4','webm','ogg','ogv','mov','m4v']);
     // Grenzen gegen ZIP-Bomben / Speicher-DoS
@@ -2444,6 +2455,7 @@
     await loadSettings(); await loadExportDefs(); await loadForum();
     updateCount(); applyTheme(state.settings.theme); applyLang(state.settings.lang);
     refreshLibrary(); renderExportsPanel(); updateStorageLabels(); renderForum();
+    const ak=$('#api-key'); if(ak && document.activeElement!==ak) ak.value=state.apiKey||''; // evtl. per Sync uebernommenen Key anzeigen
   }
   async function importBackup(file){
     const de=state.settings.lang==='de';
@@ -2451,7 +2463,7 @@
     try{
       toast(de?'Backup wird eingelesen…':'Reading backup…');
       await loadScript('vendor/jszip.min.js'); const zip=await window.JSZip.loadAsync(await file.arrayBuffer());
-      await applyBackupZip(zip, {clearFirst:false});
+      await applyBackupZip(zip, {clearFirst:false, allowKey:false});   // manueller Import: API-Key NIE aus Fremd-ZIP
       restored=true;
     }catch(e){ console.error(e); toast((state.settings.lang==='de'?'Import-Fehler: ':'Import error: ')+e.message,'err'); }
     finally{
@@ -2548,7 +2560,8 @@
   }
   async function odPush(){
     await loadScript('vendor/jszip.min.js');
-    const blob=await buildBackupBlob();
+    // API-Key nur mitnehmen, wenn der Nutzer es ausdruecklich aktiviert hat.
+    const blob=await buildBackupBlob({includeKey: state.settings.odSyncKey===true && !!state.apiKey});
     if(blob.size > 250*1024*1024) throw new Error(state.settings.lang==='de'?'Archiv größer als 250 MB – nutze ein manuelles Backup-ZIP.':'Archive larger than 250 MB – use a manual backup ZIP.');
     const r=await odGraph(OD.itemPath+':/content', {method:'PUT', headers:{'Content-Type':'application/zip'}, body:blob});
     if(!r.ok) throw new Error('Upload '+r.status);
@@ -2563,7 +2576,9 @@
     const r=await odGraph(OD.itemPath+':/content');
     if(!r.ok) throw new Error('Download '+r.status);
     const zip=await window.JSZip.loadAsync(await r.blob());
-    await applyBackupZip(zip, {clearFirst:true});
+    // Cloud-Pull darf einen (opt-in) mitsynchronisierten API-Key uebernehmen –
+    // der stammt aus deiner eigenen OneDrive, nicht aus einem fremden ZIP.
+    await applyBackupZip(zip, {clearFirst:true, allowKey:true});
     await reloadArchiveViews();
     OD.cfg.etag=(meta&&meta.etag)||OD.cfg.etag; OD.cfg.syncAt=new Date().toISOString(); OD.cfg.dirty=false; OD.cfg.dirtyAt='';
     await odSaveCfg();
@@ -2580,17 +2595,27 @@
     const de=state.settings.lang==='de';
     try{
       const meta=await odRemoteMeta();
-      if(!meta){ await odPush(); toast(de?'In OneDrive angelegt.':'Uploaded to OneDrive.','ok'); }
+      let action='none';
+      if(!meta){ await odPush(); action='push'; }
       else if(meta.etag && meta.etag===OD.cfg.etag){
-        if(OD.cfg.dirty){ await odPush(); }
+        if(OD.cfg.dirty){ await odPush(); action='push'; }
       } else {
-        const hadLocal=OD.cfg.dirty;
+        action = OD.cfg.dirty ? 'pull-conflict' : 'pull';
         await odPull(meta);
-        toast(hadLocal
+      }
+      // Zeitstempel IMMER aktualisieren – auch wenn nichts zu tun war –, damit
+      // „Jetzt synchronisieren" sichtbar reagiert.
+      OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
+      odSetStatus('connected');
+      // Eingehende Änderungen immer melden; „nichts zu tun"/Upload nur bei
+      // manuellem Klick (Hintergrund-Abfragen bleiben still).
+      if(action==='pull'||action==='pull-conflict'){
+        toast(action==='pull-conflict'
           ? (de?'Cloud-Version geladen. Deine lokalen Änderungen liegen als Sicherung in /exports.':'Loaded cloud version. Your local changes are backed up in /exports.')
           : (de?'Vom Cloud-Stand aktualisiert.':'Updated from cloud.'), 'ok');
+      } else if(manual){
+        toast(action==='push' ? (de?'Hochgeladen.':'Uploaded.') : (de?'Bereits aktuell.':'Already up to date.'), 'ok');
       }
-      odSetStatus('connected');
     }catch(e){ console.warn('OneDrive-Sync', e); odSetStatus('error', e.message); toast((de?'OneDrive-Sync fehlgeschlagen: ':'OneDrive sync failed: ')+e.message,'err'); }
     finally{ OD.syncing=false; renderCloudPanel(); }
   }
@@ -2635,6 +2660,7 @@
       chip.textContent='● '+txt; chip.style.color=col; chip.title=OD.statusMsg||'';
     }
     const sw=$('#cloud-auto-sw'); if(sw) sw.classList.toggle('on', OD.cfg.auto!==false);
+    const skw=$('#cloud-synckey-sw'); if(skw) skw.classList.toggle('on', state.settings.odSyncKey===true);
     const last=$('#cloud-last');
     if(last){
       const parts=[];
@@ -2848,6 +2874,7 @@
     const cdis=$('#cloud-disconnect'); if(cdis) cdis.onclick=odDisconnect;
     const cnow=$('#cloud-sync-now'); if(cnow) cnow.onclick=()=>odSync(true);
     const caw=$('#cloud-auto-sw'); if(caw) caw.onclick=()=>{ OD.cfg.auto=!(OD.cfg.auto!==false); odSaveCfg(); renderCloudPanel(); if(OD.cfg.auto)odSync(true); };
+    const skw=$('#cloud-synckey-sw'); if(skw) skw.onclick=async()=>{ const de=state.settings.lang==='de'; state.settings.odSyncKey=!(state.settings.odSyncKey===true); await persistSettings(); renderCloudPanel(); if(state.settings.odSyncKey && !state.apiKey){ toast(de?'Kein API-Key auf diesem Gerät hinterlegt.':'No API key stored on this device.'); } odMarkDirty(); };
 
     // API
     $('#api-save').onclick=async()=>{ await saveApiKey($('#api-key').value); toast('OK','ok'); };

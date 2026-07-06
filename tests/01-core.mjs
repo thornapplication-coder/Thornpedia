@@ -161,6 +161,25 @@ export async function run(base) {
   });
   t.check('API-Key ist NICHT im Backup-ZIP', keyLeak === false);
 
+  // Opt-in: API-Key wandert nur mit includeKey/allowKey durch die (Cloud-)Sync
+  const ks = await page.evaluate(async () => {
+    const w = await (await window.WA.state.dirs.meta.getFileHandle('apikey.txt', { create: true })).createWritable();
+    await w.write('sk-ant-SYNCTEST'); await w.close();
+    const zipNo = await window.JSZip.loadAsync(await (await window.WA.buildBackupBlob()).arrayBuffer());
+    const inDefault = Object.keys(zipNo.files).some(p => p.includes('apikey'));
+    const zipYes = await window.JSZip.loadAsync(await (await window.WA.buildBackupBlob({ includeKey: true })).arrayBuffer());
+    const inOptIn = Object.keys(zipYes.files).some(p => p.includes('apikey'));
+    try { await window.WA.state.dirs.meta.removeEntry('apikey.txt'); } catch (_) {}
+    await window.WA.applyBackupZip(zipYes, { clearFirst: false, allowKey: true });
+    let restored = ''; try { restored = await (await (await window.WA.state.dirs.meta.getFileHandle('apikey.txt')).getFile()).text(); } catch (_) {}
+    try { await window.WA.state.dirs.meta.removeEntry('apikey.txt'); } catch (_) {}
+    await window.WA.applyBackupZip(zipYes, { clearFirst: false, allowKey: false });
+    let blocked = false; try { await window.WA.state.dirs.meta.getFileHandle('apikey.txt'); } catch (_) { blocked = true; }
+    return { inDefault, inOptIn, restored, blocked };
+  });
+  t.check('API-Key: Standard-Sync ohne Key, Opt-in mit Key', ks.inDefault === false && ks.inOptIn === true, JSON.stringify(ks));
+  t.check('API-Key: allowKey übernimmt Key, ohne allowKey blockiert', ks.restored === 'sk-ant-SYNCTEST' && ks.blocked === true, JSON.stringify(ks));
+
   // OneDrive-Kernmechanik (offline testbar): PKCE + Redirect-URI und der
   // Spiegel-Restore, auf dem der automatische Cloud-Pull aufsetzt.
   const cl = await page.evaluate(async () => {
