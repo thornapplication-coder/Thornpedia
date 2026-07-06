@@ -514,7 +514,7 @@
         </div>
         <div class="panel panel-pad">
           <h4 style="margin-bottom:6px" data-i18n="set-api">Claude API (optional)</h4>
-          <p style="color:var(--text-muted);margin:0 0 12px" data-i18n="set-api-p">Für Online-Zusammenfassungen (Modell claude-opus-4-8). Wird lokal in /meta/apikey.txt gespeichert – nicht im Browser.</p>
+          <p style="color:var(--text-muted);margin:0 0 12px" data-i18n="set-api-p">Nur nötig für „KI fragen" in der Suche (Modell claude-opus-4-8, Abrechnung pro Nutzung bei Anthropic). „KI fragen" ist ein normaler Claude-Chat und greift NICHT auf deine Dokumente zu – du kannst die KI stattdessen auch auf claude.ai fragen und den Key hier leer lassen. Alle anderen Funktionen laufen ohne Key. Der Schlüssel wird lokal in /meta/apikey.txt gespeichert – nicht im Browser.</p>
           <div class="field" style="margin-bottom:10px"><label>API-Key</label><input type="password" id="api-key" placeholder="sk-ant-…"></div>
           <div class="row"><button class="btn sm" id="api-save" data-i18n="save">Speichern</button><button class="btn sm neutral" id="api-test" data-i18n="api-test">Verbindung testen</button><span id="api-status"></span></div>
           <div style="border-top:1px solid var(--line);margin-top:14px;padding-top:12px">
@@ -691,7 +691,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.1';
+  const APP_VERSION = '1.9.2';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -797,7 +797,7 @@
     'imp-drop':['Dateien oder ganzen Ordner hierher ziehen','Drop files or a whole folder here'],'imp-files':['Dateien wählen','Choose files'],'imp-folder':['Ordner wählen','Choose folder'],
     'imp-queue':['Import-Warteschlange','Import queue'],'imp-uihint':['Die App bleibt während des Imports bedienbar. Große PDFs werden seitenweise verarbeitet.','The app stays usable during import. Large PDFs are processed page by page.'],
     'set-p':['Lokal gespeichert in /meta.','Stored locally in /meta.'],'set-appear':['Darstellung','Appearance'],'set-theme':['Theme','Theme'],'theme-auto':['Auto','Auto'],'theme-light':['Hell','Light'],'theme-dark':['Dunkel','Dark'],'set-lang':['Sprache / Language','Language / Sprache'],
-    'set-api':['Claude API (optional)','Claude API (optional)'],'set-api-p':['Für Online-Zusammenfassungen und KI-Fragen (Modell claude-opus-4-8). Der Schlüssel wird lokal in /meta/apikey.txt gespeichert – nicht im Browser. Hinweis: Im KI-Modus werden ausgewählte Dokumentauszüge an Anthropic (USA) übertragen; ohne KI-Nutzung bleibt alles lokal.','For online summaries and AI questions (model claude-opus-4-8). The key is stored locally in /meta/apikey.txt – not in the browser. Note: in AI mode, selected document excerpts are transmitted to Anthropic (USA); without using AI, everything stays local.'],'api-test':['Verbindung testen','Test connection'],'save':['Speichern','Save'],
+    'set-api':['Claude API (optional)','Claude API (optional)'],'set-api-p':['Nur nötig für „KI fragen" in der Suche (Modell claude-opus-4-8, Abrechnung pro Nutzung bei Anthropic). „KI fragen" ist ein normaler Claude-Chat und greift NICHT auf deine Dokumente zu – du kannst die KI stattdessen auch auf claude.ai fragen (über dein Abo/Gratis-Kontingent) und den Key hier leer lassen. Alle anderen Funktionen (Suche, Import, Forum, OneDrive-Sync, Export) laufen ohne Key. Der Schlüssel wird lokal in /meta/apikey.txt gespeichert – nicht im Browser.','Only needed for “Ask AI” in Search (model claude-opus-4-8, billed per use by Anthropic). “Ask AI” is a regular Claude chat and does NOT access your documents – you can also ask the AI on claude.ai instead (via your subscription/free tier) and leave the key empty here. Everything else (search, import, forum, OneDrive sync, export) works without a key. The key is stored locally in /meta/apikey.txt – not in the browser.'],'api-test':['Verbindung testen','Test connection'],'save':['Speichern','Save'],
     'set-aib':['KI-Budget pro Anfrage','AI budget per request'],'aib-eco':['Sparsam','Eco'],'aib-standard':['Standard','Standard'],'aib-thorough':['Gründlich','Thorough'],
     'set-storage':['Speicherort','Storage location'],'set-storage-p':['Alle Daten liegen als echte Dateien in diesem Ordner.','All data lives as real files in this folder.'],'set-change':['Ordner wechseln','Change folder'],'set-disconnect':['Trennen','Disconnect'],
     'set-kind-folder':['Ordner auf deinem Gerät','Folder on your device'],'set-kind-app':['App-Speicher (dieses Gerät)','App storage (this device)'],
