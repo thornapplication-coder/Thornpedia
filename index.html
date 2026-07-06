@@ -712,7 +712,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.5.8';
+  const APP_VERSION = '1.5.9';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2385,6 +2385,13 @@
     names.sort();
     while(names.length>keep){ await removeFile(state.dirs.exports, names.shift()); }
   }
+  // Sicherungen vor einem Cloud-Konflikt-Pull rotieren (nur die letzten paar bleiben).
+  async function rotateBeforeSync(keep){
+    const names=[];
+    try{ for await(const [n,h] of state.dirs.exports.entries()){ if(h.kind==='file'&&/^wissensarchiv_beforesync_/.test(n))names.push(n); } }catch(e){ return; }
+    names.sort();
+    while(names.length>keep){ await removeFile(state.dirs.exports, names.shift()); }
+  }
   let _abBusy=false;
   async function maybeAutoBackup(){
     if(_abBusy)return;
@@ -2411,13 +2418,6 @@
   // Dokumente verschwinden dann auch hier); apikey.txt bleibt stets unberuehrt.
   async function applyBackupZip(zip, opts={}){
     const de=state.settings.lang==='de';
-    if(opts.clearFirst){
-      for(const d of ['originals','index','forum']){
-        const dir=state.dirs[d]; if(!dir)continue;
-        const names=[]; for await(const [n,h] of dir.entries()){ if(h.kind==='file')names.push(n); }
-        for(const nm of names) await removeFile(dir, nm);
-      }
-    }
     const targets={originals:state.dirs.originals, index:state.dirs.index, meta:state.dirs.meta, forum:state.dirs.forum};
     const entries=Object.keys(zip.files);
     // Nur meta-Dateien aus einer festen Whitelist zulassen; apikey.txt und
@@ -2430,12 +2430,18 @@
     const FORUM_EXT=new Set(['png','jpg','jpeg','gif','webp','bmp','mp4','webm','ogg','ogv','mov','m4v']);
     // Grenzen gegen ZIP-Bomben / Speicher-DoS
     const MAX_FILES=20000, MAX_TOTAL=2*1024*1024*1024; let n=0, total=0, skipped=0;
+    // Welche Dateinamen die ZIP je Ordner enthaelt – fuer den Spiegel-Abgleich unten.
+    const present={originals:new Set(), index:new Set(), meta:new Set(), forum:new Set()};
+    // 1) ZUERST alle (gueltigen) Dateien schreiben. Erst danach lokal Ueberzaehliges
+    //    entfernen – so gibt es zu keinem Zeitpunkt ein leeres/halbes Archiv, selbst
+    //    wenn der Vorgang abbricht.
     for(const path of entries){
       const zf=zip.files[path]; if(zf.dir)continue;
       const parts=path.split('/'); if(parts.length!==2)continue;         // genau folder/datei
       const [folder,fname]=parts;
       if(!targets[folder]||!fname)continue;
       if(/[\\/]|^\.+$/.test(fname)){ skipped++; continue; }               // keine Traversal-/Sonderpfade
+      present[folder].add(fname);                                         // in der ZIP vorhanden (fuer Spiegel-Prune)
       if(folder==='meta'&&!META_ALLOW.has(fname)){ skipped++; continue; } // meta streng begrenzt
       if(folder==='index'&&!/^[A-Za-z0-9_-]+\.json$/.test(fname)){ skipped++; continue; }
       // Originale nur mit unterstützter Endung übernehmen – blockt z. B. eine
@@ -2446,6 +2452,16 @@
       const content=await zf.async('arraybuffer');
       total+=content.byteLength; if(total>MAX_TOTAL){ throw new Error(de?'Backup ist zu groß.':'Backup too large.'); }
       await writeFile(targets[folder], fname, content);
+    }
+    // 2) Spiegel-Abgleich: lokal vorhandene Dateien entfernen, die die ZIP NICHT
+    //    (mehr) enthaelt – so verschwinden auf anderen Geraeten geloeschte Dokumente.
+    //    Erst nachdem alles Neue geschrieben ist (kein Datenverlust-Fenster).
+    if(opts.clearFirst){
+      for(const d of ['originals','index','forum']){
+        const dir=state.dirs[d]; if(!dir)continue;
+        const local=[]; for await(const [nm,h] of dir.entries()){ if(h.kind==='file')local.push(nm); }
+        for(const nm of local){ if(!present[d].has(nm)) await removeFile(dir, nm); }
+      }
     }
   }
   // Katalog/Ansichten nach einem Restore bzw. Cloud-Pull aus den (neuen) Index-
@@ -2485,7 +2501,7 @@
     graph:'https://graph.microsoft.com/v1.0',
     scope:'Files.ReadWrite offline_access openid',
     itemPath:'/me/drive/root:/Thornpedia/thornpedia_archive.zip',
-    cfg:{ clientId:'', auto:true, etag:'', syncAt:'', dirty:false, dirtyAt:'' },
+    cfg:{ clientId:'', auto:true, etag:'', syncAt:'', dirty:false, dirtyAt:'', gen:0 },
     tokens:null,      // {access_token, refresh_token, expires_at}
     syncing:false, applying:false, _pushTimer:null, status:'off',
   };
@@ -2558,20 +2574,41 @@
     const j=await r.json();
     return { etag:j.cTag||j.eTag||'', modified:j.lastModifiedDateTime||'', size:j.size||0 };
   }
-  async function odPush(){
+  async function odPush(opts={}){
     await loadScript('vendor/jszip.min.js');
     // API-Key nur mitnehmen, wenn der Nutzer es ausdruecklich aktiviert hat.
     const blob=await buildBackupBlob({includeKey: state.settings.odSyncKey===true && !!state.apiKey});
     if(blob.size > 250*1024*1024) throw new Error(state.settings.lang==='de'?'Archiv größer als 250 MB – nutze ein manuelles Backup-ZIP.':'Archive larger than 250 MB – use a manual backup ZIP.');
-    const r=await odGraph(OD.itemPath+':/content', {method:'PUT', headers:{'Content-Type':'application/zip'}, body:blob});
+    const headers={'Content-Type':'application/zip'};
+    // If-Match: schützt vor „lost update" – hat ein anderes Gerät seit unserem
+    // Stand hochgeladen, lehnt Graph mit 412 ab, statt dessen Version zu überschreiben.
+    // Bei force (lokal-gewinnt-Konflikt) bewusst OHNE If-Match überschreiben.
+    if(!opts.fresh && !opts.force && OD.cfg.etag) headers['If-Match']=OD.cfg.etag;
+    const r=await odGraph(OD.itemPath+':/content', {method:'PUT', headers, body:blob});
+    if(r.status===412) return 'conflict';   // Remote hat sich seit unserem Stand geändert → erst ziehen
     if(!r.ok) throw new Error('Upload '+r.status);
     const j=await r.json();
     OD.cfg.etag=j.cTag||j.eTag||''; await odSaveCfg();   // dirty/Zeit setzt odSync (konfliktbewusst)
+    return 'ok';
+  }
+  // Aktuellen Cloud-Stand herunterladen und in /exports sichern – bevor er beim
+  // „lokal gewinnt"-Konflikt ueberschrieben wird (damit auch die Remote-Fassung
+  // wiederherstellbar bleibt). Rotiert wie die uebrigen Sync-Sicherungen.
+  async function odBackupRemote(){
+    try{ const r=await odGraph(OD.itemPath+':/content'); if(!r.ok)return;
+      await saveToExports('wissensarchiv_beforesync_'+stamp()+'.zip', await r.blob()); await rotateBeforeSync(4);
+    }catch(e){}
   }
   async function odPull(meta){
     await loadScript('vendor/jszip.min.js');
-    // Sicherheitsnetz: lokalen Stand vor dem Ersetzen als ZIP in /exports ablegen.
-    try{ await saveToExports('wissensarchiv_beforesync_'+stamp()+'.zip', await buildBackupBlob()); }catch(e){}
+    // Sicherheitsnetz: lokalen Stand als ZIP sichern, BEVOR er durch die Cloud-Version
+    // ersetzt wird – bei echtem Konflikt (lokale, noch nicht hochgeladene Aenderungen)
+    // UND beim allerersten Abgleich (Erstverbindung mit vorhandenen lokalen Dokumenten,
+    // die sonst ohne Sicherung ueberschrieben wuerden). Sauberer Folge-Pull braucht das
+    // nicht. Sicherungen werden rotiert (die letzten paar bleiben).
+    if(OD.cfg.dirty || !OD.cfg.etag){
+      try{ await saveToExports('wissensarchiv_beforesync_'+stamp()+'.zip', await buildBackupBlob()); await rotateBeforeSync(4); }catch(e){}
+    }
     const r=await odGraph(OD.itemPath+':/content');
     if(!r.ok) throw new Error('Download '+r.status);
     const zip=await window.JSZip.loadAsync(await r.blob());
@@ -2588,7 +2625,7 @@
     // genau einmal hochladen. Sobald der Key in der Cloud ist, tritt das bei
     // keinem Gerät mehr ein → kein Loop.
     if(state.settings.odSyncKey===true && state.apiKey && !keyInZip){
-      OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); await odSaveCfg();
+      OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); OD.cfg.gen=(OD.cfg.gen||0)+1; await odSaveCfg();
     }
   }
   // Zentrale, konfliktbewusste Synchronisation. Modell fuer den Einzelnutzer:
@@ -2597,43 +2634,76 @@
   //    Aenderungen, wird der lokale Stand vorab als Sicherung in /exports gelegt,
   //    sodass nichts verloren geht ("Cloud gewinnt" + Sicherheitsnetz).
   async function odSync(manual){
-    if(!odConnected()||OD.syncing) return;
+    if(!odConnected()) return;
     if(!manual && OD.cfg.auto===false) return;
+    if(OD.syncing){
+      // Ein Abgleich laeuft bereits. Ein manueller Klick soll trotzdem greifen →
+      // kurz nachfassen, statt ihn stillschweigend zu verschlucken.
+      if(manual){ clearTimeout(OD._manualRetry); OD._manualRetry=setTimeout(()=>odSync(true), 900); }
+      return;
+    }
     OD.syncing=true; odSetStatus('syncing');
     const de=state.settings.lang==='de';
-    const startDirtyAt=OD.cfg.dirtyAt;   // Aenderungen, die WAEHREND des Syncs eintreffen, erkennen
+    const startGen=OD.cfg.gen||0;   // Aenderungen, die WAEHREND des Syncs eintreffen, erkennen (monoton)
+    let ok=false;
     try{
       const meta=await odRemoteMeta();
       let action='none';
-      if(!meta){ await odPush(); action='push'; }
-      else if(meta.etag && meta.etag===OD.cfg.etag){
-        if(OD.cfg.dirty){ await odPush(); action='push'; }
+      if(!meta){
+        await odPush({fresh:true}); action='push';
+      } else if(meta.etag && meta.etag===OD.cfg.etag){
+        // Remote unveraendert. Hochladen bei lokaler Aenderung – bei manuellem Klick
+        // IMMER (das gleicht auch stille Abweichungen ab: „Cloud = dieses Gerät").
+        if(OD.cfg.dirty || manual){
+          const res=await odPush();
+          if(res==='conflict'){ await odConflict(); action='conflict'; }   // Remote hat sich im Fenster geaendert
+          else action='push';
+        }
+      } else if(OD.cfg.dirty){
+        // KONFLIKT: Remote UND lokal geaendert → die NEUERE Fassung gewinnt (Zeit).
+        // Der jeweils unterlegene Stand wird vorher in /exports gesichert.
+        await odConflict(meta); action='conflict';
       } else {
-        action = OD.cfg.dirty ? 'pull-conflict' : 'pull';
-        await odPull(meta);
+        // Remote geaendert, lokal nichts offen → sauber die Cloud-Version uebernehmen.
+        await odPull(meta); action='pull';
       }
       // dirty NUR zuruecksetzen, wenn seit Sync-Beginn keine NEUE Nutzer-Aenderung
-      // kam – sonst wuerde eine waehrend des Uploads getaetigte Aenderung (z. B. eine
-      // Loeschung) verschluckt und nie hochgeladen.
-      if(OD.cfg.dirtyAt===startDirtyAt) OD.cfg.dirty=false;
+      // kam (Generationsnummer unveraendert) – sonst ginge eine waehrend des Uploads
+      // getaetigte Aenderung (z. B. eine Loeschung) verloren.
+      if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
       // Zeitstempel IMMER aktualisieren – auch wenn nichts zu tun war –, damit
       // „Jetzt synchronisieren" sichtbar reagiert.
       OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
-      odSetStatus('connected');
-      // Eingehende Änderungen immer melden; „nichts zu tun"/Upload nur bei
-      // manuellem Klick (Hintergrund-Abfragen bleiben still).
-      if(action==='pull'||action==='pull-conflict'){
-        toast(action==='pull-conflict'
-          ? (de?'Cloud-Version geladen. Deine lokalen Änderungen liegen als Sicherung in /exports.':'Loaded cloud version. Your local changes are backed up in /exports.')
-          : (de?'Vom Cloud-Stand aktualisiert.':'Updated from cloud.'), 'ok');
-      } else if(manual){
-        toast(action==='push' ? (de?'Hochgeladen.':'Uploaded.') : (de?'Bereits aktuell.':'Already up to date.'), 'ok');
-      }
-    }catch(e){ console.warn('OneDrive-Sync', e); odSetStatus('error', e.message); toast((de?'OneDrive-Sync fehlgeschlagen: ':'OneDrive sync failed: ')+e.message,'err'); }
+      odSetStatus('connected'); ok=true;
+      // Eingehende Änderungen/Konflikte immer melden; reiner Upload/„nichts zu tun"
+      // nur bei manuellem Klick (Hintergrund-Abfragen bleiben still).
+      if(action==='pull'){ toast(de?'Vom Cloud-Stand aktualisiert.':'Updated from cloud.','ok'); }
+      else if(action==='conflict'){ toast(de?'Konflikt aufgelöst (neuere Fassung gewinnt). Der andere Stand liegt als Sicherung in /exports.':'Conflict resolved (newer version wins). The other state is backed up in /exports.','ok'); }
+      else if(manual){ toast(action==='push' ? (de?'Hochgeladen.':'Uploaded.') : (de?'Bereits aktuell.':'Already up to date.'), 'ok'); }
+    }catch(e){
+      console.warn('OneDrive-Sync', e); odSetStatus('error', e.message);
+      // Hintergrund-Fehler NICHT als Toast (sonst Spam bei offline/Quota/…);
+      // der Status-Chip zeigt „Fehler". Nur ein bewusster Klick meldet den Fehler.
+      if(manual) toast((de?'OneDrive-Sync fehlgeschlagen: ':'OneDrive sync failed: ')+e.message,'err');
+    }
     finally{
       OD.syncing=false; renderCloudPanel();
-      // Kam waehrend des Syncs eine Aenderung rein (dirty noch gesetzt): bald nachziehen.
-      if(OD.cfg.dirty && odConnected() && OD.cfg.auto!==false){ clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 1500); }
+      // Nur NACH ERFOLG bald nachziehen, wenn waehrend des Syncs eine Aenderung kam.
+      // Bei einem Fehler NICHT eng weiterprobieren (sonst 1,5-s-Schleife) – der 45-s-
+      // Poll versucht es ohnehin erneut.
+      if(ok && OD.cfg.dirty && odConnected() && OD.cfg.auto!==false){ clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 1500); }
+    }
+  }
+  // Konflikt (Remote und lokal geaendert): neuere Fassung gewinnt. Beide Staende werden
+  // vorab gesichert, sodass nichts unwiederbringlich verloren geht.
+  async function odConflict(metaIn){
+    const meta=metaIn||await odRemoteMeta();
+    const localNewer = !!(OD.cfg.dirtyAt && meta && meta.modified && OD.cfg.dirtyAt > new Date(meta.modified).toISOString());
+    if(localNewer){
+      await odBackupRemote();            // Remote-Fassung sichern, dann lokal ueberschreiben
+      await odPush({force:true});
+    } else {
+      await odPull(meta || await odRemoteMeta());   // odPull sichert den lokalen Stand
     }
   }
   // Bei jeder inhaltlichen Aenderung (Import, Loeschen, Tags, Notizen, Forum):
@@ -2644,7 +2714,9 @@
     // sehr wohl als "zu uebertragen" gemerkt werden – sonst gehen sie verloren.
     if(OD.applying) return;
     if(!odConnected()||OD.cfg.auto===false) return;
-    OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); odSaveCfg();
+    // gen = monotone Aenderungsnummer: robuster als ein Zeitstempel-Vergleich, um zu
+    // erkennen, ob waehrend eines Syncs eine NEUE Aenderung kam (auch in derselben ms).
+    OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); OD.cfg.gen=(OD.cfg.gen||0)+1; odSaveCfg();
     clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 4000);
   }
   // Dauer-Synchronisation: regelmäßig (alle 45 s), beim Zurückkehren zur App und
