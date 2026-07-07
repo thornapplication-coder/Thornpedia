@@ -138,6 +138,45 @@ export async function run(base) {
     t.check('iPhone: Suchfeld im Suche-Tab sichtbar', vis.search === true, JSON.stringify(vis));
     t.check('iPhone: Bibliotheks-Filterfeld sichtbar', vis.libq === true, JSON.stringify(vis));
     t.check('iPhone: Kopfzeilen-Suche bleibt versteckt', vis.topbar === false, JSON.stringify(vis));
+
+    // Bibliothek bleibt auf schmalen Geräten lesbar: kompakte Liste (Datum/Größe/
+    // Tags/Status als Meta-Zeile unterm Namen) statt zerquetschter Buchstabenspalte.
+    const libMobile = await page.evaluate(() => {
+      window.WA.switchView('lib');
+      const nameCell = document.querySelector('#lib-content tbody tr .fname');
+      const w = nameCell ? nameCell.closest('td').getBoundingClientRect().width : 0;
+      const m = document.querySelector('#lib-content .lib-meta-mobile');
+      const metaVis = !!m && getComputedStyle(m).display !== 'none' && /\d/.test(m.textContent);
+      const td = document.querySelector('#lib-content tbody tr td:nth-child(4)');
+      const dateHidden = !td || getComputedStyle(td).display === 'none';
+      return { w: Math.round(w), metaVis, dateHidden };
+    });
+    t.check('iPhone: Namensspalte breit lesbar (>140px)', libMobile.w > 140, JSON.stringify(libMobile));
+    t.check('iPhone: Meta-Zeile (Datum/Größe) sichtbar', libMobile.metaVis === true, JSON.stringify(libMobile));
+    t.check('iPhone: Datums-Spalte ausgeblendet', libMobile.dateHidden === true, JSON.stringify(libMobile));
+
+    // iPad hochkant (768px): ebenfalls kompakte Liste, kein horizontaler Overflow.
+    await page.setViewportSize({ width: 768, height: 1024 });
+    await page.waitForTimeout(150);
+    const libPortrait = await page.evaluate(() => {
+      const td = document.querySelector('#lib-content tbody tr td:nth-child(4)');
+      const m = document.querySelector('#lib-content .lib-meta-mobile');
+      return { compact: (!td || getComputedStyle(td).display === 'none') && !!m && getComputedStyle(m).display !== 'none',
+               overflow: document.documentElement.scrollWidth };
+    });
+    t.check('iPad hochkant (768px): kompakte Liste, kein Overflow', libPortrait.compact === true && libPortrait.overflow <= 769, JSON.stringify(libPortrait));
+
+    // iPad quer (1024px): volle Tabelle mit allen Spalten.
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.waitForTimeout(150);
+    const libTablet = await page.evaluate(() => {
+      const td = document.querySelector('#lib-content tbody tr td:nth-child(4)');
+      const m = document.querySelector('#lib-content .lib-meta-mobile');
+      return { dateVisible: !!td && getComputedStyle(td).display !== 'none',
+               metaHidden: !m || getComputedStyle(m).display === 'none',
+               overflow: document.documentElement.scrollWidth };
+    });
+    t.check('iPad quer (1024px): volle Tabelle sichtbar, kein Overflow', libTablet.dateVisible === true && libTablet.metaHidden === true && libTablet.overflow <= 1025, JSON.stringify(libTablet));
     await ctx.close();
   }
 
