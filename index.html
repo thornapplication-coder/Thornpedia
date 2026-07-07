@@ -152,6 +152,17 @@
     .lib-group-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .lib-group-count{margin-left:auto;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:1px 10px;font-size:12px;color:var(--text-muted);font-weight:normal;flex:none}
     .lib-group .panel{margin-top:8px}
+    /* Feste Spaltenbreiten: alle Gruppen-Tabellen richten sich identisch aus. */
+    .lib-table{table-layout:fixed}
+    .lib-table th:nth-child(4),.lib-table td:nth-child(4){width:104px}
+    .lib-table th:nth-child(5),.lib-table td:nth-child(5){width:88px}
+    .lib-table th:nth-child(6),.lib-table td:nth-child(6){width:180px}
+    .lib-table th:nth-child(7),.lib-table td:nth-child(7){width:118px}
+    .lib-table .fname{overflow-wrap:anywhere}
+    /* Schnell-Umbenennen direkt in der Namenszelle */
+    .fname-wrap{display:flex;align-items:center;gap:6px;min-width:0}
+    .fname-edit{border:0;background:transparent;cursor:pointer;opacity:.4;font-size:12px;padding:2px 3px;flex:none;line-height:1;border-radius:5px}
+    .fname-edit:hover{opacity:1;background:var(--bg-alt)}
     .ftype{display:inline-grid;place-items:center;width:30px;height:30px;border-radius:6px;font-size:10px;font-weight:bold;color:#fff;flex:none}
     .t-pdf{background:#d64545}.t-docx{background:#2b6cb0}.t-xlsx{background:#2f855a}.t-csv{background:#6b7280}.t-txt{background:#8a6d3b}.t-md{background:#7048a8}.t-forum{background:#0E7C93}
     .forum-layout{display:grid;grid-template-columns:260px 1fr;gap:16px}
@@ -690,7 +701,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.5';
+  const APP_VERSION = '1.9.6';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1137,7 +1148,7 @@
     const sortArrow=(k)=>L.sort===k?(L.dir==='asc'?'asc':'desc'):'';
     const ariaSort=(k)=>L.sort===k?(L.dir==='asc'?'ascending':'descending'):'none';
     const allSel = rows.length && rows.every(r=>sel.has(r.id));
-    return `<div class="panel"><div class="table-wrap"><table>
+    return `<div class="panel"><div class="table-wrap"><table class="lib-table">
         <thead><tr>
           <th style="width:34px"><input type="checkbox" class="grp-selall" aria-label="${de2?'Alle in dieser Gruppe auswählen':'Select all in this group'}" ${allSel?'checked':''}></th>
           <th style="width:44px"></th>
@@ -1156,7 +1167,7 @@
     return `<tr class="${checked?'sel':''}" data-id="${esc(r.id)}">
       <td><input type="checkbox" class="rowsel" aria-label="${(state.settings.lang==='de'?'Auswählen: ':'Select: ')+esc(r.name)}" ${checked?'checked':''}></td>
       <td><span class="ftype t-${esc(r.type)}">${esc(r.type.toUpperCase().slice(0,3))}</span></td>
-      <td><div class="fname">${esc(r.name)}</div><div class="fmeta">${meta}</div></td>
+      <td><div class="fname-wrap"><span class="fname">${esc(r.name)}</span><button class="fname-edit" data-renid="${esc(r.id)}" title="${tr('act-rename')}" aria-label="${tr('act-rename')}">✏️</button></div><div class="fmeta">${meta}</div></td>
       <td class="num">${fmtDate(r.importedAt)}</td><td class="num">${fmtBytes(r.size)}</td>
       <td>${tags}</td><td>${status}</td>
       <td class="rowmenu"><button class="rowmenu-btn" data-menu="${esc(r.id)}" aria-label="${state.settings.lang==='de'?'Aktionen':'Actions'}" aria-haspopup="menu" aria-expanded="false">⋯</button>${menuHtml(r)}</td>
@@ -1191,6 +1202,7 @@
     $$('.menu button',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const tr_=b.closest('tr'); const id=tr_&&tr_.dataset.id; $$('.menu.show').forEach(x=>x.classList.remove('show')); if(id)docAction(b.dataset.act, id); });
     const bt=$('#batch-tag',el); if(bt)bt.onclick=()=>batchTag(); const bd=$('#batch-del',el); if(bd)bd.onclick=()=>batchDelete(); const bc=$('#batch-clear',el); if(bc)bc.onclick=()=>{state.lib.selected.clear();renderLibrary();};
     $$('.fname',el).forEach(f=>{ const tr_=f.closest('tr'); if(tr_)f.style.cursor='pointer', f.onclick=()=>openDoc(tr_.dataset.id); });
+    $$('[data-renid]',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); docAction('rename', b.dataset.renid); });
   }
   // Verankert das Zeilen-Menue per fixer Positionierung am Button, damit es nicht
   // vom scrollenden Tabellen-Container (overflow) abgeschnitten wird.
