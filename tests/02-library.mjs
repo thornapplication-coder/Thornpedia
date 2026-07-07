@@ -76,6 +76,32 @@ export async function run(base) {
   t.check('Tags bilden Gruppen-Überschriften', grp.heads.some(h => h.includes('Finanzen')) && grp.heads.some(h => h.includes('Recht')), JSON.stringify(grp));
   t.check('Dokument mit 2 Tags in 2 Gruppen', grp.pkRows === 2, JSON.stringify(grp));
 
+  // Spalten aller Gruppen-Tabellen richten sich identisch aus (feste Breiten).
+  const align = await page.evaluate(() => {
+    const tables = [...document.querySelectorAll('#lib-content table.lib-table')];
+    if (tables.length < 2) return { ok: false, reason: 'zu wenige Tabellen', n: tables.length };
+    // x-Position der Kopfzellen jeder Tabelle vergleichen (auf 1px gerundet).
+    const cols = tables.map(t => [...t.querySelectorAll('thead th')].map(th => Math.round(th.getBoundingClientRect().left)));
+    const first = cols[0];
+    const ok = cols.every(c => c.length === first.length && c.every((x, i) => Math.abs(x - first[i]) <= 1));
+    return { ok, cols };
+  });
+  t.check('Gruppen-Spalten sind identisch ausgerichtet', align.ok === true, JSON.stringify(align).slice(0, 200));
+
+  // Schnell-Umbenennen: Stift-Button in der Namenszelle öffnet den Umbenennen-Dialog.
+  const hasEdit = await page.evaluate(() => !!document.querySelector('#lib-content tbody tr .fname-edit[data-renid]'));
+  t.check('Schnell-Umbenennen-Button vorhanden', hasEdit === true);
+  await page.click('#lib-content tbody tr .fname-edit');
+  await page.waitForTimeout(150);
+  const dlgOpen = await page.evaluate(() => {
+    const dlg = document.querySelector('#dlg-prompt.show');
+    const inp = document.querySelector('#prompt-input');
+    return { open: !!dlg, prefilled: inp ? inp.value : null };
+  });
+  t.check('Stift öffnet Umbenennen-Dialog mit vorausgefülltem Namen', dlgOpen.open === true && !!dlgOpen.prefilled, JSON.stringify(dlgOpen));
+  await page.click('#prompt-cancel');
+  await page.waitForTimeout(100);
+
   // Gruppe einklappen blendet ihre Tabelle aus.
   await page.click('#lib-content .lib-group-head');
   await page.waitForTimeout(120);
