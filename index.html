@@ -718,7 +718,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.9';
+  const APP_VERSION = '1.9.10';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2315,7 +2315,10 @@
     // apikey.txt bleibt standardmaessig draussen: herunterladbare/automatische
     // Backups wandern auf andere Rechner – der API-Key gehoert dort nicht hinein.
     // Nur die OneDrive-Sync darf ihn (mit ausdruecklichem Opt-in) mitnehmen.
-    const add=async(dirHandle, folder, skip)=>{ for await(const [name,h] of dirHandle.entries()){ if(h.kind==='file'){ if(skip&&skip.has(name))continue; const f=await h.getFile(); zip.file(folder+'/'+name, await f.arrayBuffer()); } } };
+    // index/ und meta/ sind Text (JSON) und schrumpfen per DEFLATE auf einen Bruchteil –
+    // das verkleinert jeden Cloud-Upload deutlich. Originale/Anhaenge (PDF, Bilder,
+    // Videos, Office) sind bereits komprimiert -> STORE (schnell, kein Gewinn durch DEFLATE).
+    const add=async(dirHandle, folder, skip)=>{ const textish=(folder==='index'||folder==='meta'); for await(const [name,h] of dirHandle.entries()){ if(h.kind==='file'){ if(skip&&skip.has(name))continue; const f=await h.getFile(); zip.file(folder+'/'+name, await f.arrayBuffer(), textish?{compression:'DEFLATE',compressionOptions:{level:6}}:undefined); } } };
     const metaSkip = opts.includeKey ? new Set() : new Set(['apikey.txt']);
     await add(state.dirs.originals,'originals'); await add(state.dirs.index,'index'); await add(state.dirs.meta,'meta', metaSkip);
     if(state.dirs.forum) await add(state.dirs.forum,'forum'); // Forum-Anhänge (Bilder, Videos, Dateien)
@@ -2594,10 +2597,11 @@
     try{
       for(let off=0; off<blob.size; off+=CHUNK){
         const end=Math.min(off+CHUNK, blob.size);
+        odSetStatus('syncing', Math.round(off/blob.size*100)+' %');   // Fortschritt im Status-Chip
         const r=await fetch(url, { method:'PUT', headers:{'Content-Range':`bytes ${off}-${end-1}/${blob.size}`}, body:blob.slice(off,end) });
         if(r.status===412 || r.status===409) return 'conflict';   // fresh-Wettlauf: Datei entstand zwischenzeitlich
         if(end>=blob.size){
-          if(r.status===200||r.status===201) return await r.json();
+          if(r.status===200||r.status===201){ odSetStatus('syncing'); return await r.json(); }
           throw new Error('Upload '+r.status);
         }
         if(!r.ok) throw new Error('Upload-Block '+r.status);
@@ -2675,9 +2679,11 @@
         if(res==='conflict'){ await odConflict(); action='conflict'; }   // anderes Gerät war schneller → zusammenführen
         else action='push';
       } else if(meta.etag && meta.etag===OD.cfg.etag){
-        // Remote unveraendert. Hochladen bei lokaler Aenderung – bei manuellem Klick
-        // IMMER (das gleicht auch stille Abweichungen ab: „Cloud = dieses Gerät").
-        if(OD.cfg.dirty || manual){
+        // Remote unveraendert. Hochladen NUR bei lokaler Aenderung: dirty wird seit
+        // v1.9.10 auch offline/pausiert gepflegt, daher ist der fruehere vorsorgliche
+        // Voll-Upload bei jedem manuellen Klick unnoetig – "Bereits aktuell" genuegt.
+        // (Echte Abweichungen erzwingt bei Bedarf der Force-Push-Knopf.)
+        if(OD.cfg.dirty){
           const res=await odPush();
           if(res==='conflict'){ await odConflict(); action='conflict'; }   // Remote hat sich im Fenster geaendert
           else action='push';
@@ -2736,10 +2742,13 @@
     // ECHTE Nutzer-Aenderungen waehrend eines laufenden Uploads/Abgleichs muessen
     // sehr wohl als "zu uebertragen" gemerkt werden – sonst gehen sie verloren.
     if(OD.applying) return;
-    if(!odConnected()||OD.cfg.auto===false) return;
     // gen = monotone Aenderungsnummer: robuster als ein Zeitstempel-Vergleich, um zu
     // erkennen, ob waehrend eines Syncs eine NEUE Aenderung kam (auch in derselben ms).
+    // dirty wird AUCH ohne Verbindung/bei pausiertem Auto-Sync gemerkt – so weiss der
+    // naechste Sync nach dem (Wieder-)Verbinden, dass lokal etwas zu uebertragen ist,
+    // und ein manueller Klick ohne Aenderung muss NICHT mehr vorsorglich alles hochladen.
     OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); OD.cfg.gen=(OD.cfg.gen||0)+1; odSaveCfg();
+    if(!odConnected()||OD.cfg.auto===false) return;
     clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 4000);
   }
   // Dauer-Synchronisation: regelmäßig (alle 45 s), beim Zurückkehren zur App und
@@ -2807,7 +2816,8 @@
       const map={ off:[de?'Nicht verbunden':'Not connected','var(--text-muted)'], syncing:[de?'Synchronisiert…':'Syncing…','var(--primary)'], connected:[de?'Verbunden':'Connected','var(--good)'], error:[de?'Fehler':'Error','var(--danger)'] };
       const st= conn ? (OD.status==='off'?'connected':OD.status) : 'off';
       const [txt,col]=map[st]||map.off;
-      chip.textContent='● '+txt; chip.style.color=col; chip.title=OD.statusMsg||'';
+      // Beim Synchronisieren den Fortschritt (z. B. "43 %") direkt im Chip zeigen.
+      chip.textContent='● '+txt+(st==='syncing'&&OD.statusMsg?' '+OD.statusMsg:''); chip.style.color=col; chip.title=OD.statusMsg||'';
     }
     const sw=$('#cloud-auto-sw'); if(sw) sw.classList.toggle('on', OD.cfg.auto!==false);
     const skw=$('#cloud-synckey-sw'); if(skw) skw.classList.toggle('on', state.settings.odSyncKey===true);
