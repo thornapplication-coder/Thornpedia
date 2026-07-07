@@ -23,7 +23,7 @@ export async function run(base) {
       document.querySelector('#search-input').value = 'Kuendigungsfrist';
       window.WA.state.search.q = 'Kuendigungsfrist';
       await window.WA.runSearch();
-      await window.WA.exportReport('xlsx', 'hits');
+      await window.WA.exportReport('xlsx');
     });
     await page.waitForTimeout(400);
 
