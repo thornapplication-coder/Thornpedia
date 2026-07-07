@@ -253,7 +253,7 @@
 
     .cards-2{grid-template-columns:1fr 1fr}
     @media (max-width:900px){.doc-view{grid-template-columns:1fr}}
-    @media (max-width:860px){.app{grid-template-columns:64px 1fr}.nav-item span.txt,.nav-label,.sidebar-foot,.top-search{display:none}
+    @media (max-width:860px){.app{grid-template-columns:64px 1fr}.nav-item span.txt,.nav-label,.sidebar-foot,.topbar .top-search{display:none}
       /* Schmale Icon-Leiste: der Zaehler-Badge wuerde am Rand abgeschnitten -> als kleinen Punkt auf das Icon setzen */
       .nav-item{position:relative;justify-content:center;padding:9px 0}
       .nav-item .count{position:absolute;top:3px;right:9px;margin:0;min-width:16px;padding:0 4px;line-height:16px;height:16px;text-align:center;font-size:10px;box-shadow:0 0 0 2px var(--panel)}}
@@ -690,7 +690,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.4';
+  const APP_VERSION = '1.9.5';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
