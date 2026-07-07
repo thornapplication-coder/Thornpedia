@@ -123,6 +123,21 @@ export async function run(base) {
       if (w > 391) allOk = false;
     }
     t.check('iPhone (390px): kein horizontaler Overflow', allOk, JSON.stringify(widths));
+
+    // Regression: Auf Mobil-Viewports muss das Suchfeld im Suche-Tab und das
+    // Bibliotheks-Filterfeld sichtbar sein – nur die Kopfzeilen-Suche wird versteckt.
+    const vis = await page.evaluate(() => {
+      const visible = (el) => !!el && el.offsetParent !== null && el.getBoundingClientRect().width > 0;
+      window.WA.switchView('search');
+      const search = visible(document.querySelector('#search-input'));
+      const topbar = visible(document.querySelector('#top-search-input'));
+      window.WA.switchView('lib');
+      const libq = visible(document.querySelector('#lib-q'));
+      return { search, topbar, libq };
+    });
+    t.check('iPhone: Suchfeld im Suche-Tab sichtbar', vis.search === true, JSON.stringify(vis));
+    t.check('iPhone: Bibliotheks-Filterfeld sichtbar', vis.libq === true, JSON.stringify(vis));
+    t.check('iPhone: Kopfzeilen-Suche bleibt versteckt', vis.topbar === false, JSON.stringify(vis));
     await ctx.close();
   }
 
