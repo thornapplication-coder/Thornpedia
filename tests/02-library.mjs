@@ -27,10 +27,14 @@ export async function run(base) {
   }));
   t.check('Bibliothek zeigt 3 Zeilen', lib.hasTable && lib.rows === 3, JSON.stringify(lib));
 
+  // Standard-Sortierung ist Name A–Z → budget.xlsx zuerst (ohne Klick).
+  const firstDefault = await page.evaluate(() => document.querySelector('#lib-content tbody tr .fname')?.textContent);
+  t.check('Standard-Sortierung Name A–Z', firstDefault === 'budget.xlsx', firstDefault);
+  // Klick auf die Namensspalte dreht auf Z–A.
   await page.click('#lib-content th[data-sort="name"]');
   await page.waitForTimeout(150);
-  const first = await page.evaluate(() => document.querySelector('#lib-content tbody tr .fname')?.textContent);
-  t.check('Sortierung nach Name (A-Z)', first === 'budget.xlsx', first);
+  const firstDesc = await page.evaluate(() => document.querySelector('#lib-content tbody tr .fname')?.textContent);
+  t.check('Namensspalte togglet auf Z–A', firstDesc === 'projektkonzept.docx', firstDesc);
 
   // Duplikat -> Dialog -> Überspringen
   await page.evaluate(async () => {
