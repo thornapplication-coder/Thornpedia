@@ -170,7 +170,11 @@
     .forum-grp{padding:7px 9px;border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:14px}
     .forum-grp:hover{background:var(--bg-alt)}
     .forum-grp.on{background:var(--surface-accent);color:var(--primary);font-weight:bold}
-    .forum-sub{margin-left:16px;font-size:13px}
+    .forum-topic{font-weight:bold}
+    .forum-sub{margin-left:16px;font-size:13px;font-weight:normal}
+    .fo-chev{border:0;background:transparent;cursor:pointer;color:var(--text-muted);font-size:11px;padding:0 2px;flex:none;line-height:1;transition:transform .15s;display:inline-block}
+    .fo-chev.collapsed{transform:rotate(-90deg)}
+    .fo-chev-spacer{width:15px;flex:none}
     .forum-card{border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px;background:var(--panel);cursor:pointer}
     .forum-card:hover{border-color:var(--secondary)}
     .forum-att{max-width:100%;border-radius:8px;border:1px solid var(--line);margin:6px 8px 0 0;vertical-align:top}
@@ -701,7 +705,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.6';
+  const APP_VERSION = '1.9.7';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -727,7 +731,7 @@
     catalog:[],                 // [{id,name,ext,type,size,importedAt,scanned,pageCount,tags,note,unitCount}]
     indexCache:new Map(),       // id -> vollständiges Index-Objekt
     lastHits:[],                // letzte Suchtreffer
-    lib:{ sort:'importedAt', dir:'desc', type:'all', tag:null, q:'' , selected:new Set(), collapsed:new Set() },
+    lib:{ sort:'name', dir:'asc', type:'all', tag:null, q:'' , selected:new Set(), collapsed:new Set() },
     search:{ q:'', types:new Set(SUPPORTED.map(typeOf)), tag:null, selected:new Set(), mode:'text', scope:'all' },
     curDoc:null,                // {doc, ref, terms, page}
     pdfView:{docId:null,pdf:null}, // gecachtes PDF.js-Dokument fuer den Viewer
@@ -1088,7 +1092,7 @@
     if(L.tag) rows=rows.filter(r=>(r.tags||[]).includes(L.tag));
     if(L.q){ const q=L.q.toLowerCase(); rows=rows.filter(r=>r.name.toLowerCase().includes(q)||(r.note||'').toLowerCase().includes(q)||(r.tags||[]).some(t=>t.toLowerCase().includes(q))); }
     const dir=L.dir==='asc'?1:-1;
-    rows.sort((a,b)=>{ let x=a[L.sort],y=b[L.sort]; if(L.sort==='name'){x=(x||'').toLowerCase();y=(y||'').toLowerCase();} if(x<y)return -1*dir; if(x>y)return 1*dir; return 0; });
+    rows.sort((a,b)=>{ if(L.sort==='name') return dir*(a.name||'').localeCompare(b.name||'',undefined,{numeric:true,sensitivity:'base'}); let x=a[L.sort],y=b[L.sort]; if(x<y)return -1*dir; if(x>y)return 1*dir; return 0; });
     const types=['all','pdf','docx','xlsx','csv','txt','md'];
     const tagChips=allTags().map(t=>`<span class="chip ${L.tag===t?'on':''}" data-libtag="${esc(t)}">🏷 ${esc(t)}</span>`).join(' ');
     const sel=L.selected;
@@ -1403,14 +1407,24 @@
     if(state.forumView==='edit'){ renderForumEditor(el); return; }
     if(state.forumView==='entry'&&state.forumEntryId){ renderForumEntry(el); return; }
     const de=state.settings.lang==='de'; const sel=state.forumSel; const groups=forumGroups();
+    if(!state.forumCollapsed)state.forumCollapsed=new Set();
+    // Themen und Untergruppen alphabetisch (numerisch-tolerant, z. B. „6000" vor „6500").
+    const foCmp=(a,b)=>(a.name||'').toLowerCase().localeCompare((b.name||'').toLowerCase(),undefined,{numeric:true,sensitivity:'base'});
+    const sortedGroups=groups.slice().sort(foCmp);
     const grpHtml=`<div class="panel panel-pad">
       <div class="row" style="justify-content:space-between;margin-bottom:8px"><h4>${tr('fo-themes')}</h4><button class="btn sm neutral" id="fo-addgrp">${tr('fo-newtheme')}</button></div>
       <div class="forum-grp ${sel.gid===null?'on':''}" data-fg="">📋 ${tr('fo-allentries')}</div>
-      ${groups.map(g=>`
-        <div class="forum-grp ${sel.gid===g.id&&!sel.sid?'on':''}" data-fg="${esc(g.id)}"><span style="flex:1;min-width:0;word-break:break-word">💬 ${esc(g.name)}</span><button class="btn xs neutral" data-fgren="${esc(g.id)}" aria-label="${tr('fo-rename')}">✎</button><button class="btn xs danger" data-fgdel="${esc(g.id)}" aria-label="${tr('fo-delete')}">🗑</button></div>
-        ${(g.subs||[]).map(s=>`<div class="forum-grp forum-sub ${sel.gid===g.id&&sel.sid===s.id?'on':''}" data-fg="${esc(g.id)}" data-fs="${esc(s.id)}"><span style="flex:1;min-width:0;word-break:break-word">↳ ${esc(s.name)}</span><button class="btn xs neutral" data-fsren="${esc(g.id)}|${esc(s.id)}" aria-label="${tr('fo-rename')}">✎</button><button class="btn xs danger" data-fsdel="${esc(g.id)}|${esc(s.id)}" aria-label="${tr('fo-delete')}">🗑</button></div>`).join('')}
+      ${sortedGroups.map(g=>{
+        const subs=(g.subs||[]).slice().sort(foCmp);
+        const hasSubs=subs.length>0; const isColl=state.forumCollapsed.has(g.id);
+        const chev=hasSubs
+          ? `<button class="fo-chev ${isColl?'collapsed':''}" data-fgtoggle="${esc(g.id)}" aria-label="${de?'Untergruppen ein-/ausklappen':'Toggle subgroups'}" aria-expanded="${isColl?'false':'true'}">▾</button>`
+          : `<span class="fo-chev-spacer"></span>`;
+        return `
+        <div class="forum-grp forum-topic ${sel.gid===g.id&&!sel.sid?'on':''}" data-fg="${esc(g.id)}">${chev}<span style="flex:1;min-width:0;word-break:break-word">💬 ${esc(g.name)}</span><button class="btn xs neutral" data-fgren="${esc(g.id)}" aria-label="${tr('fo-rename')}">✎</button><button class="btn xs danger" data-fgdel="${esc(g.id)}" aria-label="${tr('fo-delete')}">🗑</button></div>
+        ${hasSubs&&!isColl?subs.map(s=>`<div class="forum-grp forum-sub ${sel.gid===g.id&&sel.sid===s.id?'on':''}" data-fg="${esc(g.id)}" data-fs="${esc(s.id)}"><span style="flex:1;min-width:0;word-break:break-word">↳ ${esc(s.name)}</span><button class="btn xs neutral" data-fsren="${esc(g.id)}|${esc(s.id)}" aria-label="${tr('fo-rename')}">✎</button><button class="btn xs danger" data-fsdel="${esc(g.id)}|${esc(s.id)}" aria-label="${tr('fo-delete')}">🗑</button></div>`).join(''):''}
         ${sel.gid===g.id?`<div style="margin:2px 0 10px 16px"><button class="btn xs neutral" data-fsadd="${esc(g.id)}">${tr('fo-newsub')}</button></div>`:''}
-      `).join('')||`<p style="color:var(--text-muted);font-size:13px">${tr('fo-nothemes')}</p>`}
+      `;}).join('')||`<p style="color:var(--text-muted);font-size:13px">${tr('fo-nothemes')}</p>`}
     </div>`;
     if(!state.forumFilter)state.forumFilter={status:'',tag:'',q:''};
     if(!state.forumSort)state.forumSort='new';
@@ -1445,6 +1459,7 @@
     $$('[data-fgren]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();foRenameGroup(b.dataset.fgren);});
     $$('[data-fgdel]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();foDeleteGroup(b.dataset.fgdel);});
     $$('[data-fsadd]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();foAddSub(b.dataset.fsadd);});
+    $$('[data-fgtoggle]',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const g=b.dataset.fgtoggle; if(state.forumCollapsed.has(g))state.forumCollapsed.delete(g); else state.forumCollapsed.add(g); renderForum(); });
     $$('[data-fsren]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();const[g,s]=b.dataset.fsren.split('|');foRenameSub(g,s);});
     $$('[data-fsdel]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();const[g,s]=b.dataset.fsdel.split('|');foDeleteSub(g,s);});
     const ne=$('#fo-newentry',el); if(ne)ne.onclick=()=>{ state.forumEditId=null; state.forumView='edit'; renderForum(); };
@@ -1573,7 +1588,7 @@
   function foAddGroup(){ promptDlg({title:tr('fo-newtheme'),label:tr('fo-theme-name'),icon:'💬'},'',async(v)=>{ v=(v||'').trim(); if(!v)return; forumGroups().push({id:foUuid(),name:v,subs:[]}); await saveForum(); renderForum(); }); }
   function foRenameGroup(gid){ const g=forumGroup(gid); if(!g)return; promptDlg({title:tr('fo-rename'),label:tr('fo-theme-name'),icon:'✎'},g.name,async(v)=>{ v=(v||'').trim(); if(!v)return; g.name=v; await saveForum(); renderForum(); }); }
   async function foDeleteGroup(gid){ if(!confirm(tr('fo-del-theme')))return; for(const c of forumEntries().filter(e=>e.forum&&e.forum.gid===gid)) await deleteDoc(c.id,true); state.forum.groups=forumGroups().filter(g=>g.id!==gid); if(state.forumSel&&state.forumSel.gid===gid)state.forumSel={gid:null,sid:null}; await saveCatalog(); await saveForum(); renderForum(); }
-  function foAddSub(gid){ const g=forumGroup(gid); if(!g)return; promptDlg({title:tr('fo-newsub'),label:tr('fo-sub-name'),icon:'↳'},'',async(v)=>{ v=(v||'').trim(); if(!v)return; g.subs=g.subs||[]; g.subs.push({id:foUuid(),name:v}); await saveForum(); renderForum(); }); }
+  function foAddSub(gid){ const g=forumGroup(gid); if(!g)return; promptDlg({title:tr('fo-newsub'),label:tr('fo-sub-name'),icon:'↳'},'',async(v)=>{ v=(v||'').trim(); if(!v)return; g.subs=g.subs||[]; g.subs.push({id:foUuid(),name:v}); if(state.forumCollapsed)state.forumCollapsed.delete(gid); await saveForum(); renderForum(); }); }
   function foRenameSub(gid,sid){ const s=forumSub(forumGroup(gid),sid); if(!s)return; promptDlg({title:tr('fo-rename'),label:tr('fo-sub-name'),icon:'✎'},s.name,async(v)=>{ v=(v||'').trim(); if(!v)return; s.name=v; await saveForum(); renderForum(); }); }
   async function foDeleteSub(gid,sid){ if(!confirm(tr('fo-del-sub')))return; const g=forumGroup(gid); if(!g)return; g.subs=(g.subs||[]).filter(s=>s.id!==sid); for(const c of forumEntries().filter(e=>e.forum&&e.forum.gid===gid&&e.forum.sid===sid)){ const full=await getIndex(c.id).catch(()=>null); if(full){ full.forum=full.forum||{}; full.forum.sid=null; await foSaveEntry(full); } } if(state.forumSel&&state.forumSel.gid===gid&&state.forumSel.sid===sid)state.forumSel={gid,sid:null}; await saveForum(); renderForum(); }
   // Eine Anhang-Datei (Bild, Video oder Dokument) im Forum-Ordner ablegen und die

@@ -150,6 +150,73 @@ export async function run(base) {
   });
   t.check('Forum: Datei-Anhang übersteht Backup-Restore', rt.restored === true, JSON.stringify(rt));
 
+  // Forum-Seitenleiste: Themen fett, Themen + Untergruppen alphabetisch, Untergruppen ein-/ausklappbar.
+  const side = await page.evaluate(async () => {
+    const WA = window.WA;
+    WA.state.forum = { groups: [
+      { id: 'gz', name: 'Zulu', subs: [{ id: 's2', name: 'Yankee' }, { id: 's1', name: 'Alpha' }] },
+      { id: 'ga', name: 'Alpha-Thema', subs: [] },
+      { id: 'g1', name: 'Checklisten', subs: [] },
+    ] };
+    await WA.saveForum();
+    WA.state.forumSel = { gid: null, sid: null }; WA.state.forumView = 'list';
+    WA.switchView('forum');
+    await new Promise(r => setTimeout(r, 150));
+    const topics = [...document.querySelectorAll('#forum-content .forum-topic')];
+    const nameOf = (el) => el.querySelector('span[style]').textContent.trim().replace(/^\S+\s+/, '');
+    const topicNames = topics.map(nameOf);
+    const bold = topics.length > 0 && topics.every(t => { const fw = getComputedStyle(t).fontWeight; return fw === 'bold' || +fw >= 600; });
+    const subsBefore = [...document.querySelectorAll('#forum-content .forum-sub')].map(nameOf);
+    let zuluChev = null;
+    for (const t of topics) { const c = t.querySelector('.fo-chev'); if (c) { zuluChev = c; break; } }
+    if (zuluChev) zuluChev.click();
+    await new Promise(r => setTimeout(r, 120));
+    const subsAfter = document.querySelectorAll('#forum-content .forum-sub').length;
+    return { topicNames, bold, subsBefore, subsAfter };
+  });
+  t.check('Forum: Themen sind fett', side.bold === true, JSON.stringify(side));
+  t.check('Forum: Themen alphabetisch geordnet', JSON.stringify(side.topicNames) === JSON.stringify(['Alpha-Thema', 'Checklisten', 'Zulu']), JSON.stringify(side.topicNames));
+  t.check('Forum: Untergruppen alphabetisch geordnet', JSON.stringify(side.subsBefore) === JSON.stringify(['Alpha', 'Yankee']), JSON.stringify(side.subsBefore));
+  t.check('Forum: Untergruppen ein-/ausklappbar', side.subsBefore.length === 2 && side.subsAfter === 0, JSON.stringify(side));
+
+  // Such-Frische: NEU hochgeladene Dokumente und NEUE Forum-Einträge/Kommentare
+  // müssen sofort (ohne Reload) in der Suche auftauchen – der indexCache darf nicht veralten.
+  const fresh = await page.evaluate(async () => {
+    const WA = window.WA;
+    WA.state.forumView = 'list';   // kein Eintrags-Render mit Anhang-Blobs während foAddComment
+    // 1) frisch importiertes Dokument mit eindeutigem Begriff
+    const uniqDoc = 'Zebrastreifenkontrolle';
+    await WA.importFiles([new File([uniqDoc + ' Testinhalt'], 'frisch.txt', { type: 'text/plain' })]);
+    document.querySelector('#search-input').value = uniqDoc; WA.state.search.q = uniqDoc;
+    await WA.runSearch();
+    const docHit = WA.state.lastHits.some(h => h.name === 'frisch.txt');
+    // 2) frischer Forum-Eintrag mit eindeutigem Begriff im Titel
+    const uniqFo = 'Quastenflossergruppe';
+    await WA.foSaveEntry({ id: 'fresh-fo', name: uniqFo, body: 'Rumpftext', type: 'forum', ext: 'forum', importedAt: new Date().toISOString(), tags: [], status: '', forum: { gid: 'g1', sid: null }, comments: [], attachments: [] });
+    document.querySelector('#search-input').value = uniqFo; WA.state.search.q = uniqFo;
+    await WA.runSearch();
+    const foHit = WA.state.lastHits.some(h => h.type === 'forum' && h.name === uniqFo);
+    // 3) frischer Kommentar mit eindeutigem Begriff
+    const uniqCmt = 'Nashornkaefertreffen';
+    const e = await WA.getIndex('fresh-fo');
+    await WA.foAddComment(e, uniqCmt + ' im Kommentar', []);
+    document.querySelector('#search-input').value = uniqCmt; WA.state.search.q = uniqCmt;
+    await WA.runSearch();
+    const cmtHit = WA.state.lastHits.some(h => h.type === 'forum');
+    return { docHit, foHit, cmtHit };
+  });
+  t.check('Suche findet frisch importiertes Dokument sofort', fresh.docHit === true, JSON.stringify(fresh));
+  t.check('Suche findet frischen Forum-Eintrag sofort', fresh.foHit === true, JSON.stringify(fresh));
+  t.check('Suche findet frischen Forum-Kommentar sofort', fresh.cmtHit === true, JSON.stringify(fresh));
+
+  // Aufräumen, damit die Trefferzahlen der Folgeprüfungen stabil bleiben.
+  await page.evaluate(async () => {
+    for (const id of ['fresh-fo']) { try { await window.WA.state.dirs.index.removeEntry(id + '.json'); } catch (_) {} }
+    const f = window.WA.state.catalog.find(c => c.name === 'frisch.txt');
+    if (f) { try { await window.WA.state.dirs.index.removeEntry(f.id + '.json'); } catch (_) {} }
+    await window.WA.rebuildCatalog();
+  });
+
   await page.evaluate(() => { window.WA.state.forumView = 'list'; window.WA.switchView('search'); });
   // Zurück zur Basissuche, damit die folgenden Prüfungen unbeeinflusst bleiben
   await page.evaluate(async () => { document.querySelector('#search-input').value = 'Kuendigungsfrist'; window.WA.state.search.q = 'Kuendigungsfrist'; await window.WA.runSearch(); });
