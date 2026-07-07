@@ -98,7 +98,7 @@ export async function run(base) {
   // Export-Guard bei leerer Trefferliste
   const guard = await page.evaluate(async () => {
     window.WA.state.lastHits = []; window.WA.state.search.q = 'x'; window.WA.state.search.selected.clear();
-    try { await window.WA.exportReport('xlsx', 'hits'); return true; } catch (e) { return e.message; }
+    try { await window.WA.exportReport('xlsx'); return true; } catch (e) { return e.message; }
   });
   t.check('Leer-Export wirft nicht', guard === true, guard);
 

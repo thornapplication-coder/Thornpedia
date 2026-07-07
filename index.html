@@ -8,7 +8,7 @@
        OneDrive-Content-Hosts, auf die Graph beim Up-/Download umleitet). Ein
        kompromittiertes vendor-Skript kann Daten damit an keinen fremden Host
        senden. 'wasm-unsafe-eval' wird fuer PDF.js/Tesseract-WASM benoetigt. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: https://api.anthropic.com https://graph.microsoft.com https://login.microsoftonline.com https://*.1drv.com https://*.livefilestore.com https://*.microsoftpersonalcontent.com https://storage.live.com https://*.sharepoint.com https://*.svc.ms; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; manifest-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: https://api.anthropic.com https://graph.microsoft.com https://login.microsoftonline.com https://*.1drv.com https://*.livefilestore.com https://*.microsoftpersonalcontent.com https://storage.live.com https://*.sharepoint.com https://*.svc.ms; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; manifest-src 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wissensarchiv</title>
   <meta name="description" content="Persönliche, offline-fähige Wissensdatenbank – alle Daten liegen als echte Dateien auf deiner Festplatte.">
@@ -248,7 +248,6 @@
     #update-banner button.upd-apply:disabled{opacity:.6;cursor:default}
     #update-banner button.upd-x{border:none;background:transparent;color:var(--text-muted);font-size:18px;line-height:1;cursor:pointer;padding:2px 6px}
 
-    .stat{display:flex;flex-direction:column;gap:3px}
     .busy{display:inline-block;width:15px;height:15px;border:2px solid var(--line);border-top-color:var(--primary);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px}
     @keyframes spin{to{transform:rotate(360deg)}}
 
@@ -607,7 +606,7 @@
           <p style="margin:0 0 2px;font-weight:600">Wissensarchiv</p>
           <p style="color:var(--text-muted);margin:0 0 12px;font-size:12px" id="about-version"></p>
           <div style="border-top:1px solid var(--line);padding-top:12px;line-height:1.65">
-            <p style="margin:0 0 10px" data-i18n="about-1">Wissensarchiv bündelt deine Dokumente, Notizen und Themen an einem Ort – vollständig offline und ohne Konto. PDFs, Word-, Excel- und Textdateien werden importiert, per Volltext durchsucht (inklusive OCR für Scans) und zu übersichtlichen Zusammenfassungen und Exporten verarbeitet. Ein integriertes Forum mit Themen, Untergruppen, Kommentaren und Anhängen hält alles strukturiert und auffindbar.</p>
+            <p style="margin:0 0 10px" data-i18n="about-1">Wissensarchiv bündelt deine Dokumente, Notizen und Themen an einem Ort – vollständig offline und ohne Konto. PDFs, Word-, Excel- und Textdateien werden importiert, per Volltext durchsucht (inklusive OCR für Scans) und zu übersichtlichen Exporten verarbeitet. Ein integriertes Forum mit Themen, Untergruppen, Kommentaren und Anhängen hält alles strukturiert und auffindbar.</p>
             <p style="margin:0" data-i18n="about-2">Auf Wunsch lässt sich das Archiv mit OneDrive verknüpfen und wird dann automatisch auf all deinen Geräten synchronisiert – über deinen eigenen Zugang, ohne fremden Server. Deine Daten bleiben immer bei dir.</p>
           </div>
         </div>
@@ -691,7 +690,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.3';
+  const APP_VERSION = '1.9.4';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -718,7 +717,7 @@
     indexCache:new Map(),       // id -> vollständiges Index-Objekt
     lastHits:[],                // letzte Suchtreffer
     lib:{ sort:'importedAt', dir:'desc', type:'all', tag:null, q:'' , selected:new Set(), collapsed:new Set() },
-    search:{ q:'', types:new Set(SUPPORTED.map(typeOf)), from:'', to:'', tag:null, selected:new Set(), mode:'text', scope:'all' },
+    search:{ q:'', types:new Set(SUPPORTED.map(typeOf)), tag:null, selected:new Set(), mode:'text', scope:'all' },
     curDoc:null,                // {doc, ref, terms, page}
     pdfView:{docId:null,pdf:null}, // gecachtes PDF.js-Dokument fuer den Viewer
     _renderSeq:0, _renderTask:null,
@@ -748,7 +747,7 @@
 
   // ---------- Theme ----------
   function applyTheme(t){ state.settings.theme=t; if(t==='auto')document.documentElement.removeAttribute('data-theme'); else document.documentElement.setAttribute('data-theme',t); $('#theme-btn').textContent=t==='dark'?'🌙':t==='light'?'☀️':'🌓'; $$('#theme-seg button').forEach(b=>b.classList.toggle('on',b.dataset.themeVal===t)); try{localStorage.setItem('wa.theme',t);}catch(e){} }
-  function cycleTheme(){ const o=['auto','light','dark']; applyTheme(o[(o.indexOf(state.settings.theme)+1)%3]); persistSettings(); }
+  function cycleTheme(){ const o=['auto','light','dark']; applyTheme(o[(o.indexOf(state.settings.theme)+1)%3]); persistSettings(); odMarkDirty(); }
 
   // ---------- i18n ----------
   const I18N = {
@@ -804,7 +803,6 @@
     'set-tags':['Tags verwalten','Manage tags'],'set-tags-p':['Tags über alle Dokumente umbenennen, zusammenführen oder löschen.','Rename, merge or delete tags across all documents.'],
     'tags-none':['Noch keine Tags vergeben.','No tags yet.'],'tag-rename':['Umbenennen','Rename'],'tag-del':['Löschen','Delete'],
     'sh-recent':['Zuletzt gesucht:','Recent searches:'],'sh-clear':['Verlauf leeren','Clear history'],
-    'f-from':['Von (Importdatum)','From (import date)'],'f-to':['Bis (Importdatum)','To (import date)'],
     'nav-forum':['Forum','Forum'],'forum-p':['Eigene Themen und Untergruppen mit Einträgen, Kommentaren und Anhängen (Bild, Video, PDF, Word, Excel …) – alles wird durchsucht.','Your own topics and subgroups with entries, comments and attachments (image, video, PDF, Word, Excel …) – all searchable.'],
     'fo-themes':['Themen','Topics'],'fo-newtheme':['+ Thema','+ Topic'],'fo-newsub':['+ Untergruppe','+ Subgroup'],'fo-allentries':['Alle Einträge','All entries'],
     'fo-sub':['Untergruppe','Subgroup'],
@@ -819,7 +817,7 @@
     'set-info-opfs':['Auf diesem Gerät/Browser gibt es keinen Ordner-Zugriff. Die Daten liegen dauerhaft im App-Speicher des Browsers und bleiben nach dem Schließen erhalten. Für einen echten Ordner (z. B. auf einem USB-Stick) öffne die App in Chrome oder Edge am Computer.','This device/browser has no folder access. Data is stored permanently in the browser’s app storage and stays after closing. For a real folder (e.g. on a USB stick) open the app in Chrome or Edge on a computer.'],
     'set-offline':['Offline-Betrieb wird eingerichtet …','Setting up offline mode …'],'set-offline-on':['Offline-Betrieb aktiv (App als PWA installierbar).','Offline mode active (installable as a PWA).'],'set-offline-off':['Offline-Betrieb nicht verfügbar (nur über https/localhost).','Offline mode unavailable (needs https/localhost).'],
     'set-about':['Über','About'],
-    'about-1':['Wissensarchiv bündelt deine Dokumente, Notizen und Themen an einem Ort – vollständig offline und ohne Konto. PDFs, Word-, Excel- und Textdateien werden importiert, per Volltext durchsucht (inklusive OCR für Scans) und zu übersichtlichen Zusammenfassungen und Exporten verarbeitet. Ein integriertes Forum mit Themen, Untergruppen, Kommentaren und Anhängen hält alles strukturiert und auffindbar.','Wissensarchiv brings your documents, notes and topics together in one place – fully offline and without an account. Import PDFs, Word, Excel and text files, search them full-text (including OCR for scans) and turn them into clear summaries and exports. A built-in forum with topics, subgroups, comments and attachments keeps everything structured and findable.'],
+    'about-1':['Wissensarchiv bündelt deine Dokumente, Notizen und Themen an einem Ort – vollständig offline und ohne Konto. PDFs, Word-, Excel- und Textdateien werden importiert, per Volltext durchsucht (inklusive OCR für Scans) und zu übersichtlichen Exporten verarbeitet. Ein integriertes Forum mit Themen, Untergruppen, Kommentaren und Anhängen hält alles strukturiert und auffindbar.','Wissensarchiv brings your documents, notes and topics together in one place – fully offline and without an account. Import PDFs, Word, Excel and text files, search them full-text (including OCR for scans) and turn them into clear exports. A built-in forum with topics, subgroups, comments and attachments keeps everything structured and findable.'],
     'about-2':['Auf Wunsch lässt sich das Archiv mit OneDrive verknüpfen und wird dann automatisch auf all deinen Geräten synchronisiert – über deinen eigenen Zugang, ohne fremden Server. Deine Daten bleiben immer bei dir.','If you like, the archive can be linked to OneDrive and then syncs automatically across all your devices – through your own account, with no third-party server. Your data always stays with you.'],
     'rc-h':['Ordner erneut verbinden','Reconnect folder'],'rc-p':['Der Browser hat die Berechtigung für deinen Datenordner zurückgesetzt. Deine Dateien sind unverändert auf der Festplatte – bitte den Ordner einmal neu bestätigen.','The browser reset permission for your data folder. Your files are untouched on disk – please confirm the folder once more.'],'rc-other':['Anderen Ordner wählen','Choose another folder'],'rc-btn':['Verbinden','Connect'],
     'dup-h':['Duplikat gefunden','Duplicate found'],'dup-all':['Für alle weiteren Duplikate übernehmen','Apply to all further duplicates'],'dup-skip':['Überspringen','Skip'],'dup-replace':['Ersetzen','Replace'],
@@ -860,7 +858,7 @@
   const tr = (key) => (I18N[key]||['',''])[state.settings.lang==='de'?0:1];
   const locale = () => state.settings.lang==='de' ? 'de-DE' : 'en-GB';
   function applyLang(lang){ state.settings.lang=lang; const i=lang==='de'?0:1; document.documentElement.lang=lang;
-    $$('[data-i18n]').forEach(n=>{const t=I18N[n.getAttribute('data-i18n')];if(t)n.innerHTML=t[i].replace('{v}',APP_VERSION);});
+    $$('[data-i18n]').forEach(n=>{const t=I18N[n.getAttribute('data-i18n')];if(t)n.innerHTML=t[i];});
     $$('[data-i18n-ph]').forEach(n=>{const t=I18N[n.getAttribute('data-i18n-ph')];if(t)n.placeholder=t[i];});
     $$('[data-i18n-title]').forEach(n=>{const t=I18N[n.getAttribute('data-i18n-title')];if(t){n.title=t[i];n.setAttribute('aria-label',t[i]);}});
     const fv=$('#foot-version'); if(fv)fv.textContent='Version '+APP_VERSION;
@@ -899,7 +897,7 @@
   // die von zwischenzeitlich verworfenen (debounce-ueberholten) Aufrufen, damit
   // ein `await persistSettings()` (z. B. in maybeAutoBackup) nie haengen bleibt.
   function persistSettings(){ return new Promise(res=>{ _psWaiters.push(res); clearTimeout(_pt); _pt=setTimeout(async()=>{ const ws=_psWaiters; _psWaiters=[]; _pt=null; try{ if(state.dirs.meta) await writeFile(state.dirs.meta,'settings.json',JSON.stringify(state.settings,null,2)); }catch(e){console.warn(e);} ws.forEach(r=>r()); },150); }); }
-  async function saveApiKey(k){ state.apiKey=k.trim(); await writeFile(state.dirs.meta,'apikey.txt',state.apiKey); }
+  async function saveApiKey(k){ state.apiKey=k.trim(); await writeFile(state.dirs.meta,'apikey.txt',state.apiKey); if(state.booted && state.settings.odSyncKey===true)odMarkDirty(); }
 
   // ---------- Katalog & Index ----------
   // Zaehlt Index-Dateien ohne sie zu parsen – guenstiger Konsistenz-Check.
@@ -1088,14 +1086,16 @@
     // Nach Tags gruppieren: jedes Dokument erscheint unter jeder seiner Kategorien,
     // Dokumente ohne Tag in einer eigenen Gruppe am Ende. So bilden die Tags
     // Überschriften und die Bibliothek ist übersichtlich unterteilt statt „eine Wurst".
-    const UNTAG='__untagged__';
+    // Gruppenschlüssel sind präfixiert ('t:'+Tag bzw. 'u:'), damit ein Nutzer-Tag
+    // niemals mit dem „Ohne Tags"-Sentinel kollidieren kann.
+    const UNTAG='u:', keyOf=(t)=>'t:'+t;
     const groups=new Map();
     for(const r of rows){
       const ts=(r.tags||[]).filter(Boolean);
-      if(ts.length){ for(const t of ts){ if(!groups.has(t))groups.set(t,[]); groups.get(t).push(r); } }
+      if(ts.length){ for(const t of ts){ const k=keyOf(t); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(r); } }
       else { if(!groups.has(UNTAG))groups.set(UNTAG,[]); groups.get(UNTAG).push(r); }
     }
-    const tagKeys=[...groups.keys()].filter(k=>k!==UNTAG).sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base'}));
+    const tagKeys=[...groups.keys()].filter(k=>k!==UNTAG).sort((a,b)=>a.slice(2).localeCompare(b.slice(2),undefined,{sensitivity:'base'}));
     const orderedKeys=tagKeys.concat(groups.has(UNTAG)?[UNTAG]:[]);
     // Flache Liste (keine Gruppen-Kopfzeilen), wenn ohnehin nur eine Kategorie greift:
     // ausschließlich untaggte Dokumente – oder der Nutzer hat bereits per Tag-Chip gefiltert.
@@ -1110,7 +1110,7 @@
       groupsHtml=orderedKeys.map(k=>{
         const grp=groups.get(k);
         const collapsed=L.collapsed.has(k);
-        const title=k===UNTAG?(de2?'Ohne Tags':'Untagged'):('🏷 '+esc(k));
+        const title=k===UNTAG?(de2?'Ohne Tags':'Untagged'):('🏷 '+esc(k.slice(2)));
         return `<div class="lib-group">
           <button class="lib-group-head ${collapsed?'collapsed':''}" data-grpkey="${encodeURIComponent(k)}" aria-expanded="${collapsed?'false':'true'}">
             <span class="chev">▾</span><span class="lib-group-title">${title}</span><span class="lib-group-count">${grp.length}</span>
@@ -1129,7 +1129,7 @@
       </div>
       ${sel.size?`<div class="notice info" style="margin-bottom:12px"><span>☑</span><span>${sel.size} ${tr('sel-count')} →</span> <button class="btn sm" id="batch-tag">🏷 ${tr('batch-tag')}</button> <button class="btn sm danger" id="batch-del">🗑 ${tr('batch-delete')}</button> <button class="btn sm ghost" id="batch-clear">✕</button></div>`:''}
       ${groupsHtml}`;
-    wireLibrary(el, rows);
+    wireLibrary(el);
   }
   // Eine Tabelle (Panel) mit Kopfzeile + Zeilen für eine Tag-Gruppe bzw. die flache Liste.
   function groupTableHtml(rows, sel, de2){
@@ -1176,7 +1176,7 @@
   </div>`; }
 
   function wireJump(root){ $$('[data-view-jump]',root).forEach(b=>b.onclick=()=>switchView(b.dataset.viewJump)); }
-  function wireLibrary(el, rows){
+  function wireLibrary(el){
     wireJump(el);
     $$('[data-libtype]',el).forEach(c=>c.onclick=()=>{ state.lib.type=c.dataset.libtype; renderLibrary(); });
     $$('[data-libtag]',el).forEach(c=>c.onclick=()=>{ state.lib.tag=state.lib.tag===c.dataset.libtag?null:c.dataset.libtag; renderLibrary(); });
@@ -1298,7 +1298,7 @@
   // Entfernt ein Tag von einem Dokument (Tags sind damit verwaltbar: hinzufuegen ueber
   // das Zeilenmenue, entfernen ueber das ✕ am Tag). Verschwindet ein Tag dadurch ganz,
   // wird es auch aus den aktiven Filtern entfernt.
-  async function removeTag(id, tag){ const doc=await getIndex(id).catch(()=>null); if(!doc)return; doc.tags=(doc.tags||[]).filter(t=>t!==tag); await persistDoc(doc); await saveCatalog(); const gone=!allTags().includes(tag); if(gone){ if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; } renderLibrary(); renderFilters(); renderTagAdmin(); }
+  async function removeTag(id, tag){ const doc=await getIndex(id).catch(()=>null); if(!doc)return; doc.tags=(doc.tags||[]).filter(t=>t!==tag); await persistDoc(doc); await saveCatalog(); const gone=!allTags().includes(tag); if(gone){ if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; state.lib.collapsed.delete('t:'+tag); } renderLibrary(); renderFilters(); renderTagAdmin(); }
   async function batchDelete(){ if(!confirm((state.settings.lang==='de'?'Ausgewählte löschen? ':'Delete selected? ')+state.lib.selected.size)){return;} for(const id of Array.from(state.lib.selected)) await deleteDoc(id,true); await saveCatalog(); refreshLibrary(); toast(state.settings.lang==='de'?'Gelöscht.':'Deleted.'); }
 
   // ---------- Tag-Verwaltung (global: umbenennen / zusammenführen / löschen) ----------
@@ -1310,7 +1310,8 @@
       const doc=await getIndex(c.id).catch(()=>null); if(!doc)continue;
       const set=new Set(doc.tags||[]); set.delete(oldTag); set.add(newTag);
       doc.tags=Array.from(set); await persistDoc(doc); changed++; }
-    if(changed){ await saveCatalog(); if(state.lib.tag===oldTag)state.lib.tag=newTag; if(state.search.tag===oldTag)state.search.tag=newTag; }
+    if(changed){ await saveCatalog(); if(state.lib.tag===oldTag)state.lib.tag=newTag; if(state.search.tag===oldTag)state.search.tag=newTag;
+      if(state.lib.collapsed.delete('t:'+oldTag))state.lib.collapsed.add('t:'+newTag); }   // Einklapp-Zustand mitnehmen
     renderTagAdmin(); renderLibrary(); renderFilters();
     toast(state.settings.lang==='de'?`Tag aktualisiert (${changed}).`:`Tag updated (${changed}).`,'ok');
   }
@@ -1321,7 +1322,7 @@
     for(const c of state.catalog){ if(c.type==='forum')continue; if(!(c.tags||[]).includes(tag))continue;
       const doc=await getIndex(c.id).catch(()=>null); if(!doc)continue;
       doc.tags=(doc.tags||[]).filter(t=>t!==tag); await persistDoc(doc); changed++; }
-    if(changed){ await saveCatalog(); if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; }
+    if(changed){ await saveCatalog(); if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; state.lib.collapsed.delete('t:'+tag); }
     renderTagAdmin(); renderLibrary(); renderFilters();
     toast(de?`Tag gelöscht (${changed}).`:`Tag deleted (${changed}).`,'ok');
   }
@@ -1504,7 +1505,7 @@
     const ai=$('#fo-attach-input',el); $('#fo-attach',el).onclick=()=>ai.click(); ai.onchange=()=>{ if(ai.files[0])foAddAttachment(e, ai.files[0]); };
     $$('[data-foattdel]',el).forEach(b=>b.onclick=()=>foDelAttachment(e, +b.dataset.foattdel));
     $$('[data-focmtdel]',el).forEach(b=>b.onclick=()=>foDelComment(e, +b.dataset.focmtdel));
-    // Bilder/Videos an einen bestehenden Kommentar anhängen bzw. entfernen
+    // Anhänge (Bild, Video, Datei) an einen bestehenden Kommentar anhängen bzw. entfernen
     $$('[data-focmtattadd]',el).forEach(b=>b.onclick=()=>{ const cix=+b.dataset.focmtattadd; const inp=document.createElement('input'); inp.type='file'; inp.accept=FO_ACCEPT; inp.onchange=()=>{ if(inp.files[0])foAddCommentAttachment(e, cix, inp.files[0]); }; inp.click(); });
     $$('[data-focmtattdel]',el).forEach(b=>b.onclick=()=>{ const [cix,aix]=b.dataset.focmtattdel.split('|').map(Number); foDelCommentAttachment(e, cix, aix); });
     // Kommentar verfassen – mit optionalen Bild-/Video-Anhängen (staged bis zum Absenden)
@@ -1563,21 +1564,28 @@
   function foAddSub(gid){ const g=forumGroup(gid); if(!g)return; promptDlg({title:tr('fo-newsub'),label:tr('fo-sub-name'),icon:'↳'},'',async(v)=>{ v=(v||'').trim(); if(!v)return; g.subs=g.subs||[]; g.subs.push({id:foUuid(),name:v}); await saveForum(); renderForum(); }); }
   function foRenameSub(gid,sid){ const s=forumSub(forumGroup(gid),sid); if(!s)return; promptDlg({title:tr('fo-rename'),label:tr('fo-sub-name'),icon:'✎'},s.name,async(v)=>{ v=(v||'').trim(); if(!v)return; s.name=v; await saveForum(); renderForum(); }); }
   async function foDeleteSub(gid,sid){ if(!confirm(tr('fo-del-sub')))return; const g=forumGroup(gid); if(!g)return; g.subs=(g.subs||[]).filter(s=>s.id!==sid); for(const c of forumEntries().filter(e=>e.forum&&e.forum.gid===gid&&e.forum.sid===sid)){ const full=await getIndex(c.id).catch(()=>null); if(full){ full.forum=full.forum||{}; full.forum.sid=null; await foSaveEntry(full); } } if(state.forumSel&&state.forumSel.gid===gid&&state.forumSel.sid===sid)state.forumSel={gid,sid:null}; await saveForum(); renderForum(); }
-  // Eine Datei (Bild/Video) im Forum-Ordner ablegen und die Metadaten liefern.
-  // Gemeinsame Basis fuer Eintrags- und Kommentar-Anhaenge.
+  // Eine Anhang-Datei (Bild, Video oder Dokument) im Forum-Ordner ablegen und die
+  // Metadaten liefern. Gemeinsame Basis fuer Eintrags- und Kommentar-Anhaenge.
+  // Limit 250 MB = OneDrive-Push-Grenze des Gesamt-ZIPs – ein groesserer Einzel-
+  // anhang wuerde die Cloud-Synchronisation dauerhaft blockieren.
   async function foStoreMedia(file){ if(!file)return null; const de=state.settings.lang==='de';
-    if(file.size>300*1024*1024){ toast(de?'Anhang zu groß (max. 300 MB).':'Attachment too large (max. 300 MB).','err'); return null; }
+    if(file.size>250*1024*1024){ toast(de?'Anhang zu groß (max. 250 MB).':'Attachment too large (max. 250 MB).','err'); return null; }
     const storedAs=foUuid()+'__'+String(file.name).replace(/[\\/]/g,'_');
     try{ await writeFile(state.dirs.forum, storedAs, await file.arrayBuffer()); }catch(err){ toast(de?'Anhang konnte nicht gespeichert werden.':'Could not save attachment.','err'); return null; }
     return {name:file.name, storedAs, kind:foMediaKind(file.name,file.type), size:file.size};
   }
+  // Schlaegt das Persistieren des Eintrags fehl, gespeicherte Anhang-Dateien wieder
+  // entfernen – sonst blieben sie verwaist in /forum liegen (und in jedem Backup).
+  async function foSaveOrCleanup(e, atts){ try{ await foSaveEntry(e); return true; }
+    catch(err){ for(const a of atts) await removeFile(state.dirs.forum, a.storedAs); toast((state.settings.lang==='de'?'Speichern fehlgeschlagen: ':'Saving failed: ')+err.message,'err'); return false; } }
   async function foAddComment(e, text, files){ text=(text||'').trim(); files=files||[]; if(!text&&!files.length)return;
     const atts=[]; for(const f of files){ const a=await foStoreMedia(f); if(a)atts.push(a); }
-    e.comments=e.comments||[]; e.comments.push({id:foUuid(), text, at:new Date().toISOString(), attachments:atts}); await foSaveEntry(e); renderForum(); }
+    e.comments=e.comments||[]; const cmt={id:foUuid(), text, at:new Date().toISOString(), attachments:atts};
+    e.comments.push(cmt); if(!await foSaveOrCleanup(e, atts)){ e.comments.pop(); } renderForum(); }
   async function foDelComment(e, i){ const c=(e.comments||[])[i]; if(c){ for(const a of (c.attachments||[])) await removeFile(state.dirs.forum, a.storedAs); } (e.comments||[]).splice(i,1); await foSaveEntry(e); renderForum(); }
-  async function foAddCommentAttachment(e, ci, file){ const c=(e.comments||[])[ci]; if(!c)return; const a=await foStoreMedia(file); if(!a)return; c.attachments=c.attachments||[]; c.attachments.push(a); await foSaveEntry(e); renderForum(); }
+  async function foAddCommentAttachment(e, ci, file){ const c=(e.comments||[])[ci]; if(!c)return; const a=await foStoreMedia(file); if(!a)return; c.attachments=c.attachments||[]; c.attachments.push(a); if(!await foSaveOrCleanup(e,[a])){ c.attachments.pop(); } renderForum(); }
   async function foDelCommentAttachment(e, ci, ai){ const c=(e.comments||[])[ci]; if(!c)return; const a=(c.attachments||[])[ai]; if(a) await removeFile(state.dirs.forum, a.storedAs); (c.attachments||[]).splice(ai,1); await foSaveEntry(e); renderForum(); }
-  async function foAddAttachment(e, file){ const a=await foStoreMedia(file); if(!a)return; e.attachments=e.attachments||[]; e.attachments.push(a); await foSaveEntry(e); renderForum(); }
+  async function foAddAttachment(e, file){ const a=await foStoreMedia(file); if(!a)return; e.attachments=e.attachments||[]; e.attachments.push(a); if(!await foSaveOrCleanup(e,[a])){ e.attachments.pop(); } renderForum(); }
   async function foDelAttachment(e, i){ const a=(e.attachments||[])[i]; if(a) await removeFile(state.dirs.forum, a.storedAs); (e.attachments||[]).splice(i,1); await foSaveEntry(e); renderForum(); }
   // Medienvorschau in voller Größe (Klick auf ein Thumbnail).
   function openMediaLightbox(url, kind){
@@ -1691,13 +1699,14 @@
     const hits=[];
     const allNeedles=[...qy.terms, ...qy.phrases];
     // Wortgrenzen-Regex je Begriff EINMAL vorkompilieren (Praezisions-Ranking).
-    const esc2=reEsc;
-    for(const nd of allNeedles){ nd.re=new RegExp('(^|[^a-z0-9])'+esc2(nd.f)+'([^a-z0-9]|$)'); }
+    for(const nd of allNeedles){ nd.re=new RegExp('(^|[^a-z0-9])'+reEsc(nd.f)+'([^a-z0-9]|$)'); }
     for(const c of state.catalog){
       if(idset&&!idset.has(c.id))continue;
       // Forum-Einträge sind immer durchsuchbar; der Dateityp-Filter gilt nur für echte Dateien.
       if(types&&c.type!=='forum'&&!types.has(c.type))continue;
       if(p.tag&&!(c.tags||[]).includes(p.tag))continue;
+      // from/to gibt es in der UI nicht mehr – nur noch fuer ALTE Live-Export-
+      // Definitionen (exports.json), die einen Zeitraum gespeichert haben koennten.
       if(p.from&&c.importedAt&&c.importedAt.slice(0,10)<p.from)continue;
       if(p.to&&c.importedAt&&c.importedAt.slice(0,10)>p.to)continue;
       const doc=state.indexCache.get(c.id); if(!doc)continue;
@@ -1726,7 +1735,7 @@
     hits.sort((a,b)=>b.score-a.score);
     return {terms:needles, hits};
   }
-  function currentSearchParams(){ return {q:state.search.q, types:Array.from(state.search.types), from:state.search.from, to:state.search.to, tag:state.search.tag, exact:state.search.mode==='exact', ids: state.search.scope==='selected'? Array.from(state.lib.selected) : null }; }
+  function currentSearchParams(){ return {q:state.search.q, types:Array.from(state.search.types), tag:state.search.tag, exact:state.search.mode==='exact', ids: state.search.scope==='selected'? Array.from(state.lib.selected) : null }; }
   // Suchverlauf: die letzten Suchbegriffe merken (lokal in den Einstellungen),
   // damit häufige Suchen mit einem Klick erneut ausgeführt werden können.
   function pushSearchHistory(q){
@@ -1763,17 +1772,17 @@
   // steuert, wie viele Dokumente/Zeichen als Kontext gesendet werden und wie
   // lang die Antwort sein darf. Grobe Kosten je Anfrage (Opus 4.8) im Hint.
   const AI_BUDGETS={
-    eco:      { docs:6,  chars:30000,  ans:800,  sum:600  },
-    standard: { docs:12, chars:60000,  ans:1500, sum:1024 },
-    thorough: { docs:20, chars:150000, ans:3000, sum:2048 },
+    eco:      { ans:800  },
+    standard: { ans:1500 },
+    thorough: { ans:3000 },
   };
   function aiLimits(){ return AI_BUDGETS[state.settings.aiBudget]||AI_BUDGETS.standard; }
   function syncAiBudget(){
     const cur=state.settings.aiBudget||'standard'; const de=state.settings.lang==='de';
     $$('#aib-seg button').forEach(b=>{ const on=b.dataset.aib===cur; b.classList.toggle('on',on); b.setAttribute('aria-pressed',on?'true':'false'); });
-    const hints={ eco:      de?'≈ 5–7 Cent pro Frage · bis 6 Dokumente, kürzere Antworten':'≈ 5–7 cents per question · up to 6 documents, shorter answers',
-                  standard: de?'≈ 10–14 Cent pro Frage · bis 12 Dokumente':'≈ 10–14 cents per question · up to 12 documents',
-                  thorough: de?'≈ 25–30 Cent pro Frage · bis 20 Dokumente, lange Antworten':'≈ 25–30 cents per question · up to 20 documents, long answers' };
+    const hints={ eco:      de?'≈ 1–2 Cent pro Frage · kürzere Antworten':'≈ 1–2 cents per question · shorter answers',
+                  standard: de?'≈ 2–4 Cent pro Frage · normale Antwortlänge':'≈ 2–4 cents per question · normal answer length',
+                  thorough: de?'≈ 4–8 Cent pro Frage · lange, ausführliche Antworten':'≈ 4–8 cents per question · long, detailed answers' };
     const h=$('#aib-hint'); if(h)h.textContent=hints[cur]||hints.standard;
   }
   async function askQuestion(q){
@@ -1783,13 +1792,13 @@
     try{
       // Normaler Claude-Chat – bezieht sich NICHT auf die hochgeladenen Dokumente.
       const ans=await claudeAnswer(q);
-      const cost=aiCostLabel(ans.usage, null);
+      const cost=aiCostLabel(ans.usage);
       resEl.innerHTML=`<div class="panel panel-pad"><div class="r-title" style="font-weight:600;margin-bottom:10px">🤖 ${esc(q)}</div><div class="fo-body" style="line-height:1.7">${foMd(ans.text)}</div>${costLine(cost)}</div>`;
     }catch(e){ resEl.innerHTML=`<div class="empty"><p style="color:var(--danger)">${esc(e.message)}</p></div>`; }
   }
   // ---------- Gemeinsame Bausteine der Claude-API-Aufrufe ----------
-  // (Frage, Zusammenfassung und Verbindungstest teilen sich Header, Fetch/Parse,
-  //  Korpus-Aufbau und Quellen-Mapping – so gibt es die Logik nur einmal.)
+  // (KI-Frage und Verbindungstest teilen sich die Header; Fetch/Parse der
+  //  Antwort liegt zentral in claudeMessage.)
   const anthropicHeaders=()=>({'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'});
   async function claudeMessage(prompt, maxTokens){
     const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:anthropicHeaders(), body:JSON.stringify({model:'claude-opus-4-8',max_tokens:maxTokens,messages:[{role:'user',content:prompt}]}) });
@@ -1810,16 +1819,15 @@
   // Grobe Kostenschätzung einer KI-Anfrage aus der zurückgegebenen Token-Nutzung
   // (Opus 4.8: 5 $ / 25 $ je 1 Mio. Token). Reine Info in der Oberfläche – wird
   // bewusst NICHT in Exporte übernommen.
-  function aiCostLabel(usage, nDocs){
+  function aiCostLabel(usage){
     const de=state.settings.lang==='de';
-    let money='';
-    if(usage){ const inT=usage.input_tokens||0, outT=usage.output_tokens||0;
-      const cents=(inT/1e6*5 + outT/1e6*25)*100; // grobe Schätzung in US-Cent
-      money = cents<1 ? (de?'unter 1 Cent':'under 1 cent') : ('≈ '+(cents<10?cents.toFixed(1):Math.round(cents))+(de?' Cent':' cents')); }
-    const docs = (nDocs!=null) ? ((money?' · ':'')+nDocs+' '+(de?(nDocs===1?'Dokument genutzt':'Dokumente genutzt'):(nDocs===1?'document used':'documents used'))) : '';
-    return (money||docs) ? ('🧮 '+money+docs+(money?(de?' (geschätzt)':' (estimate)'):'')) : '';
+    if(!usage) return '';
+    const inT=usage.input_tokens||0, outT=usage.output_tokens||0;
+    const cents=(inT/1e6*5 + outT/1e6*25)*100; // grobe Schätzung in US-Cent
+    const money = cents<1 ? (de?'unter 1 Cent':'under 1 cent') : ('≈ '+(cents<10?cents.toFixed(1):Math.round(cents))+(de?' Cent':' cents'));
+    return '🧮 '+money+(de?' (geschätzt)':' (estimate)');
   }
-  // Einheitliche dezente Info-Zeile (KI-Kosten) unter Antwort/Zusammenfassung.
+  // Einheitliche dezente Info-Zeile (KI-Kosten) unter der Antwort.
   const costLine=(cost)=>cost?`<p style="color:var(--text-muted);font-size:12px;margin:10px 0 0">${esc(cost)}</p>`:'';
   function refLabel(ref){ if(!ref)return ''; if(ref.page!=null)return `${tr('page')} ${ref.page}`; if(ref.sheet!=null)return `${tr('sheet')} „${ref.sheet}"${ref.row!=null?` · ${tr('row')} ${ref.row}`:(ref.cell?` · ${tr('cell')} ${ref.cell}`:'')}`; if(ref.section!=null)return `${tr('section')} ${ref.section}`; return ''; }
   function renderSearchResults(){
@@ -1985,8 +1993,7 @@
   }
   // Gemeinsames Tabellen-Modell: eine Zeile je Fundstelle/Quelle, damit XLSX,
   // DOCX und PDF dieselbe übersichtliche Quellen-Tabelle zeigen. Spalten, die
-  // für den jeweiligen Export leer wären (z. B. „Textstelle" bei einer reinen
-  // Zusammenfassung), werden automatisch weggelassen.
+  // für den jeweiligen Export leer wären, werden automatisch weggelassen.
   function tableModel(data, de){
     const items=data.items||[];
     const hasSnip=items.some(it=>it.snippet);
@@ -2128,9 +2135,8 @@
   }
 
   // ---------- Live-Exporte: Registry in /meta/exports.json ----------
-  // Jeder Export merkt sich seine Parameter (Suchanfrage bzw. Zusammenfassungs-
-  // Quelle) und wird bei jeder Aenderung am Archiv neu erzeugt – die Dateien
-  // in /exports sind dadurch immer aktuell.
+  // Jeder Export merkt sich seine Suchparameter und wird bei jeder Aenderung
+  // am Archiv neu erzeugt – die Dateien in /exports sind dadurch immer aktuell.
   let exportDefs=[];
   const slug=(s)=>String(s||'').toLowerCase().replace(/[^a-z0-9äöüß]+/gi,'-').replace(/^-+|-+$/g,'').slice(0,40)||'export';
   // kurzer, stabiler Hash der Spezifikation – verhindert ID-/Dateinamen-Kollisionen
@@ -2225,7 +2231,7 @@
       const what=(de?'Suche: ':'Search: ')+'„'+esc(d.search&&d.search.q||'')+'"';
       const st=d.error?`<span style="color:var(--danger)">⚠ ${esc(d.error)}</span>`:(d.updatedAt?tr('exp-updated')+' '+new Date(d.updatedAt).toLocaleString(locale()):'—');
       const ftCls=d.fmt==='xlsx'?'t-xlsx':d.fmt==='pdf'?'t-pdf':'t-docx';
-      return `<div class="queue-item"><span class="ftype ${ftCls}">${d.fmt.toUpperCase().slice(0,3)}</span><div class="qmain"><div class="fname">${esc(defFileName(d))}</div><div class="fmeta">${what} · ${st}</div></div><button class="btn sm ghost" data-expdl="${i}" title="${de?'Herunterladen':'Download'}">⬇</button><button class="btn sm ghost" data-exprf="${i}" title="${de?'Jetzt aktualisieren':'Refresh now'}">🔄</button><button class="btn sm ghost danger" data-exprm="${i}" title="${de?'Export löschen':'Delete export'}">🗑</button></div>`;
+      return `<div class="queue-item"><span class="ftype ${ftCls}">${esc(String(d.fmt).toUpperCase().slice(0,3))}</span><div class="qmain"><div class="fname">${esc(defFileName(d))}</div><div class="fmeta">${what} · ${st}</div></div><button class="btn sm ghost" data-expdl="${i}" title="${de?'Herunterladen':'Download'}">⬇</button><button class="btn sm ghost" data-exprf="${i}" title="${de?'Jetzt aktualisieren':'Refresh now'}">🔄</button><button class="btn sm ghost danger" data-exprm="${i}" title="${de?'Export löschen':'Delete export'}">🗑</button></div>`;
     }).join('');
     $$('#exports-list [data-expdl]').forEach(b=>b.onclick=async()=>{ const d=exportDefs[+b.dataset.expdl]; try{ const f=await (await state.dirs.exports.getFileHandle(defFileName(d))).getFile(); download(f, defFileName(d)); }catch(e){ toast((de?'Datei fehlt – erst aktualisieren.':'File missing – refresh first.'),'err'); } });
     $$('#exports-list [data-exprf]').forEach(b=>b.onclick=async()=>{ const d=exportDefs[+b.dataset.exprf]; try{ const data=await buildReportData(d); const blob=await makeExportBlob(d.fmt,data); await writeExportFile(defFileName(d),blob,false); d.updatedAt=new Date().toISOString(); delete d.error; await saveExportDefs(); renderExportsPanel(); toast('OK','ok'); }catch(e){ d.error=e.message; await saveExportDefs(); renderExportsPanel(); } });
@@ -2272,33 +2278,30 @@
     const add=async(dirHandle, folder, skip)=>{ for await(const [name,h] of dirHandle.entries()){ if(h.kind==='file'){ if(skip&&skip.has(name))continue; const f=await h.getFile(); zip.file(folder+'/'+name, await f.arrayBuffer()); } } };
     const metaSkip = opts.includeKey ? new Set() : new Set(['apikey.txt']);
     await add(state.dirs.originals,'originals'); await add(state.dirs.index,'index'); await add(state.dirs.meta,'meta', metaSkip);
-    if(state.dirs.forum) await add(state.dirs.forum,'forum'); // Forum-Anhänge (Bilder/Videos)
+    if(state.dirs.forum) await add(state.dirs.forum,'forum'); // Forum-Anhänge (Bilder, Videos, Dateien)
     return await zip.generateAsync({type:'blob'});
   }
   async function exportBackup(){
     try{
       toast(state.settings.lang==='de'?'Backup wird erstellt…':'Creating backup…');
       const blob=await buildBackupBlob(); const name='wissensarchiv_backup_'+stamp()+'.zip';
-      await saveToExports(name, blob); download(blob, name);
+      await writeExportFile(name, blob, true);
       state.settings.lastBackup=new Date().toISOString(); persistSettings(); renderBackupStats();
       toast(state.settings.lang==='de'?'Backup erstellt (in /exports und Download).':'Backup created (in /exports and download).','ok');
     }catch(e){ console.error(e); toast((state.settings.lang==='de'?'Backup-Fehler: ':'Backup error: ')+e.message,'err'); }
   }
 
-  // ---------- Automatische Backups (taeglich/woechentlich, letzte 5 bleiben) ----------
-  async function rotateAutoBackups(keep){
-    const names=[];
-    try{ for await(const [n,h] of state.dirs.exports.entries()){ if(h.kind==='file'&&/^wissensarchiv_autobackup_/.test(n))names.push(n); } }catch(e){ return; }
-    names.sort();
-    while(names.length>keep){ await removeFile(state.dirs.exports, names.shift()); }
+  // ---------- Rotierende Sicherungen in /exports (Auto-Backup + Vor-Sync) ----------
+  // Aelteste zuerst loeschen – sortiert nach Datei-Zeitstempel, NICHT nach Name
+  // (Namen mit Zaehler sortieren lexikografisch falsch, z. B. "_10" < "_9").
+  async function rotateExports(prefix, keep){
+    const files=[];
+    try{ for await(const [n,h] of state.dirs.exports.entries()){ if(h.kind==='file'&&n.startsWith(prefix)){ let t=0; try{ t=(await h.getFile()).lastModified||0; }catch(e){} files.push({n,t}); } } }catch(e){ return; }
+    files.sort((a,b)=>a.t-b.t);
+    while(files.length>keep){ await removeFile(state.dirs.exports, files.shift().n); }
   }
-  // Sicherungen vor einem Cloud-Konflikt-Pull rotieren (nur die letzten paar bleiben).
-  async function rotateBeforeSync(keep){
-    const names=[];
-    try{ for await(const [n,h] of state.dirs.exports.entries()){ if(h.kind==='file'&&/^wissensarchiv_beforesync_/.test(n))names.push(n); } }catch(e){ return; }
-    names.sort();
-    while(names.length>keep){ await removeFile(state.dirs.exports, names.shift()); }
-  }
+  const rotateAutoBackups=(keep)=>rotateExports('wissensarchiv_autobackup_', keep);
+  const rotateBeforeSync=(keep)=>rotateExports('wissensarchiv_beforesync_', keep);
   let _abBusy=false;
   async function maybeAutoBackup(){
     if(_abBusy)return;
@@ -2333,12 +2336,24 @@
     // apikey.txt nur beim Cloud-Pull mit ausdruecklichem Opt-in uebernehmen –
     // niemals aus einem manuell importierten Fremd-ZIP.
     if(opts.allowKey) META_ALLOW.add('apikey.txt');
-    // Forum-Anhänge nur mit Medien-Endung übernehmen (Bilder/Videos), nichts Ausführbares.
-    const FORUM_EXT=new Set(['png','jpg','jpeg','gif','webp','bmp','mp4','webm','ogg','ogv','mov','m4v']);
+    // Forum-Anhänge: Medien plus die per FO_ACCEPT erlaubten Dokumenttypen –
+    // bewusst OHNE html/svg, damit über eine fremde ZIP nichts Ausführbares hereinkommt.
+    const FORUM_EXT=new Set(['png','jpg','jpeg','gif','webp','bmp','mp4','webm','ogg','ogv','mov','m4v',
+      'pdf','doc','docx','xls','xlsx','csv','txt','md','rtf','ppt','pptx','odt','ods','odp','zip']);
     // Grenzen gegen ZIP-Bomben / Speicher-DoS
     const MAX_FILES=20000, MAX_TOTAL=2*1024*1024*1024; let n=0, total=0, skipped=0;
     // Welche Dateinamen die ZIP je Ordner enthaelt – fuer den Spiegel-Abgleich unten.
     const present={originals:new Set(), index:new Set(), meta:new Set(), forum:new Set()};
+    // Schnappschuss der VOR dem Einspielen vorhandenen lokalen Dateien: Nur diese
+    // duerfen der Spiegel-Abgleich loeschen. Dateien, die ein Nutzer WAEHREND des
+    // (asynchronen) Einspielens anlegt, bleiben so erhalten.
+    const preExisting={};
+    if(opts.clearFirst){
+      for(const d of ['originals','index','forum']){
+        preExisting[d]=new Set();
+        try{ for await(const [nm,h] of state.dirs[d].entries()){ if(h.kind==='file')preExisting[d].add(nm); } }catch(e){}
+      }
+    }
     // 1) ZUERST alle (gueltigen) Dateien schreiben. Erst danach lokal Ueberzaehliges
     //    entfernen – so gibt es zu keinem Zeitpunkt ein leeres/halbes Archiv, selbst
     //    wenn der Vorgang abbricht.
@@ -2356,8 +2371,14 @@
       if(folder==='originals'&&!SUPPORTED.some(ext=>fname.toLowerCase().endsWith('.'+ext))){ skipped++; continue; }
       if(folder==='forum'&&!FORUM_EXT.has((fname.split('.').pop()||'').toLowerCase())){ skipped++; continue; }
       if(++n>MAX_FILES){ throw new Error(de?'Zu viele Dateien im Backup.':'Too many files in backup.'); }
-      const content=await zf.async('arraybuffer');
+      let content=await zf.async('arraybuffer');
       total+=content.byteLength; if(total>MAX_TOTAL){ throw new Error(de?'Backup ist zu groß.':'Backup too large.'); }
+      // Beim manuellen Import (kein Cloud-Pull) darf eine fremde settings.json das
+      // API-Key-Sync-Opt-in NICHT stillschweigend aktivieren – der lokale Wert bleibt.
+      if(folder==='meta'&&fname==='settings.json'&&!opts.allowKey){
+        try{ const s=JSON.parse(new TextDecoder().decode(content)); s.odSyncKey=state.settings.odSyncKey===true; content=new TextEncoder().encode(JSON.stringify(s,null,2)).buffer; }
+        catch(e){ skipped++; continue; }   // kaputte settings.json gar nicht übernehmen
+      }
       await writeFile(targets[folder], fname, content);
     }
     // 2) Spiegel-Abgleich: lokal vorhandene Dateien entfernen, die die ZIP NICHT
@@ -2366,8 +2387,7 @@
     if(opts.clearFirst){
       for(const d of ['originals','index','forum']){
         const dir=state.dirs[d]; if(!dir)continue;
-        const local=[]; for await(const [nm,h] of dir.entries()){ if(h.kind==='file')local.push(nm); }
-        for(const nm of local){ if(!present[d].has(nm)) await removeFile(dir, nm); }
+        for(const nm of preExisting[d]||[]){ if(!present[d].has(nm)) await removeFile(dir, nm); }
       }
     }
   }
@@ -2468,15 +2488,20 @@
     await odStoreTokens(j);
     return OD.tokens.access_token;
   }
-  async function odGraph(path, opts={}){
+  async function odGraph(path, opts={}, _retried){
     const tok=await odAccessToken();
     const url=/^https?:/.test(path)?path:OD.graph+path;
     const headers=Object.assign({}, opts.headers||{}, {Authorization:'Bearer '+tok});
-    return fetch(url, Object.assign({}, opts, {headers}));
+    const r=await fetch(url, Object.assign({}, opts, {headers}));
+    // Serverseitig entwertetes Access-Token (Passwortwechsel u. ä.): einmal per
+    // Refresh erneuern und wiederholen, statt bis expires_at in 401 zu laufen.
+    if(r.status===401 && !_retried && OD.tokens){ OD.tokens.expires_at=0; return odGraph(path, opts, true); }
+    return r;
   }
   // Eindeutiger Dateiname für /exports-Sicherungen (stamp ist nur minutengenau –
-  // ein Zähler verhindert, dass zwei Sicherungen derselben Minute sich überschreiben).
-  function beforeSyncName(){ OD._bkSeq=(OD._bkSeq||0)+1; return 'wissensarchiv_beforesync_'+stamp()+'_'+OD._bkSeq+'.zip'; }
+  // Zähler + Zufallssuffix verhindern Überschreiben in derselben Minute, auch
+  // über einen Seiten-Reload hinweg, der den Zähler zurücksetzen würde).
+  function beforeSyncName(){ OD._bkSeq=(OD._bkSeq||0)+1; return 'wissensarchiv_beforesync_'+stamp()+'_'+OD._bkSeq+'_'+Math.random().toString(36).slice(2,6)+'.zip'; }
   async function odRemoteMeta(){
     const r=await odGraph(OD.itemPath+'?select=eTag,cTag,size,lastModifiedDateTime');
     if(r.status===404) return null;
@@ -2507,19 +2532,27 @@
   // Aktuellen Cloud-Stand herunterladen und in /exports sichern – bevor er beim
   // „lokal gewinnt"-Konflikt ueberschrieben wird (damit auch die Remote-Fassung
   // wiederherstellbar bleibt). Rotiert wie die uebrigen Sync-Sicherungen.
-  async function odBackupRemote(){
-    try{ const r=await odGraph(OD.itemPath+':/content'); if(!r.ok)return;
-      await saveToExports(beforeSyncName(), await r.blob()); await rotateBeforeSync(4);
-    }catch(e){}
+  // strict=true: Schlaegt die Sicherung fehl, wird der Fehler GEWORFEN – der Aufrufer
+  // darf dann nicht destruktiv ueberschreiben (Versprechen "liegt in /exports" muss halten).
+  async function odBackupRemote(strict){
+    try{
+      const r=await odGraph(OD.itemPath+':/content');
+      if(r.status===404) return;                                  // nichts zu sichern
+      if(!r.ok) throw new Error('Backup-Download '+r.status);
+      await writeFile(state.dirs.exports, beforeSyncName(), await r.blob());
+      await rotateBeforeSync(4);
+    }catch(e){ if(strict) throw new Error((state.settings.lang==='de'?'Cloud-Sicherung fehlgeschlagen: ':'Cloud backup failed: ')+e.message); }
   }
   async function odPull(meta){
     await loadScript('vendor/jszip.min.js');
     // Sicherheitsnetz: lokalen Stand IMMER als ZIP in /exports sichern, BEVOR er durch
     // die Cloud-Version ersetzt wird. So gehen auch Änderungen, die im Offline-Zustand
     // gemacht wurden (und daher nicht als „dirty" markiert sind), beim Reconnect nicht
-    // verloren. Nur bei leerem Archiv überflüssig → dann übersprungen. Rotiert (letzte 4).
+    // verloren. Schlägt die Sicherung fehl, wird NICHT überschrieben (Fehler → Sync-Status);
+    // nur bei leerem Archiv ist sie überflüssig. Rotiert (letzte 4).
     if(state.catalog.length){
-      try{ await saveToExports(beforeSyncName(), await buildBackupBlob()); await rotateBeforeSync(4); }catch(e){}
+      try{ await writeFile(state.dirs.exports, beforeSyncName(), await buildBackupBlob()); await rotateBeforeSync(4); }
+      catch(e){ throw new Error((state.settings.lang==='de'?'Lokale Sicherung fehlgeschlagen – Pull abgebrochen: ':'Local backup failed – pull aborted: ')+e.message); }
     }
     const r=await odGraph(OD.itemPath+':/content');
     if(!r.ok) throw new Error('Download '+r.status);
@@ -2614,7 +2647,7 @@
     const meta=metaIn||await odRemoteMeta();
     const localNewer = !!(OD.cfg.dirtyAt && meta && meta.modified && OD.cfg.dirtyAt > new Date(meta.modified).toISOString());
     if(localNewer){
-      await odBackupRemote();            // Remote-Fassung sichern, dann lokal ueberschreiben
+      await odBackupRemote(true);        // Remote-Fassung sichern (Pflicht), dann lokal ueberschreiben
       await odPush({force:true});
     } else {
       await odPull(meta || await odRemoteMeta());   // odPull sichert den lokalen Stand
@@ -2652,10 +2685,12 @@
     if(OD.syncing){ toast(de?'Ein Abgleich läuft gerade – kurz warten.':'A sync is running – please wait.'); return; }
     if(!confirm(de?'Den Stand DIESES Geräts in die Cloud hochladen und dort überschreiben? Alle anderen Geräte übernehmen anschließend diesen Stand.':'Upload THIS device’s state to the cloud, overwriting what’s there? Your other devices will then adopt it.')) return;
     OD.syncing=true; odSetStatus('syncing');
+    const startGen=OD.cfg.gen||0;   // Aenderungen waehrend des Uploads nicht verlieren
     try{
-      try{ await odBackupRemote(); }catch(e){}   // bisherige Cloud-Fassung sichern
+      await odBackupRemote(true);   // bisherige Cloud-Fassung sichern (Pflicht vor dem Ueberschreiben)
       await odPush({force:true});
-      OD.cfg.dirty=false; OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
+      if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
+      OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
       odSetStatus('connected'); toast(de?'Hochgeladen – dieser Stand gilt jetzt überall.':'Uploaded – this state now applies everywhere.','ok');
     }catch(e){ odSetStatus('error', e.message); toast((de?'Fehler: ':'Error: ')+e.message,'err'); }
     finally{ OD.syncing=false; renderCloudPanel(); }
@@ -2665,17 +2700,20 @@
     if(OD.syncing){ toast(de?'Ein Abgleich läuft gerade – kurz warten.':'A sync is running – please wait.'); return; }
     if(!confirm(de?'Die Cloud-Version laden und den lokalen Stand dieses Geräts ersetzen? (Eine Sicherung wird vorher in /exports abgelegt.)':'Load the cloud version and replace this device’s local state? (A backup is saved to /exports first.)')) return;
     OD.syncing=true; odSetStatus('syncing');
+    const startGen=OD.cfg.gen||0;   // Key-Upload-Marker/Edits im Apply-Fenster nicht verlieren
     try{
       const meta=await odRemoteMeta(); if(!meta) throw new Error(de?'Keine Cloud-Datei vorhanden.':'No cloud file present.');
-      OD.cfg.dirty=true;             // erzwingt die lokale Sicherung in odPull
-      await odPull(meta);
-      OD.cfg.dirty=false; await odSaveCfg();
+      await odPull(meta);           // sichert den lokalen Stand selbst (Pflicht, s. odPull)
+      if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
+      OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
       odSetStatus('connected'); toast(de?'Cloud-Version geladen.':'Cloud version loaded.','ok');
     }catch(e){ odSetStatus('error', e.message); toast((de?'Fehler: ':'Error: ')+e.message,'err'); }
     finally{ OD.syncing=false; renderCloudPanel(); }
   }
   async function odDisconnect(){
-    OD.tokens=null; OD.cfg.auto=false; OD.cfg.dirty=false;
+    // Auch Etag/Zeitstempel/Generation verwerfen: Nach einem Neu-Verbinden (ggf. mit
+    // anderem Konto) darf kein veralteter Sync-Zustand die Konfliktlogik fehlleiten.
+    OD.tokens=null; OD.cfg.auto=false; OD.cfg.dirty=false; OD.cfg.etag=''; OD.cfg.dirtyAt=''; OD.cfg.gen=0;
     try{ await IDB.del('od.tokens'); }catch(e){}
     await odSaveCfg(); renderCloudPanel();
     toast(state.settings.lang==='de'?'OneDrive getrennt (Archiv-Daten bleiben lokal).':'OneDrive disconnected (archive data stays local).','ok');
@@ -2690,7 +2728,7 @@
     $('#cloud-connected').style.display=conn?'':'none';
     const chip=$('#cloud-status');
     if(chip){
-      const map={ off:[de?'Nicht verbunden':'Not connected','var(--text-muted)'], syncing:[de?'Synchronisiert…':'Syncing…','var(--accent)'], connected:[de?'Verbunden':'Connected','var(--good)'], error:[de?'Fehler':'Error','var(--danger)'] };
+      const map={ off:[de?'Nicht verbunden':'Not connected','var(--text-muted)'], syncing:[de?'Synchronisiert…':'Syncing…','var(--primary)'], connected:[de?'Verbunden':'Connected','var(--good)'], error:[de?'Fehler':'Error','var(--danger)'] };
       const st= conn ? (OD.status==='off'?'connected':OD.status) : 'off';
       const [txt,col]=map[st]||map.off;
       chip.textContent='● '+txt; chip.style.color=col; chip.title=OD.statusMsg||'';
@@ -2793,8 +2831,6 @@
 
   // ---------- Navigation ----------
   function switchView(view){
-    // „summary" gibt es nicht mehr – auf den Suche-Tab umleiten.
-    if(view==='summary') view='search';
     $$('.view').forEach(v=>v.classList.remove('show')); const el=$('#view-'+view); if(el)el.classList.add('show'); $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===view)); const gb=$('#settings-btn'); if(gb){ gb.classList.toggle('active', view==='settings'); gb.setAttribute('aria-pressed', view==='settings'?'true':'false'); } $('.main').scrollTop=0;
     // Beim Verlassen des Forums die Anhang-Blob-URLs freigeben und laufende Loader entwerten.
     if(view!=='forum'&&(state._forumUrls&&state._forumUrls.length)){ state._foSeq=(state._foSeq||0)+1; state._forumUrls.forEach(u=>{try{URL.revokeObjectURL(u);}catch(_){}}); state._forumUrls=[]; }
@@ -2850,7 +2886,7 @@
   function wire(){
     $('#btn-pick').onclick=()=>{ if(state.storageMode==='opfs'){ try{localStorage.setItem('wa.opfsSeen','1');}catch(e){} bootApp(); } else pickFolder(); };
     $('#exp-refresh-all').onclick=()=>refreshAllExports(true);
-    $('#sw-autoexp').onclick=()=>{ state.settings.autoExports=(state.settings.autoExports===false); persistSettings(); renderExportsPanel(); if(state.settings.autoExports!==false)scheduleExportRefresh(); };
+    $('#sw-autoexp').onclick=()=>{ state.settings.autoExports=(state.settings.autoExports===false); persistSettings(); odMarkDirty(); renderExportsPanel(); if(state.settings.autoExports!==false)scheduleExportRefresh(); };
     $('#rc-connect').onclick=reconnect;
     $('#rc-other').onclick=()=>{ $('#dlg-reconnect').classList.remove('show'); pickFolder(); };
     $('#theme-btn').onclick=cycleTheme;
@@ -2859,9 +2895,9 @@
     $$('.nav-item').forEach(b=>b.onclick=()=>switchView(b.dataset.view));
     $('#settings-btn').onclick=()=>switchView('settings');
     // Statische „Sprung"-Buttons (z. B. „Importieren" im Bibliotheks-Kopf) global verdrahten.
-    $$('[data-view-jump]').forEach(b=>b.onclick=()=>switchView(b.dataset.viewJump));
-    $$('#theme-seg button').forEach(b=>b.onclick=()=>{applyTheme(b.dataset.themeVal);persistSettings();});
-    $$('#lang-seg button, #lang-seg2 button').forEach(b=>b.onclick=()=>{applyLang(b.dataset.lang);persistSettings();});
+    wireJump(document);
+    $$('#theme-seg button').forEach(b=>b.onclick=()=>{applyTheme(b.dataset.themeVal);persistSettings();odMarkDirty();});
+    $$('#lang-seg button, #lang-seg2 button').forEach(b=>b.onclick=()=>{applyLang(b.dataset.lang);persistSettings();odMarkDirty();});
     // dlg-dup und dlg-prompt warten auf eine Antwort (Promise/Callback) – sie dürfen
     // nur über ihre eigenen Buttons geschlossen werden, sonst hängt der Aufrufer.
     const MODAL_LOCKED=new Set(['dlg-dup','dlg-prompt']);
@@ -2894,7 +2930,7 @@
 
     // Backup
     $('#backup-export').onclick=exportBackup;
-    $('#autobackup-sel').onchange=(e)=>{ state.settings.autoBackup=e.target.value; persistSettings(); maybeAutoBackup(); };
+    $('#autobackup-sel').onchange=(e)=>{ state.settings.autoBackup=e.target.value; persistSettings(); odMarkDirty(); maybeAutoBackup(); };
     const bd=$('#backup-drop');
     bd.addEventListener('dragover',(e)=>{e.preventDefault();bd.classList.add('drag');}); bd.addEventListener('dragleave',()=>bd.classList.remove('drag'));
     bd.addEventListener('drop',(e)=>{ e.preventDefault(); bd.classList.remove('drag'); const f=(e.dataTransfer.files||[])[0]; if(f)importBackup(f); });
@@ -2913,7 +2949,7 @@
 
     // API
     $('#api-save').onclick=async()=>{ await saveApiKey($('#api-key').value); toast('OK','ok'); };
-    $$('#aib-seg button').forEach(b=>b.onclick=()=>{ state.settings.aiBudget=b.dataset.aib; persistSettings(); syncAiBudget(); });
+    $$('#aib-seg button').forEach(b=>b.onclick=()=>{ state.settings.aiBudget=b.dataset.aib; persistSettings(); odMarkDirty(); syncAiBudget(); });
     $('#api-test').onclick=async()=>{ const st=$('#api-status'); st.innerHTML='<span class="busy"></span>'; try{ await saveApiKey($('#api-key').value); if(!state.apiKey)throw new Error(state.settings.lang==='de'?'Kein Key':'No key'); if(!navigator.onLine)throw new Error(state.settings.lang==='de'?'Offline':'Offline'); const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:anthropicHeaders(),body:JSON.stringify({model:'claude-opus-4-8',max_tokens:16,messages:[{role:'user',content:'ping'}]})}); st.innerHTML=r.ok?'<span class="chip" style="color:var(--good)">● OK</span>':`<span class="chip" style="color:var(--danger)">● ${r.status}</span>`; }catch(e){ st.innerHTML=`<span class="chip" style="color:var(--danger)">● ${esc(e.message)}</span>`; } };
   }
   function openExport(){ const data=buildReportItems(); if(!data.items.length){ toast(state.settings.lang==='de'?'Keine Treffer zum Exportieren.':'No results to export.','err'); return; } $('#exp-text').textContent=(state.settings.lang==='de'?`${data.items.length} Treffer werden exportiert.`:`${data.items.length} results will be exported.`); $('#dlg-export').classList.add('show'); }

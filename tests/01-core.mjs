@@ -1,5 +1,5 @@
 // Kern-Pipeline: Import aller Formate, Suche (inkl. Umlaut/Phrase/UND),
-// Fundstelle (PDF-Rendering), Zusammenfassung, Exporte, Backup.
+// Fundstelle (PDF-Rendering), Forum, Exporte, Backup.
 import { MOCK, launchBrowser, collectErrors, makeChecker } from './helper.mjs';
 
 export async function run(base) {
@@ -136,6 +136,20 @@ export async function run(base) {
   t.check('Forum: PDF-Anhang gespeichert (kind file)', docAtt.kind === 'file' && docAtt.fileOk, JSON.stringify(docAtt));
   t.check('Forum: Datei-Anhang als Download-Link', docAtt.asLink === true, JSON.stringify(docAtt));
 
+  // Regression (FORUM_EXT): Dokument-Anhänge müssen einen Backup-Restore überleben –
+  // Datei aus /forum löschen, Backup-ZIP wieder einspielen, Datei muss zurück sein.
+  const rt = await page.evaluate(async () => {
+    const saved = await window.WA.getIndex('forumtest-pdf');
+    const att = saved.comments[saved.comments.length - 1].attachments[0];
+    const blob = await window.WA.buildBackupBlob();
+    await window.WA.state.dirs.forum.removeEntry(att.storedAs);
+    const zip = await window.JSZip.loadAsync(blob);
+    await window.WA.applyBackupZip(zip, { clearFirst: false, allowKey: false });
+    let restored = false; try { await window.WA.state.dirs.forum.getFileHandle(att.storedAs); restored = true; } catch (_) {}
+    return { restored };
+  });
+  t.check('Forum: Datei-Anhang übersteht Backup-Restore', rt.restored === true, JSON.stringify(rt));
+
   await page.evaluate(() => { window.WA.state.forumView = 'list'; window.WA.switchView('search'); });
   // Zurück zur Basissuche, damit die folgenden Prüfungen unbeeinflusst bleiben
   await page.evaluate(async () => { document.querySelector('#search-input').value = 'Kuendigungsfrist'; window.WA.state.search.q = 'Kuendigungsfrist'; await window.WA.runSearch(); });
@@ -155,7 +169,7 @@ export async function run(base) {
   const exp = await page.evaluate(async () => {
     document.querySelector('#search-input').value = 'Kuendigungsfrist'; window.WA.state.search.q = 'Kuendigungsfrist'; await window.WA.runSearch();
     const res = {};
-    for (const fmt of ['xlsx','docx','pdf']) { try { await window.WA.exportReport(fmt, 'hits'); res[fmt] = 'ok'; } catch (e) { res[fmt] = e.message; } }
+    for (const fmt of ['xlsx','docx','pdf']) { try { await window.WA.exportReport(fmt); res[fmt] = 'ok'; } catch (e) { res[fmt] = e.message; } }
     await window.WA.exportBackup();
     await new Promise(r => setTimeout(r, 500));
     const files = []; for await (const [n] of window.WA.state.dirs.exports.entries()) files.push(n);
