@@ -159,6 +159,19 @@
     .lib-table th:nth-child(6),.lib-table td:nth-child(6){width:180px}
     .lib-table th:nth-child(7),.lib-table td:nth-child(7){width:118px}
     .lib-table .fname{overflow-wrap:anywhere}
+    /* Schmale Geräte (iPhone, iPad hochkant): kompakte Liste statt breiter Tabelle –
+       Datum/Größe/Tags/Status wandern als Meta-Zeile unter den Namen, sonst würde
+       die Namensspalte auf Buchstabenbreite gequetscht. */
+    .lib-meta-mobile{display:none;color:var(--text-muted);font-size:12px;margin-top:2px}
+    @media (max-width:860px){
+      .lib-table th:nth-child(4),.lib-table td:nth-child(4),
+      .lib-table th:nth-child(5),.lib-table td:nth-child(5),
+      .lib-table th:nth-child(6),.lib-table td:nth-child(6),
+      .lib-table th:nth-child(7),.lib-table td:nth-child(7){display:none}
+      .lib-meta-mobile{display:block}
+      .lib-table th,.lib-table td{padding:9px 5px}   /* dichter: mehr Platz fuer den Namen */
+      .lib-table td:first-child{padding-left:10px}
+    }
     /* Schnell-Umbenennen direkt in der Namenszelle */
     .fname-wrap{display:flex;align-items:center;gap:6px;min-width:0}
     .fname-edit{border:0;background:transparent;cursor:pointer;opacity:.4;font-size:12px;padding:2px 3px;flex:none;line-height:1;border-radius:5px}
@@ -705,7 +718,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.8';
+  const APP_VERSION = '1.9.9';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1171,7 +1184,7 @@
     return `<tr class="${checked?'sel':''}" data-id="${esc(r.id)}">
       <td><input type="checkbox" class="rowsel" aria-label="${(state.settings.lang==='de'?'Auswählen: ':'Select: ')+esc(r.name)}" ${checked?'checked':''}></td>
       <td><span class="ftype t-${esc(r.type)}">${esc(r.type.toUpperCase().slice(0,3))}</span></td>
-      <td><div class="fname-wrap"><span class="fname">${esc(r.name)}</span><button class="fname-edit" data-renid="${esc(r.id)}" title="${tr('act-rename')}" aria-label="${tr('act-rename')}">✏️</button></div><div class="fmeta">${meta}</div></td>
+      <td><div class="fname-wrap"><span class="fname">${esc(r.name)}</span><button class="fname-edit" data-renid="${esc(r.id)}" title="${tr('act-rename')}" aria-label="${tr('act-rename')}">✏️</button></div><div class="fmeta">${meta}</div><div class="lib-meta-mobile">${fmtDate(r.importedAt)} · ${fmtBytes(r.size)}${r.scanned?' · ⚠':''}${(r.tags||[]).length?' · 🏷 '+esc((r.tags||[]).join(', ')):''}</div></td>
       <td class="num">${fmtDate(r.importedAt)}</td><td class="num">${fmtBytes(r.size)}</td>
       <td>${tags}</td><td>${status}</td>
       <td class="rowmenu"><button class="rowmenu-btn" data-menu="${esc(r.id)}" aria-label="${state.settings.lang==='de'?'Aktionen':'Actions'}" aria-haspopup="menu" aria-expanded="false">⋯</button>${menuHtml(r)}</td>
