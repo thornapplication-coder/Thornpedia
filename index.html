@@ -8,7 +8,7 @@
        OneDrive-Content-Hosts, auf die Graph beim Up-/Download umleitet). Ein
        kompromittiertes vendor-Skript kann Daten damit an keinen fremden Host
        senden. 'wasm-unsafe-eval' wird fuer PDF.js/Tesseract-WASM benoetigt. -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: https://api.anthropic.com https://graph.microsoft.com https://login.microsoftonline.com https://*.1drv.com https://*.livefilestore.com https://*.microsoftpersonalcontent.com https://storage.live.com https://*.sharepoint.com https://*.svc.ms; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; manifest-src 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:; worker-src 'self' blob:; connect-src 'self' blob: https://api.anthropic.com https://graph.microsoft.com https://login.microsoftonline.com https://api.onedrive.com https://*.1drv.com https://*.livefilestore.com https://*.microsoftpersonalcontent.com https://storage.live.com https://*.sharepoint.com https://*.svc.ms; img-src 'self' data: blob:; media-src 'self' blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'none'; manifest-src 'self'">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Wissensarchiv</title>
   <meta name="description" content="Persönliche, offline-fähige Wissensdatenbank – alle Daten liegen als echte Dateien auf deiner Festplatte.">
@@ -705,7 +705,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.7';
+  const APP_VERSION = '1.9.8';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1593,8 +1593,8 @@
   async function foDeleteSub(gid,sid){ if(!confirm(tr('fo-del-sub')))return; const g=forumGroup(gid); if(!g)return; g.subs=(g.subs||[]).filter(s=>s.id!==sid); for(const c of forumEntries().filter(e=>e.forum&&e.forum.gid===gid&&e.forum.sid===sid)){ const full=await getIndex(c.id).catch(()=>null); if(full){ full.forum=full.forum||{}; full.forum.sid=null; await foSaveEntry(full); } } if(state.forumSel&&state.forumSel.gid===gid&&state.forumSel.sid===sid)state.forumSel={gid,sid:null}; await saveForum(); renderForum(); }
   // Eine Anhang-Datei (Bild, Video oder Dokument) im Forum-Ordner ablegen und die
   // Metadaten liefern. Gemeinsame Basis fuer Eintrags- und Kommentar-Anhaenge.
-  // Limit 250 MB = OneDrive-Push-Grenze des Gesamt-ZIPs – ein groesserer Einzel-
-  // anhang wuerde die Cloud-Synchronisation dauerhaft blockieren.
+  // Limit 250 MB je Anhang: vernuenftige Obergrenze fuer Speicher/Sync-Dauer
+  // (der Cloud-Upload selbst laeuft seit v1.9.8 in Bloecken, Gesamt-ZIP bis 2 GB).
   async function foStoreMedia(file){ if(!file)return null; const de=state.settings.lang==='de';
     if(file.size>250*1024*1024){ toast(de?'Anhang zu groß (max. 250 MB).':'Attachment too large (max. 250 MB).','err'); return null; }
     const storedAs=foUuid()+'__'+String(file.name).replace(/[\\/]/g,'_');
@@ -2539,22 +2539,58 @@
   }
   async function odPush(opts={}){
     await loadScript('vendor/jszip.min.js');
+    const de=state.settings.lang==='de';
     // API-Key nur mitnehmen, wenn der Nutzer es ausdruecklich aktiviert hat.
     const blob=await buildBackupBlob({includeKey: state.settings.odSyncKey===true && !!state.apiKey});
-    if(blob.size > 250*1024*1024) throw new Error(state.settings.lang==='de'?'Archiv größer als 250 MB – nutze ein manuelles Backup-ZIP.':'Archive larger than 250 MB – use a manual backup ZIP.');
-    const headers={'Content-Type':'application/zip'};
+    if(blob.size > 2*1024*1024*1024) throw new Error(de?'Archiv größer als 2 GB – bitte große Anhänge entfernen.':'Archive larger than 2 GB – please remove large attachments.');
     // If-Match: schützt vor „lost update" – hat ein anderes Gerät seit unserem
     // Stand hochgeladen, lehnt Graph mit 412 ab, statt dessen Version zu überschreiben.
     // Bei force (lokal-gewinnt-Konflikt) bewusst OHNE If-Match überschreiben.
     // Beim Erst-Upload (fresh): nur anlegen, wenn noch keine Datei existiert (Wettlauf zweier Erstverbindungen).
-    if(opts.fresh) headers['If-None-Match']='*';
-    else if(!opts.force && OD.cfg.etag) headers['If-Match']=OD.cfg.etag;
-    const r=await odGraph(OD.itemPath+':/content', {method:'PUT', headers, body:blob});
-    if(r.status===412 || r.status===409) return 'conflict';   // Remote hat sich seit unserem Stand geändert → erst ziehen
-    if(!r.ok) throw new Error('Upload '+r.status);
-    const j=await r.json();
+    let j;
+    if(blob.size <= 60*1024*1024){
+      // Kleine Archive: einfacher PUT in einem Request (Graph erlaubt hier max. 250 MB).
+      const headers={'Content-Type':'application/zip'};
+      if(opts.fresh) headers['If-None-Match']='*';
+      else if(!opts.force && OD.cfg.etag) headers['If-Match']=OD.cfg.etag;
+      const r=await odGraph(OD.itemPath+':/content', {method:'PUT', headers, body:blob});
+      if(r.status===412 || r.status===409) return 'conflict';   // Remote hat sich seit unserem Stand geändert → erst ziehen
+      if(!r.ok) throw new Error('Upload '+r.status);
+      j=await r.json();
+    } else {
+      // Große Archive: Upload-Session in Blöcken – umgeht das 250-MB-Limit des Einzel-PUT.
+      j=await odUploadLarge(blob, opts);
+      if(j==='conflict') return 'conflict';
+    }
     OD.cfg.etag=j.eTag||j.cTag||''; await odSaveCfg();   // dirty/Zeit setzt odSync (konfliktbewusst)
     return 'ok';
+  }
+  // Grosse Dateien per Graph-Upload-Session: createUploadSession (traegt die
+  // Konflikt-Vorbedingungen), danach sequenzielle PUT-Bloecke an die vor-
+  // authentifizierte uploadUrl (ohne Authorization-Header). Blockgroesse muss ein
+  // Vielfaches von 320 KiB sein. Liefert das driveItem-JSON oder 'conflict'.
+  async function odUploadLarge(blob, opts){
+    const headers={'Content-Type':'application/json'};
+    if(!opts.fresh && !opts.force && OD.cfg.etag) headers['If-Match']=OD.cfg.etag;
+    const body=JSON.stringify({ item:{ '@microsoft.graph.conflictBehavior': opts.fresh?'fail':'replace' } });
+    const cr=await odGraph(OD.itemPath+':/createUploadSession', {method:'POST', headers, body});
+    if(cr.status===412 || cr.status===409) return 'conflict';
+    if(!cr.ok) throw new Error('UploadSession '+cr.status);
+    const url=(await cr.json()).uploadUrl;
+    const CHUNK=10*1024*1024;   // 10 MiB = 32 × 320 KiB
+    try{
+      for(let off=0; off<blob.size; off+=CHUNK){
+        const end=Math.min(off+CHUNK, blob.size);
+        const r=await fetch(url, { method:'PUT', headers:{'Content-Range':`bytes ${off}-${end-1}/${blob.size}`}, body:blob.slice(off,end) });
+        if(r.status===412 || r.status===409) return 'conflict';   // fresh-Wettlauf: Datei entstand zwischenzeitlich
+        if(end>=blob.size){
+          if(r.status===200||r.status===201) return await r.json();
+          throw new Error('Upload '+r.status);
+        }
+        if(!r.ok) throw new Error('Upload-Block '+r.status);
+      }
+    }catch(e){ try{ await fetch(url,{method:'DELETE'}); }catch(_){} throw e; }   // Session aufraeumen
+    throw new Error('Upload unvollständig');
   }
   // Aktuellen Cloud-Stand herunterladen und in /exports sichern – bevor er beim
   // „lokal gewinnt"-Konflikt ueberschrieben wird (damit auch die Remote-Fassung
