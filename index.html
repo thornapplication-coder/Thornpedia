@@ -578,7 +578,8 @@
             </div>
             <div class="field" style="margin-bottom:10px">
               <label data-i18n="cloud-clientid-l">Anwendungs-(Client-)ID</label>
-              <input type="text" id="cloud-clientid" placeholder="00000000-0000-0000-0000-000000000000" spellcheck="false" autocomplete="off">
+              <input type="text" id="cloud-clientid" placeholder="00000000-0000-0000-0000-000000000000" spellcheck="false" autocomplete="off" autocapitalize="off" autocorrect="off" inputmode="text">
+              <p id="cloud-cid-warn" class="notice warn" style="display:none;margin-top:8px;font-size:12px"></p>
             </div>
             <div class="row" style="gap:8px;flex-wrap:wrap">
               <button class="btn sm" id="cloud-connect" data-i18n="cloud-connect">Mit OneDrive verbinden</button>
@@ -718,7 +719,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.11';
+  const APP_VERSION = '1.9.12';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2515,10 +2516,15 @@
     OD.tokens={ access_token:j.access_token, refresh_token:j.refresh_token||(OD.tokens&&OD.tokens.refresh_token)||'', expires_at: Date.now()+((j.expires_in||3600)*1000) - 60000 };
     try{ await IDB.set('od.tokens', OD.tokens); }catch(e){}
   }
+  // Eine gueltige Azure-App-ID ist ein GUID. So faengt die App Fehleingaben ab
+  // (z. B. vom Browser autom. ausgefuellter Kontoname) und meldet sie klar –
+  // statt die kryptische Microsoft-Meldung AADSTS700016 zu erzeugen.
+  const isGuid=(s)=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test((s||'').trim());
   async function odConnect(){
     const de=state.settings.lang==='de';
     const cid=(OD.cfg.clientId||'').trim();
     if(!cid){ toast(de?'Bitte zuerst die Client-ID eintragen.':'Please enter the Client ID first.','err'); return; }
+    if(!isGuid(cid)){ toast(de?'Die Client-ID sieht nicht wie eine gültige Azure-ID aus (Format 00000000-0000-0000-0000-000000000000). Kopiere die „Anwendungs-(Client-)ID" aus der Azure-App-Registrierung (Übersicht).':'The Client ID is not a valid Azure ID (format 00000000-0000-0000-0000-000000000000). Copy the “Application (client) ID” from your Azure app registration (Overview).','err'); return; }
     try{
       const {verifier, challenge}=await odPkce();
       const st=b64url(crypto.getRandomValues(new Uint8Array(16)));
@@ -2551,6 +2557,9 @@
   async function odAccessToken(){
     if(!OD.tokens||!OD.tokens.refresh_token) throw new Error('not connected');
     if(OD.tokens.access_token && Date.now()<OD.tokens.expires_at) return OD.tokens.access_token;
+    // Kaputte/leere Client-ID (z. B. nach Speicher-Reset oder Browser-Autofill) klar melden,
+    // statt Microsofts kryptisches AADSTS700016 durchzureichen.
+    if(!isGuid(OD.cfg.clientId)) throw new Error(state.settings.lang==='de'?'Client-ID fehlt oder ist ungültig – trage die „Anwendungs-(Client-)ID" (Format 0000…) aus deiner Azure-App erneut ein.':'Client ID missing or invalid – re-enter the “Application (client) ID” (format 0000…) from your Azure app.');
     const body=new URLSearchParams({ client_id:OD.cfg.clientId, grant_type:'refresh_token', refresh_token:OD.tokens.refresh_token, scope:OD.scope, redirect_uri:odRedirectUri() });
     const r=await fetch(OD.authBase+'/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});
     const j=await r.json();
@@ -2856,8 +2865,12 @@
     const rc=$('#cloud-redirect'); if(rc)rc.textContent=odRedirectUri();
     const ci=$('#cloud-clientid'); if(ci && document.activeElement!==ci) ci.value=OD.cfg.clientId||'';
     const conn=odConnected();
-    $('#cloud-setup').style.display=conn?'none':'';
+    // Bei fehlender/ungueltiger Client-ID das Einrichtungs-Feld AUCH im verbundenen
+    // Zustand zeigen – sonst kaeme der Nutzer nicht an das Feld, um sie zu korrigieren.
+    const cidBad=!!(OD.cfg.clientId) && !isGuid(OD.cfg.clientId);
+    $('#cloud-setup').style.display=(conn && !cidBad)?'none':'';
     $('#cloud-connected').style.display=conn?'':'none';
+    const cw=$('#cloud-cid-warn'); if(cw){ if(cidBad){ cw.style.display=''; cw.innerHTML='<span>⚠</span><span>'+(de?'Diese Client-ID ist ungültig (kein GUID). Kopiere die „Anwendungs-(Client-)ID" aus deiner Azure-App-Registrierung (Übersicht) und trage sie hier ein.':'This Client ID is invalid (not a GUID). Copy the “Application (client) ID” from your Azure app registration (Overview) and enter it here.')+'</span>'; } else cw.style.display='none'; }
     const chip=$('#cloud-status');
     if(chip){
       const map={ off:[de?'Nicht verbunden':'Not connected','var(--text-muted)'], syncing:[de?'Synchronisiert…':'Syncing…','var(--primary)'], connected:[de?'Verbunden':'Connected','var(--good)'], error:[de?'Fehler':'Error','var(--danger)'] };
@@ -3070,7 +3083,7 @@
     bd.onclick=()=>{ const inp=document.createElement('input'); inp.type='file'; inp.accept='.zip'; inp.onchange=()=>{ if(inp.files[0])importBackup(inp.files[0]); }; inp.click(); };
 
     // OneDrive-Synchronisation
-    const cid=$('#cloud-clientid'); if(cid) cid.oninput=()=>{ OD.cfg.clientId=cid.value.trim(); odSaveCfg(); };
+    const cid=$('#cloud-clientid'); if(cid) cid.oninput=()=>{ OD.cfg.clientId=cid.value.trim(); odSaveCfg(); const cw=$('#cloud-cid-warn'); if(cw){ const bad=!!OD.cfg.clientId && !isGuid(OD.cfg.clientId); cw.style.display=bad?'':'none'; } };
     const ccr=$('#cloud-copy-redirect'); if(ccr) ccr.onclick=async()=>{ try{ await navigator.clipboard.writeText(odRedirectUri()); toast(state.settings.lang==='de'?'Kopiert.':'Copied.','ok'); }catch(e){ toast(odRedirectUri()); } };
     const ccn=$('#cloud-connect'); if(ccn) ccn.onclick=odConnect;
     const cdis=$('#cloud-disconnect'); if(cdis) cdis.onclick=odDisconnect;
