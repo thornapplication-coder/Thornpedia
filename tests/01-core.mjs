@@ -298,6 +298,23 @@ export async function run(base) {
   t.check('OneDrive: Redirect-URI + PKCE erzeugt', /^https?:\/\//.test(cl.uri) && cl.hasPkce, JSON.stringify(cl));
   t.check('OneDrive: Spiegel-Restore entfernt gelöschtes Dokument', cl.mid === cl.before + 1 && cl.after === cl.before, JSON.stringify(cl));
 
+  // Client-ID-Validierung: eine ungültige ID (z. B. Browser-Autofill des Kontonamens)
+  // wird gewarnt und blendet das Einrichtungsfeld ein; ein gültiger GUID räumt die Warnung.
+  const cidv = await page.evaluate(async () => {
+    window.WA.switchView('settings');
+    await new Promise(r => setTimeout(r, 60));
+    const inp = document.querySelector('#cloud-clientid');
+    const warn = document.querySelector('#cloud-cid-warn');
+    const vis = el => el && getComputedStyle(el).display !== 'none';
+    inp.value = 'thorn.application'; inp.dispatchEvent(new Event('input'));
+    const badWarned = vis(warn);
+    inp.value = '11111111-2222-3333-4444-555555555555'; inp.dispatchEvent(new Event('input'));
+    const goodClean = !vis(warn);
+    return { badWarned, goodClean, saved: window.WA.OD.cfg.clientId };
+  });
+  t.check('OneDrive: ungültige Client-ID wird gewarnt', cidv.badWarned === true, JSON.stringify(cidv));
+  t.check('OneDrive: gültiger GUID räumt die Warnung', cidv.goodClean === true && cidv.saved === '11111111-2222-3333-4444-555555555555', JSON.stringify(cidv));
+
   // Getrennter Sync: DATA (index+meta) und BLOBS (originals+forum) werden separat gebaut;
   // ein reines DATA-Restore mit clearFirst darf die lokalen Originale NICHT anfassen.
   const split = await page.evaluate(async () => {
