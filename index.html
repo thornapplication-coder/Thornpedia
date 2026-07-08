@@ -719,7 +719,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.12';
+  const APP_VERSION = '1.9.13';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2441,10 +2441,16 @@
     //    (mehr) enthaelt – so verschwinden auf anderen Geraeten geloeschte Dokumente.
     //    Erst nachdem alles Neue geschrieben ist (kein Datenverlust-Fenster).
     if(opts.clearFirst){
+      // snap = Dateinamen des letzten Syncs. Ist er gesetzt (Sync-Pull), löschen wir nur
+      // Dateien, die DAMALS schon da waren und jetzt in der Cloud fehlen (= anderswo
+      // gelöscht). Neu lokal Angelegtes (nicht im Snapshot) bleibt. Ohne snap
+      // (manuelle Wiederherstellung / Force-Pull) gilt der volle Spiegel wie bisher.
+      const snap=opts.syncedSnapshot;
       for(const d of ['originals','index','forum']){
         if(!folderSet.has(d)) continue;
         const dir=state.dirs[d]; if(!dir)continue;
-        for(const nm of preExisting[d]||[]){ if(!present[d].has(nm)) await removeFile(dir, nm); }
+        const sset=snap&&snap[d];
+        for(const nm of preExisting[d]||[]){ if(present[d].has(nm))continue; if(sset&&!sset.has(nm))continue; await removeFile(dir, nm); }
       }
     }
   }
@@ -2490,7 +2496,7 @@
     scope:'Files.ReadWrite offline_access openid',
     dataPath:'/me/drive/root:/Thornpedia/thornpedia_data.zip',
     blobPath:'/me/drive/root:/Thornpedia/thornpedia_blobs.zip',
-    cfg:{ clientId:'', auto:true, etag:'', etagBlob:'', syncAt:'', dirty:false, blobDirty:false, dirtyAt:'', gen:0, syncModel:0 },
+    cfg:{ clientId:'', auto:true, etag:'', etagBlob:'', syncAt:'', dirty:false, blobDirty:false, dirtyAt:'', gen:0, syncModel:0, snap:null },
     tokens:null,      // {access_token, refresh_token, expires_at}
     syncing:false, applying:false, _pushTimer:null, status:'off',
   };
@@ -2510,6 +2516,17 @@
   // nicht setzen (das sind keine Nutzer-Aenderungen).
   function odBlobDirty(){ if(OD.applying) return; OD.cfg.blobDirty=true; odSaveCfg(); }
   async function odSaveCfg(){ try{ await IDB.set('od.cfg', OD.cfg); }catch(e){} }
+  // Schnappschuss der zuletzt synchronisierten Dateinamen je Ordner. Grundlage des
+  // Spiegel-Abgleichs: beim Pull darf NUR gelöscht werden, was beim letzten Sync schon
+  // da war und in der Cloud fehlt (= anderswo gelöscht). NEU lokal angelegte Einträge
+  // (die noch nie synchronisiert wurden) bleiben erhalten und werden hochgeladen.
+  async function odCaptureSnapshot(){
+    const cap=async(dir)=>{ const s=[]; if(!dir)return s; try{ for await(const [nm,h] of dir.entries()){ if(h.kind==='file')s.push(nm); } }catch(e){} return s; };
+    OD.cfg.snap={ index:await cap(state.dirs.index), originals:await cap(state.dirs.originals), forum:await cap(state.dirs.forum) };
+  }
+  // Snapshot → { ordner: Set } für applyBackupZip. Fehlt der Snapshot (frisch migriert),
+  // wird NICHTS gelöscht (sicher) – bis der erste Sync einen Snapshot erstellt hat.
+  function odSnapSets(){ const s=OD.cfg.snap; if(!s)return null; return { index:new Set(s.index||[]), originals:new Set(s.originals||[]), forum:new Set(s.forum||[]) }; }
   function b64url(buf){ let s=''; const b=new Uint8Array(buf); for(let i=0;i<b.length;i++)s+=String.fromCharCode(b[i]); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
   async function odPkce(){ const v=b64url(crypto.getRandomValues(new Uint8Array(32))); const c=b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v))); return {verifier:v, challenge:c}; }
   async function odStoreTokens(j){
@@ -2669,9 +2686,13 @@
       await rotateBeforeSync(4);
     }catch(e){ if(strict) throw new Error((state.settings.lang==='de'?'Cloud-Sicherung fehlgeschlagen: ':'Cloud backup failed: ')+e.message); }
   }
-  async function odPull(meta){
+  async function odPull(meta, popts={}){
     await loadScript('vendor/jszip.min.js');
     const de=state.settings.lang==='de';
+    // Normaler Pull: Schnappschuss-Schutz (neu lokal Angelegtes überlebt). Fehlt ein
+    // Schnappschuss (frisch migriert), leere Mengen → es wird NICHTS gelöscht (sicher).
+    // Force-Pull (popts.fullMirror): kein Schnappschuss → voller Spiegel (Cloud ersetzt lokal).
+    const snapSets = popts.fullMirror ? null : (odSnapSets() || {index:new Set(),originals:new Set(),forum:new Set()});
     // Sicherheitsnetz vor dem Ersetzen: bei unsynchronisierten lokalen Änderungen
     // (dirty) das VOLLE Archiv sichern (schützt auch lokal importierte, noch nicht
     // hochgeladene Originale); sonst nur die schnellen Daten – die grossen Blobs sind
@@ -2686,21 +2707,38 @@
     if(!dr.ok) throw new Error('Download '+dr.status);
     const dataZip=await window.JSZip.loadAsync(await dr.blob());
     const keyInZip = !!dataZip.files['meta/apikey.txt'];
+    // Cloud-Dateinamen je Ordner – um danach lokale „Extras" (vom Schnappschuss-Schutz
+    // behaltene, in der Cloud fehlende Einträge) zu erkennen und zum Hochladen zu markieren.
+    const cloudSet=(zip,folder)=>{ const s=new Set(); for(const p of Object.keys(zip.files)){ const pr=p.split('/'); if(pr.length===2&&pr[0]===folder&&pr[1])s.add(pr[1]); } return s; };
+    const cloudIndex=cloudSet(dataZip,'index');
+    let blobLoaded=false, cloudOrig=null, cloudForum=null;
     OD.applying=true;
     try{
-      await applyBackupZip(dataZip, {clearFirst:true, allowKey:true, folders:['index','meta']});
+      await applyBackupZip(dataZip, {clearFirst:true, allowKey:true, folders:['index','meta'], syncedSnapshot:snapSets});
       // BLOBS (originals/forum) nur laden, wenn sich ihr eTag geändert hat – das spart
       // auf Konsum-Geräten den grossen Download bei jeder kleinen Cloud-Änderung.
       if(meta && meta.blob && meta.blob.etag !== OD.cfg.etagBlob){
         const br=await odGraph(OD.blobPath+':/content');
         if(!br.ok) throw new Error('Download '+br.status);
         const blobZip=await window.JSZip.loadAsync(await br.blob());
-        await applyBackupZip(blobZip, {clearFirst:true, folders:['originals','forum']});
+        await applyBackupZip(blobZip, {clearFirst:true, folders:['originals','forum'], syncedSnapshot:snapSets});
+        cloudOrig=cloudSet(blobZip,'originals'); cloudForum=cloudSet(blobZip,'forum'); blobLoaded=true;
         OD.cfg.etagBlob=meta.blob.etag;
       }
       await reloadArchiveViews();   // Katalog aus den (nun aktuellen) Index-Dateien neu aufbauen
     } finally{ OD.applying=false; }
-    OD.cfg.etag=(meta&&meta.data&&meta.data.etag)||OD.cfg.etag; await odSaveCfg();
+    OD.cfg.etag=(meta&&meta.data&&meta.data.etag)||OD.cfg.etag;
+    // Vom Schnappschuss-Schutz behaltene lokale Extras (Cloud kennt sie noch nicht) als
+    // „zu übertragen" markieren – sonst würde ein späterer Pull sie fälschlich löschen.
+    // gen erhöhen, damit odSync das dirty nicht gleich wieder zurücksetzt.
+    let extra=false, extraBlob=false;
+    const hasExtra=async(dir,cloud)=>{ if(!dir||!cloud)return false; try{ for await(const [nm,h] of dir.entries()){ if(h.kind==='file'&&!cloud.has(nm))return true; } }catch(e){} return false; };
+    if(!popts.fullMirror){
+      extra=await hasExtra(state.dirs.index, cloudIndex);
+      if(blobLoaded) extraBlob=(await hasExtra(state.dirs.originals,cloudOrig))||(await hasExtra(state.dirs.forum,cloudForum));
+    }
+    if(extra||extraBlob){ OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); OD.cfg.gen=(OD.cfg.gen||0)+1; if(extraBlob)OD.cfg.blobDirty=true; }
+    await odSaveCfg();
     // Key-Sync aktiv, dieses Gerät HAT einen Key, die Cloud aber noch nicht: genau einmal hochladen.
     if(state.settings.odSyncKey===true && state.apiKey && !keyInZip){
       OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); OD.cfg.gen=(OD.cfg.gen||0)+1; await odSaveCfg();
@@ -2753,6 +2791,10 @@
       // kam (Generationsnummer unveraendert) – sonst ginge eine waehrend des Uploads
       // getaetigte Aenderung (z. B. eine Loeschung) verloren.
       if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
+      // Nach erfolgreichem Abgleich sind lokal und Cloud gleich → Schnappschuss der
+      // aktuellen Dateien als Basis für den nächsten Spiegel-Abgleich festhalten. Bei
+      // „nichts zu tun" nur einmalig bootstrappen (nicht bei jedem 45-s-Poll neu listen).
+      if(action!=='none' || !OD.cfg.snap) await odCaptureSnapshot();
       // Zeitstempel IMMER aktualisieren – auch wenn nichts zu tun war –, damit
       // „Jetzt synchronisieren" sichtbar reagiert.
       OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
@@ -2787,7 +2829,10 @@
       await odBackupRemote(true);        // Remote-Fassung sichern (Pflicht), dann lokal ueberschreiben
       await odPush({force:true});        // force lädt Daten UND Blobs neu hoch
     } else {
-      await odPull(meta || await odRemoteMeta());   // odPull sichert den lokalen Stand
+      // Cloud gewinnt – aber der Schnappschuss-Schutz behält neu lokal Angelegtes.
+      // odPull markiert solche Extras als „dirty" → der automatische Folge-Sync lädt sie
+      // hoch, sodass beide Geräte konvergieren und nichts verloren geht.
+      await odPull(meta || await odRemoteMeta());
     }
   }
   // Bei jeder inhaltlichen Aenderung (Import, Loeschen, Tags, Notizen, Forum):
@@ -2830,6 +2875,7 @@
       await odBackupRemote(true);   // bisherige Cloud-Fassung sichern (Pflicht vor dem Ueberschreiben)
       await odPush({force:true});
       if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
+      await odCaptureSnapshot();
       OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
       odSetStatus('connected'); toast(de?'Hochgeladen – dieser Stand gilt jetzt überall.':'Uploaded – this state now applies everywhere.','ok');
     }catch(e){ odSetStatus('error', e.message); toast((de?'Fehler: ':'Error: ')+e.message,'err'); }
@@ -2844,8 +2890,9 @@
     try{
       const meta=await odRemoteMeta(); if(!meta.data) throw new Error(de?'Keine Cloud-Datei vorhanden.':'No cloud file present.');
       OD.cfg.etagBlob='';           // Blobs beim Force-Pull immer frisch aus der Cloud holen
-      await odPull(meta);           // sichert den lokalen Stand selbst (Pflicht, s. odPull)
+      await odPull(meta, {fullMirror:true});   // bewusst voller Spiegel: Cloud ersetzt lokal komplett
       if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
+      await odCaptureSnapshot();
       OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
       odSetStatus('connected'); toast(de?'Cloud-Version geladen.':'Cloud version loaded.','ok');
     }catch(e){ odSetStatus('error', e.message); toast((de?'Fehler: ':'Error: ')+e.message,'err'); }
