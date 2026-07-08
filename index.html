@@ -718,7 +718,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.10';
+  const APP_VERSION = '1.9.11';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1054,7 +1054,7 @@
         // Erst das NEUE Dokument vollstaendig schreiben …
         const id=crypto.randomUUID();
         const origName=id+'__'+file.name;
-        await writeFile(state.dirs.originals, origName, buffer);
+        await writeFile(state.dirs.originals, origName, buffer); odBlobDirty();   // Originale geändert → BLOB-Datei mit hochladen
         const doc={ id, name:file.name, storedAs:origName, ext, type:typeOf(ext), size:file.size, importedAt:new Date().toISOString(), hash, scanned:!!res.scanned, ocr:false, pageCount:res.pageCount||null, tags:[], note:'', units:res.units||[] };
         await writeIndex(doc);
         // … dann erst das alte ersetzen (so gehen bei Parse-Fehler nie beide verloren)
@@ -1258,7 +1258,7 @@
   async function persistDoc(doc){ await writeIndex(doc); return updateCatalogEntry(doc); }
   // Guard: existiert das Dokument noch (nicht zwischenzeitlich gelöscht)? Sonst Toast + false.
   function guardExists(doc){ if(state.catalog.some(c=>c.id===doc.id))return true; toast(state.settings.lang==='de'?'Dokument wurde inzwischen gelöscht.':'Document was deleted in the meantime.','err'); return false; }
-  async function deleteDoc(id, silent){ const doc=await getIndex(id).catch(()=>null); if(doc){ if(doc.type==='forum'){ for(const a of (doc.attachments||[])) await removeFile(state.dirs.forum, a.storedAs); for(const c of (doc.comments||[])) for(const a of (c.attachments||[])) await removeFile(state.dirs.forum, a.storedAs); } else { await removeFile(state.dirs.originals, doc.storedAs); } } await removeFile(state.dirs.index, id+'.json'); state.indexCache.delete(id); state.catalog=state.catalog.filter(c=>c.id!==id); state.lib.selected.delete(id);
+  async function deleteDoc(id, silent){ const doc=await getIndex(id).catch(()=>null); if(doc){ if(doc.type==='forum'){ for(const a of (doc.attachments||[])) await removeFile(state.dirs.forum, a.storedAs); for(const c of (doc.comments||[])) for(const a of (c.attachments||[])) await removeFile(state.dirs.forum, a.storedAs); } else { await removeFile(state.dirs.originals, doc.storedAs); } odBlobDirty(); } await removeFile(state.dirs.index, id+'.json'); state.indexCache.delete(id); state.catalog=state.catalog.filter(c=>c.id!==id); state.lib.selected.delete(id);
     if(state.pdfView.docId===id) closePdfView();
     if(state.curDoc&&state.curDoc.doc&&state.curDoc.doc.id===id){ state.curDoc=null; const nd=$('#nav-doc'); if(nd)nd.style.display='none'; }
     state.lastHits=state.lastHits.filter(h=>h.docId!==id); state.search.selected.clear();
@@ -1612,6 +1612,7 @@
     if(file.size>250*1024*1024){ toast(de?'Anhang zu groß (max. 250 MB).':'Attachment too large (max. 250 MB).','err'); return null; }
     const storedAs=foUuid()+'__'+String(file.name).replace(/[\\/]/g,'_');
     try{ await writeFile(state.dirs.forum, storedAs, await file.arrayBuffer()); }catch(err){ toast(de?'Anhang konnte nicht gespeichert werden.':'Could not save attachment.','err'); return null; }
+    odBlobDirty();   // Forum-Anhang (liegt in der grossen BLOB-Datei)
     return {name:file.name, storedAs, kind:foMediaKind(file.name,file.type), size:file.size};
   }
   // Schlaegt das Persistieren des Eintrags fehl, gespeicherte Anhang-Dateien wieder
@@ -1622,11 +1623,11 @@
     const atts=[]; for(const f of files){ const a=await foStoreMedia(f); if(a)atts.push(a); }
     e.comments=e.comments||[]; const cmt={id:foUuid(), text, at:new Date().toISOString(), attachments:atts};
     e.comments.push(cmt); if(!await foSaveOrCleanup(e, atts)){ e.comments.pop(); } renderForum(); }
-  async function foDelComment(e, i){ const c=(e.comments||[])[i]; if(c){ for(const a of (c.attachments||[])) await removeFile(state.dirs.forum, a.storedAs); } (e.comments||[]).splice(i,1); await foSaveEntry(e); renderForum(); }
+  async function foDelComment(e, i){ const c=(e.comments||[])[i]; if(c){ for(const a of (c.attachments||[])){ await removeFile(state.dirs.forum, a.storedAs); odBlobDirty(); } } (e.comments||[]).splice(i,1); await foSaveEntry(e); renderForum(); }
   async function foAddCommentAttachment(e, ci, file){ const c=(e.comments||[])[ci]; if(!c)return; const a=await foStoreMedia(file); if(!a)return; c.attachments=c.attachments||[]; c.attachments.push(a); if(!await foSaveOrCleanup(e,[a])){ c.attachments.pop(); } renderForum(); }
-  async function foDelCommentAttachment(e, ci, ai){ const c=(e.comments||[])[ci]; if(!c)return; const a=(c.attachments||[])[ai]; if(a) await removeFile(state.dirs.forum, a.storedAs); (c.attachments||[]).splice(ai,1); await foSaveEntry(e); renderForum(); }
+  async function foDelCommentAttachment(e, ci, ai){ const c=(e.comments||[])[ci]; if(!c)return; const a=(c.attachments||[])[ai]; if(a){ await removeFile(state.dirs.forum, a.storedAs); odBlobDirty(); } (c.attachments||[]).splice(ai,1); await foSaveEntry(e); renderForum(); }
   async function foAddAttachment(e, file){ const a=await foStoreMedia(file); if(!a)return; e.attachments=e.attachments||[]; e.attachments.push(a); if(!await foSaveOrCleanup(e,[a])){ e.attachments.pop(); } renderForum(); }
-  async function foDelAttachment(e, i){ const a=(e.attachments||[])[i]; if(a) await removeFile(state.dirs.forum, a.storedAs); (e.attachments||[]).splice(i,1); await foSaveEntry(e); renderForum(); }
+  async function foDelAttachment(e, i){ const a=(e.attachments||[])[i]; if(a){ await removeFile(state.dirs.forum, a.storedAs); odBlobDirty(); } (e.attachments||[]).splice(i,1); await foSaveEntry(e); renderForum(); }
   // Medienvorschau in voller Größe (Klick auf ein Thumbnail).
   function openMediaLightbox(url, kind){
     const ov=document.createElement('div');
@@ -2318,10 +2319,15 @@
     // index/ und meta/ sind Text (JSON) und schrumpfen per DEFLATE auf einen Bruchteil –
     // das verkleinert jeden Cloud-Upload deutlich. Originale/Anhaenge (PDF, Bilder,
     // Videos, Office) sind bereits komprimiert -> STORE (schnell, kein Gewinn durch DEFLATE).
-    const add=async(dirHandle, folder, skip)=>{ const textish=(folder==='index'||folder==='meta'); for await(const [name,h] of dirHandle.entries()){ if(h.kind==='file'){ if(skip&&skip.has(name))continue; const f=await h.getFile(); zip.file(folder+'/'+name, await f.arrayBuffer(), textish?{compression:'DEFLATE',compressionOptions:{level:6}}:undefined); } } };
+    const add=async(dirHandle, folder, skip)=>{ if(!dirHandle)return; const textish=(folder==='index'||folder==='meta'); for await(const [name,h] of dirHandle.entries()){ if(h.kind==='file'){ if(skip&&skip.has(name))continue; const f=await h.getFile(); zip.file(folder+'/'+name, await f.arrayBuffer(), textish?{compression:'DEFLATE',compressionOptions:{level:6}}:undefined); } } };
     const metaSkip = opts.includeKey ? new Set() : new Set(['apikey.txt']);
-    await add(state.dirs.originals,'originals'); await add(state.dirs.index,'index'); await add(state.dirs.meta,'meta', metaSkip);
-    if(state.dirs.forum) await add(state.dirs.forum,'forum'); // Forum-Anhänge (Bilder, Videos, Dateien)
+    // opts.folders schraenkt ein, welche Ordner ins ZIP kommen (getrennter Sync:
+    // DATA=index+meta, BLOBS=originals+forum). Ohne Angabe: das volle Archiv.
+    const folders = opts.folders || ['originals','index','meta','forum'];
+    if(folders.includes('originals')) await add(state.dirs.originals,'originals');
+    if(folders.includes('index'))     await add(state.dirs.index,'index');
+    if(folders.includes('meta'))      await add(state.dirs.meta,'meta', metaSkip);
+    if(folders.includes('forum') && state.dirs.forum) await add(state.dirs.forum,'forum'); // Forum-Anhänge
     return await zip.generateAsync({type:'blob'});
   }
   async function exportBackup(){
@@ -2373,6 +2379,11 @@
     const de=state.settings.lang==='de';
     const targets={originals:state.dirs.originals, index:state.dirs.index, meta:state.dirs.meta, forum:state.dirs.forum};
     const entries=Object.keys(zip.files);
+    // Welche Ordner ist dieses ZIP autoritativ (schreiben + spiegeln)? Explizit via
+    // opts.folders (getrennter Sync) – sonst automatisch die im ZIP vorhandenen Ordner.
+    // So spielt ein reines DATA-ZIP NICHT versehentlich die lokalen Originale weg.
+    const folders = opts.folders || (()=>{ const s=new Set(); for(const p of entries){ const f=p.split('/')[0]; if(targets[f])s.add(f); } return [...s]; })();
+    const folderSet=new Set(folders);
     // Nur meta-Dateien aus einer festen Whitelist zulassen; apikey.txt und
     // catalog.json werden NIE aus einem fremden ZIP uebernommen.
     const META_ALLOW=new Set(['settings.json','exports.json','forum.json']);
@@ -2393,6 +2404,7 @@
     const preExisting={};
     if(opts.clearFirst){
       for(const d of ['originals','index','forum']){
+        if(!folderSet.has(d)) continue;   // nur autoritative Ordner spiegeln
         preExisting[d]=new Set();
         try{ for await(const [nm,h] of state.dirs[d].entries()){ if(h.kind==='file')preExisting[d].add(nm); } }catch(e){}
       }
@@ -2404,7 +2416,7 @@
       const zf=zip.files[path]; if(zf.dir)continue;
       const parts=path.split('/'); if(parts.length!==2)continue;         // genau folder/datei
       const [folder,fname]=parts;
-      if(!targets[folder]||!fname)continue;
+      if(!targets[folder]||!folderSet.has(folder)||!fname)continue;         // nur autoritative Ordner
       if(/[\\/]|^\.+$/.test(fname)){ skipped++; continue; }               // keine Traversal-/Sonderpfade
       present[folder].add(fname);                                         // in der ZIP vorhanden (fuer Spiegel-Prune)
       if(folder==='meta'&&!META_ALLOW.has(fname)){ skipped++; continue; } // meta streng begrenzt
@@ -2429,6 +2441,7 @@
     //    Erst nachdem alles Neue geschrieben ist (kein Datenverlust-Fenster).
     if(opts.clearFirst){
       for(const d of ['originals','index','forum']){
+        if(!folderSet.has(d)) continue;
         const dir=state.dirs[d]; if(!dir)continue;
         for(const nm of preExisting[d]||[]){ if(!present[d].has(nm)) await removeFile(dir, nm); }
       }
@@ -2466,12 +2479,17 @@
   // geheim). Access-/Refresh-Token liegen PRO GERAET in IndexedDB – niemals in
   // /meta und niemals in einem Backup-ZIP. Auch die Sync-Buchhaltung (eTag, Auto-
   // Flag, Client-ID) liegt in IndexedDB, damit sie nicht ueber das ZIP mitwandert.
+  // Getrennter Sync: DATA = index/ + meta/ (Text/Tags/Forum-Struktur, aendert sich oft,
+  // klein) wird bei jeder Aenderung hochgeladen; BLOBS = originals/ + forum/ (die grossen
+  // Dateien: PDFs, Bilder, Videos, Anhaenge) nur wenn dort wirklich etwas dazukam/wegfiel.
+  // So laedt eine Kleinigkeit (Tag, Notiz, Kommentar) nur die winzige DATA-Datei hoch.
   const OD = {
     authBase:'https://login.microsoftonline.com/common/oauth2/v2.0',
     graph:'https://graph.microsoft.com/v1.0',
     scope:'Files.ReadWrite offline_access openid',
-    itemPath:'/me/drive/root:/Thornpedia/thornpedia_archive.zip',
-    cfg:{ clientId:'', auto:true, etag:'', syncAt:'', dirty:false, dirtyAt:'', gen:0 },
+    dataPath:'/me/drive/root:/Thornpedia/thornpedia_data.zip',
+    blobPath:'/me/drive/root:/Thornpedia/thornpedia_blobs.zip',
+    cfg:{ clientId:'', auto:true, etag:'', etagBlob:'', syncAt:'', dirty:false, blobDirty:false, dirtyAt:'', gen:0, syncModel:0 },
     tokens:null,      // {access_token, refresh_token, expires_at}
     syncing:false, applying:false, _pushTimer:null, status:'off',
   };
@@ -2480,7 +2498,16 @@
   async function odLoadState(){
     try{ const c=await IDB.get('od.cfg'); if(c) OD.cfg=Object.assign(OD.cfg, c); }catch(e){}
     try{ OD.tokens=(await IDB.get('od.tokens'))||null; }catch(e){ OD.tokens=null; }
+    // Migration auf den getrennten Sync: die alten eTags galten fuer das fruehere
+    // Einzel-Archiv (thornpedia_archive.zip) → verwerfen und die Blobs einmal neu
+    // hochladen lassen. Empfehlung an den Nutzer: einmal „Dieses Gerät → Cloud"
+    // vom Haupt-/Desktop-Gerät, damit die neuen Cloud-Dateien sauber entstehen.
+    if((OD.cfg.syncModel||0)<3){ OD.cfg.etag=''; OD.cfg.etagBlob=''; OD.cfg.blobDirty=true; OD.cfg.syncModel=3; await odSaveCfg(); }
   }
+  // Originale/Forum-Anhaenge haben sich geaendert (Import, Loeschen, Anhang) → die
+  // grosse BLOB-Datei muss beim naechsten Sync mit hoch. Waehrend eines Pulls (apply)
+  // nicht setzen (das sind keine Nutzer-Aenderungen).
+  function odBlobDirty(){ if(OD.applying) return; OD.cfg.blobDirty=true; odSaveCfg(); }
   async function odSaveCfg(){ try{ await IDB.set('od.cfg', OD.cfg); }catch(e){} }
   function b64url(buf){ let s=''; const b=new Uint8Array(buf); for(let i=0;i<b.length;i++)s+=String.fromCharCode(b[i]); return btoa(s).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); }
   async function odPkce(){ const v=b64url(crypto.getRandomValues(new Uint8Array(32))); const c=b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v))); return {verifier:v, challenge:c}; }
@@ -2545,51 +2572,63 @@
   // Zähler + Zufallssuffix verhindern Überschreiben in derselben Minute, auch
   // über einen Seiten-Reload hinweg, der den Zähler zurücksetzen würde).
   function beforeSyncName(){ OD._bkSeq=(OD._bkSeq||0)+1; return 'wissensarchiv_beforesync_'+stamp()+'_'+OD._bkSeq+'_'+Math.random().toString(36).slice(2,6)+'.zip'; }
-  async function odRemoteMeta(){
-    const r=await odGraph(OD.itemPath+'?select=eTag,cTag,size,lastModifiedDateTime');
+  // Metadaten einer einzelnen Cloud-Datei (null = existiert nicht).
+  async function odMeta1(path){
+    const r=await odGraph(path+'?select=eTag,cTag,size,lastModifiedDateTime');
     if(r.status===404) return null;
     if(!r.ok) throw new Error('Graph '+r.status);
     const j=await r.json();
     // eTag (nicht cTag): Graph prüft die If-Match-Vorbedingung gegen den eTag.
     return { etag:j.eTag||j.cTag||'', modified:j.lastModifiedDateTime||'', size:j.size||0 };
   }
+  // Beide Cloud-Dateien (Daten + Blobs). data=null ⇒ frischer Erst-Upload.
+  async function odRemoteMeta(){
+    const data=await odMeta1(OD.dataPath);
+    const blob=await odMeta1(OD.blobPath);
+    return { data, blob };
+  }
+  // Eine ZIP an OneDrive schreiben: kleiner Einzel-PUT bis 60 MB, darüber die
+  // Block-Upload-Session (umgeht das 250-MB-Limit). Liefert das driveItem-JSON,
+  // 'conflict' (If-Match/If-None-Match abgelehnt) – o={fresh,force,etag}.
+  async function odPutFile(path, blob, o){
+    const de=state.settings.lang==='de';
+    if(blob.size > 2*1024*1024*1024) throw new Error(de?'Archiv größer als 2 GB – bitte große Anhänge entfernen.':'Archive larger than 2 GB – please remove large attachments.');
+    if(blob.size <= 60*1024*1024){
+      const headers={'Content-Type':'application/zip'};
+      if(o.fresh) headers['If-None-Match']='*';
+      else if(!o.force && o.etag) headers['If-Match']=o.etag;
+      const r=await odGraph(path+':/content', {method:'PUT', headers, body:blob});
+      if(r.status===412 || r.status===409) return 'conflict';
+      if(!r.ok) throw new Error('Upload '+r.status);
+      return await r.json();
+    }
+    return await odUploadLarge(path, blob, o);
+  }
+  // Getrennter Push: ZUERST DATA (index/meta – klein, das Konflikt-Tor via If-Match),
+  // danach – nur wenn Originale/Anhänge sich änderten, bei fresh/force oder wenn die
+  // BLOB-Datei in der Cloud fehlt – die grosse BLOB-Datei (originals/forum) bewusst
+  // überschreibend (Blobs ändern sich nur ZUSAMMEN mit den Daten → DATA war das Tor).
   async function odPush(opts={}){
     await loadScript('vendor/jszip.min.js');
-    const de=state.settings.lang==='de';
-    // API-Key nur mitnehmen, wenn der Nutzer es ausdruecklich aktiviert hat.
-    const blob=await buildBackupBlob({includeKey: state.settings.odSyncKey===true && !!state.apiKey});
-    if(blob.size > 2*1024*1024*1024) throw new Error(de?'Archiv größer als 2 GB – bitte große Anhänge entfernen.':'Archive larger than 2 GB – please remove large attachments.');
-    // If-Match: schützt vor „lost update" – hat ein anderes Gerät seit unserem
-    // Stand hochgeladen, lehnt Graph mit 412 ab, statt dessen Version zu überschreiben.
-    // Bei force (lokal-gewinnt-Konflikt) bewusst OHNE If-Match überschreiben.
-    // Beim Erst-Upload (fresh): nur anlegen, wenn noch keine Datei existiert (Wettlauf zweier Erstverbindungen).
-    let j;
-    if(blob.size <= 60*1024*1024){
-      // Kleine Archive: einfacher PUT in einem Request (Graph erlaubt hier max. 250 MB).
-      const headers={'Content-Type':'application/zip'};
-      if(opts.fresh) headers['If-None-Match']='*';
-      else if(!opts.force && OD.cfg.etag) headers['If-Match']=OD.cfg.etag;
-      const r=await odGraph(OD.itemPath+':/content', {method:'PUT', headers, body:blob});
-      if(r.status===412 || r.status===409) return 'conflict';   // Remote hat sich seit unserem Stand geändert → erst ziehen
-      if(!r.ok) throw new Error('Upload '+r.status);
-      j=await r.json();
-    } else {
-      // Große Archive: Upload-Session in Blöcken – umgeht das 250-MB-Limit des Einzel-PUT.
-      j=await odUploadLarge(blob, opts);
-      if(j==='conflict') return 'conflict';
+    const dataBlob=await buildBackupBlob({folders:['index','meta'], includeKey: state.settings.odSyncKey===true && !!state.apiKey});
+    const dj=await odPutFile(OD.dataPath, dataBlob, {fresh:opts.fresh, force:opts.force, etag:OD.cfg.etag});
+    if(dj==='conflict') return 'conflict';
+    OD.cfg.etag=dj.eTag||dj.cTag||''; await odSaveCfg();
+    if(OD.cfg.blobDirty || opts.fresh || opts.force || opts.blobMissing){
+      const blobBlob=await buildBackupBlob({folders:['originals','forum']});
+      const bj=await odPutFile(OD.blobPath, blobBlob, {force:true});   // DATA war das Konflikt-Tor
+      if(bj!=='conflict'){ OD.cfg.etagBlob=bj.eTag||bj.cTag||''; OD.cfg.blobDirty=false; await odSaveCfg(); }
     }
-    OD.cfg.etag=j.eTag||j.cTag||''; await odSaveCfg();   // dirty/Zeit setzt odSync (konfliktbewusst)
     return 'ok';
   }
-  // Grosse Dateien per Graph-Upload-Session: createUploadSession (traegt die
-  // Konflikt-Vorbedingungen), danach sequenzielle PUT-Bloecke an die vor-
-  // authentifizierte uploadUrl (ohne Authorization-Header). Blockgroesse muss ein
-  // Vielfaches von 320 KiB sein. Liefert das driveItem-JSON oder 'conflict'.
-  async function odUploadLarge(blob, opts){
+  // Grosse Dateien per Graph-Upload-Session: createUploadSession (traegt die Konflikt-
+  // Vorbedingungen), danach sequenzielle PUT-Bloecke an die vor-authentifizierte
+  // uploadUrl (ohne Authorization). Blockgroesse = Vielfaches von 320 KiB.
+  async function odUploadLarge(path, blob, o){
     const headers={'Content-Type':'application/json'};
-    if(!opts.fresh && !opts.force && OD.cfg.etag) headers['If-Match']=OD.cfg.etag;
-    const body=JSON.stringify({ item:{ '@microsoft.graph.conflictBehavior': opts.fresh?'fail':'replace' } });
-    const cr=await odGraph(OD.itemPath+':/createUploadSession', {method:'POST', headers, body});
+    if(!o.fresh && !o.force && o.etag) headers['If-Match']=o.etag;
+    const body=JSON.stringify({ item:{ '@microsoft.graph.conflictBehavior': o.fresh?'fail':'replace' } });
+    const cr=await odGraph(path+':/createUploadSession', {method:'POST', headers, body});
     if(cr.status===412 || cr.status===409) return 'conflict';
     if(!cr.ok) throw new Error('UploadSession '+cr.status);
     const url=(await cr.json()).uploadUrl;
@@ -2599,7 +2638,7 @@
         const end=Math.min(off+CHUNK, blob.size);
         odSetStatus('syncing', Math.round(off/blob.size*100)+' %');   // Fortschritt im Status-Chip
         const r=await fetch(url, { method:'PUT', headers:{'Content-Range':`bytes ${off}-${end-1}/${blob.size}`}, body:blob.slice(off,end) });
-        if(r.status===412 || r.status===409) return 'conflict';   // fresh-Wettlauf: Datei entstand zwischenzeitlich
+        if(r.status===412 || r.status===409) return 'conflict';
         if(end>=blob.size){
           if(r.status===200||r.status===201){ odSetStatus('syncing'); return await r.json(); }
           throw new Error('Upload '+r.status);
@@ -2609,14 +2648,12 @@
     }catch(e){ try{ await fetch(url,{method:'DELETE'}); }catch(_){} throw e; }   // Session aufraeumen
     throw new Error('Upload unvollständig');
   }
-  // Aktuellen Cloud-Stand herunterladen und in /exports sichern – bevor er beim
-  // „lokal gewinnt"-Konflikt ueberschrieben wird (damit auch die Remote-Fassung
-  // wiederherstellbar bleibt). Rotiert wie die uebrigen Sync-Sicherungen.
-  // strict=true: Schlaegt die Sicherung fehl, wird der Fehler GEWORFEN – der Aufrufer
-  // darf dann nicht destruktiv ueberschreiben (Versprechen "liegt in /exports" muss halten).
+  // Die aktuelle Cloud-DATA-Datei (klein, konfliktrelevant) vor dem „lokal gewinnt"-
+  // Überschreiben in /exports sichern. strict=true ⇒ Fehler wird geworfen (der
+  // Aufrufer darf dann nicht destruktiv überschreiben).
   async function odBackupRemote(strict){
     try{
-      const r=await odGraph(OD.itemPath+':/content');
+      const r=await odGraph(OD.dataPath+':/content');
       if(r.status===404) return;                                  // nichts zu sichern
       if(!r.ok) throw new Error('Backup-Download '+r.status);
       await writeFile(state.dirs.exports, beforeSyncName(), await r.blob());
@@ -2625,30 +2662,37 @@
   }
   async function odPull(meta){
     await loadScript('vendor/jszip.min.js');
-    // Sicherheitsnetz: lokalen Stand IMMER als ZIP in /exports sichern, BEVOR er durch
-    // die Cloud-Version ersetzt wird. So gehen auch Änderungen, die im Offline-Zustand
-    // gemacht wurden (und daher nicht als „dirty" markiert sind), beim Reconnect nicht
-    // verloren. Schlägt die Sicherung fehl, wird NICHT überschrieben (Fehler → Sync-Status);
-    // nur bei leerem Archiv ist sie überflüssig. Rotiert (letzte 4).
+    const de=state.settings.lang==='de';
+    // Sicherheitsnetz vor dem Ersetzen: bei unsynchronisierten lokalen Änderungen
+    // (dirty) das VOLLE Archiv sichern (schützt auch lokal importierte, noch nicht
+    // hochgeladene Originale); sonst nur die schnellen Daten – die grossen Blobs sind
+    // unverändert und liegen ohnehin in der Cloud. Schlägt die Sicherung fehl → Abbruch.
     if(state.catalog.length){
-      try{ await writeFile(state.dirs.exports, beforeSyncName(), await buildBackupBlob()); await rotateBeforeSync(4); }
-      catch(e){ throw new Error((state.settings.lang==='de'?'Lokale Sicherung fehlgeschlagen – Pull abgebrochen: ':'Local backup failed – pull aborted: ')+e.message); }
+      const folders = OD.cfg.dirty ? ['originals','index','meta','forum'] : ['index','meta'];
+      try{ await writeFile(state.dirs.exports, beforeSyncName(), await buildBackupBlob({folders})); await rotateBeforeSync(4); }
+      catch(e){ throw new Error((de?'Lokale Sicherung fehlgeschlagen – Pull abgebrochen: ':'Local backup failed – pull aborted: ')+e.message); }
     }
-    const r=await odGraph(OD.itemPath+':/content');
-    if(!r.ok) throw new Error('Download '+r.status);
-    const zip=await window.JSZip.loadAsync(await r.blob());
-    // Cloud-Pull darf einen (opt-in) mitsynchronisierten API-Key uebernehmen –
-    // der stammt aus deiner eigenen OneDrive, nicht aus einem fremden ZIP.
-    const keyInZip = !!zip.files['meta/apikey.txt'];
-    // Waehrend die Cloud-Version lokal eingespielt wird, sind die dabei ausgeloesten
-    // saveCatalog/saveForum-Aufrufe KEINE Nutzer-Aenderungen → nicht als dirty werten.
+    // DATA laden – immer (klein). Spiegelt nur index/meta, lässt Originale/Anhänge unangetastet.
+    const dr=await odGraph(OD.dataPath+':/content');
+    if(!dr.ok) throw new Error('Download '+dr.status);
+    const dataZip=await window.JSZip.loadAsync(await dr.blob());
+    const keyInZip = !!dataZip.files['meta/apikey.txt'];
     OD.applying=true;
-    try{ await applyBackupZip(zip, {clearFirst:true, allowKey:true}); await reloadArchiveViews(); }
-    finally{ OD.applying=false; }
-    OD.cfg.etag=(meta&&meta.etag)||OD.cfg.etag; await odSaveCfg();   // dirty/Zeit setzt odSync
-    // Key-Sync aktiv, dieses Gerät HAT einen Key, die Cloud aber noch nicht:
-    // genau einmal hochladen. Sobald der Key in der Cloud ist, tritt das bei
-    // keinem Gerät mehr ein → kein Loop.
+    try{
+      await applyBackupZip(dataZip, {clearFirst:true, allowKey:true, folders:['index','meta']});
+      // BLOBS (originals/forum) nur laden, wenn sich ihr eTag geändert hat – das spart
+      // auf Konsum-Geräten den grossen Download bei jeder kleinen Cloud-Änderung.
+      if(meta && meta.blob && meta.blob.etag !== OD.cfg.etagBlob){
+        const br=await odGraph(OD.blobPath+':/content');
+        if(!br.ok) throw new Error('Download '+br.status);
+        const blobZip=await window.JSZip.loadAsync(await br.blob());
+        await applyBackupZip(blobZip, {clearFirst:true, folders:['originals','forum']});
+        OD.cfg.etagBlob=meta.blob.etag;
+      }
+      await reloadArchiveViews();   // Katalog aus den (nun aktuellen) Index-Dateien neu aufbauen
+    } finally{ OD.applying=false; }
+    OD.cfg.etag=(meta&&meta.data&&meta.data.etag)||OD.cfg.etag; await odSaveCfg();
+    // Key-Sync aktiv, dieses Gerät HAT einen Key, die Cloud aber noch nicht: genau einmal hochladen.
     if(state.settings.odSyncKey===true && state.apiKey && !keyInZip){
       OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); OD.cfg.gen=(OD.cfg.gen||0)+1; await odSaveCfg();
     }
@@ -2674,23 +2718,23 @@
     try{
       const meta=await odRemoteMeta();
       let action='none';
-      if(!meta){
-        const res=await odPush({fresh:true});
+      // Die DATA-Datei ist das Konflikt-Tor: an ihr entscheiden sich fresh/etag/pull.
+      const blobMissing = !meta.blob;
+      if(!meta.data){
+        const res=await odPush({fresh:true});   // fresh lädt Daten UND Blobs hoch
         if(res==='conflict'){ await odConflict(); action='conflict'; }   // anderes Gerät war schneller → zusammenführen
         else action='push';
-      } else if(meta.etag && meta.etag===OD.cfg.etag){
-        // Remote unveraendert. Hochladen NUR bei lokaler Aenderung: dirty wird seit
-        // v1.9.10 auch offline/pausiert gepflegt, daher ist der fruehere vorsorgliche
-        // Voll-Upload bei jedem manuellen Klick unnoetig – "Bereits aktuell" genuegt.
-        // (Echte Abweichungen erzwingt bei Bedarf der Force-Push-Knopf.)
-        if(OD.cfg.dirty){
-          const res=await odPush();
+      } else if(meta.data.etag && meta.data.etag===OD.cfg.etag){
+        // Remote-DATA unverändert. Hochladen nur bei lokaler Änderung (dirty wird seit
+        // v1.9.10 auch offline gepflegt), oder wenn die BLOB-Datei in der Cloud fehlt
+        // (Migration/erster Blob-Upload). Sonst „Bereits aktuell".
+        if(OD.cfg.dirty || OD.cfg.blobDirty || blobMissing){
+          const res=await odPush({blobMissing});
           if(res==='conflict'){ await odConflict(); action='conflict'; }   // Remote hat sich im Fenster geaendert
           else action='push';
         }
       } else if(OD.cfg.dirty){
         // KONFLIKT: Remote UND lokal geaendert → die NEUERE Fassung gewinnt (Zeit).
-        // Der jeweils unterlegene Stand wird vorher in /exports gesichert.
         await odConflict(meta); action='conflict';
       } else {
         // Remote geaendert, lokal nichts offen → sauber die Cloud-Version uebernehmen.
@@ -2720,17 +2764,19 @@
       // Nur NACH ERFOLG bald nachziehen, wenn waehrend des Syncs eine Aenderung kam.
       // Bei einem Fehler NICHT eng weiterprobieren (sonst 1,5-s-Schleife) – der 45-s-
       // Poll versucht es ohnehin erneut.
-      if(ok && OD.cfg.dirty && odConnected() && OD.cfg.auto!==false){ clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 1500); }
+      if(ok && (OD.cfg.dirty||OD.cfg.blobDirty) && odConnected() && OD.cfg.auto!==false){ clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 1500); }
     }
   }
   // Konflikt (Remote und lokal geaendert): neuere Fassung gewinnt. Beide Staende werden
   // vorab gesichert, sodass nichts unwiederbringlich verloren geht.
   async function odConflict(metaIn){
     const meta=metaIn||await odRemoteMeta();
-    const localNewer = !!(OD.cfg.dirtyAt && meta && meta.modified && OD.cfg.dirtyAt > new Date(meta.modified).toISOString());
+    // Konflikt-Entscheidung an der DATA-Datei (die Blobs folgen den Daten).
+    const rmod = meta && meta.data && meta.data.modified;
+    const localNewer = !!(OD.cfg.dirtyAt && rmod && OD.cfg.dirtyAt > new Date(rmod).toISOString());
     if(localNewer){
       await odBackupRemote(true);        // Remote-Fassung sichern (Pflicht), dann lokal ueberschreiben
-      await odPush({force:true});
+      await odPush({force:true});        // force lädt Daten UND Blobs neu hoch
     } else {
       await odPull(meta || await odRemoteMeta());   // odPull sichert den lokalen Stand
     }
@@ -2787,7 +2833,8 @@
     OD.syncing=true; odSetStatus('syncing');
     const startGen=OD.cfg.gen||0;   // Key-Upload-Marker/Edits im Apply-Fenster nicht verlieren
     try{
-      const meta=await odRemoteMeta(); if(!meta) throw new Error(de?'Keine Cloud-Datei vorhanden.':'No cloud file present.');
+      const meta=await odRemoteMeta(); if(!meta.data) throw new Error(de?'Keine Cloud-Datei vorhanden.':'No cloud file present.');
+      OD.cfg.etagBlob='';           // Blobs beim Force-Pull immer frisch aus der Cloud holen
       await odPull(meta);           // sichert den lokalen Stand selbst (Pflicht, s. odPull)
       if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
       OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
@@ -2798,7 +2845,7 @@
   async function odDisconnect(){
     // Auch Etag/Zeitstempel/Generation verwerfen: Nach einem Neu-Verbinden (ggf. mit
     // anderem Konto) darf kein veralteter Sync-Zustand die Konfliktlogik fehlleiten.
-    OD.tokens=null; OD.cfg.auto=false; OD.cfg.dirty=false; OD.cfg.etag=''; OD.cfg.dirtyAt=''; OD.cfg.gen=0;
+    OD.tokens=null; OD.cfg.auto=false; OD.cfg.dirty=false; OD.cfg.blobDirty=false; OD.cfg.etag=''; OD.cfg.etagBlob=''; OD.cfg.dirtyAt=''; OD.cfg.gen=0;
     try{ await IDB.del('od.tokens'); }catch(e){}
     await odSaveCfg(); renderCloudPanel();
     toast(state.settings.lang==='de'?'OneDrive getrennt (Archiv-Daten bleiben lokal).':'OneDrive disconnected (archive data stays local).','ok');

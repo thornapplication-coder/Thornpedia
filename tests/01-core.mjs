@@ -298,6 +298,26 @@ export async function run(base) {
   t.check('OneDrive: Redirect-URI + PKCE erzeugt', /^https?:\/\//.test(cl.uri) && cl.hasPkce, JSON.stringify(cl));
   t.check('OneDrive: Spiegel-Restore entfernt gelöschtes Dokument', cl.mid === cl.before + 1 && cl.after === cl.before, JSON.stringify(cl));
 
+  // Getrennter Sync: DATA (index+meta) und BLOBS (originals+forum) werden separat gebaut;
+  // ein reines DATA-Restore mit clearFirst darf die lokalen Originale NICHT anfassen.
+  const split = await page.evaluate(async () => {
+    const WA = window.WA;
+    const load = async (blob) => window.JSZip.loadAsync(await blob.arrayBuffer());
+    const folders = (zip) => [...new Set(Object.keys(zip.files).filter(p => !zip.files[p].dir).map(p => p.split('/')[0]))].sort();
+    const dataFolders = folders(await load(await WA.buildBackupBlob({ folders: ['index', 'meta'] })));
+    const blobFolders = folders(await load(await WA.buildBackupBlob({ folders: ['originals', 'forum'] })));
+    const dataZip = await load(await WA.buildBackupBlob({ folders: ['index', 'meta'] }));
+    const listOrig = async () => { const a = []; for await (const [n, h] of WA.state.dirs.originals.entries()) { if (h.kind === 'file') a.push(n); } return a; };
+    const origBefore = (await listOrig()).length;
+    await WA.applyBackupZip(dataZip, { clearFirst: true, folders: ['index', 'meta'] });
+    const origAfter = (await listOrig()).length;
+    await WA.reloadArchiveViews();
+    return { dataFolders, blobFolders, origBefore, origAfter };
+  });
+  t.check('Split: DATA-ZIP enthält nur index+meta', split.dataFolders.includes('index') && split.dataFolders.every(f => ['index', 'meta'].includes(f)), JSON.stringify(split.dataFolders));
+  t.check('Split: BLOB-ZIP enthält nur originals+forum', split.blobFolders.includes('originals') && split.blobFolders.every(f => ['originals', 'forum'].includes(f)), JSON.stringify(split.blobFolders));
+  t.check('Split: DATA-Restore lässt Originale unangetastet', split.origBefore > 0 && split.origAfter === split.origBefore, JSON.stringify(split));
+
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
   await browser.close();
   return t.fails();
