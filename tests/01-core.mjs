@@ -335,6 +335,42 @@ export async function run(base) {
   t.check('Split: BLOB-ZIP enthält nur originals+forum', split.blobFolders.includes('originals') && split.blobFolders.every(f => ['originals', 'forum'].includes(f)), JSON.stringify(split.blobFolders));
   t.check('Split: DATA-Restore lässt Originale unangetastet', split.origBefore > 0 && split.origAfter === split.origBefore, JSON.stringify(split));
 
+  // Schnappschuss-Schutz: Ein Sync-Pull darf NEU lokal angelegte Einträge (die die Cloud
+  // noch nicht kennt, z. B. in einer Untergruppe) NICHT löschen – zugleich muss eine echte
+  // Löschung (Eintrag war beim letzten Sync dabei, fehlt jetzt in der Cloud) propagieren.
+  const snapProt = await page.evaluate(async () => {
+    const WA = window.WA;
+    const mkEntry = async (id, name) => WA.foSaveEntry({ id, name, body: 'x', type: 'forum', ext: 'forum', importedAt: new Date().toISOString(), tags: [], status: '', forum: { gid: 'g1', sid: null }, comments: [], attachments: [] });
+    const idxFile = async (id) => { const d = await WA.getIndex(id); await WA.state.dirs.index.removeEntry(id + '.json'); return d; };
+    const restore = async (d) => { const h = await WA.state.dirs.index.getFileHandle(d.id + '.json', { create: true }); const w = await h.createWritable(); await w.write(JSON.stringify(d)); await w.close(); };
+    // fo-alt = beim letzten Sync bereits vorhanden; fo-neu = frisch, noch nie synchronisiert.
+    await mkEntry('fo-alt', 'Alt-Eintrag');
+    await mkEntry('fo-neu', 'Neu-Eintrag (Untergruppe)');
+    // „Cloud"-DATA-ZIP bauen, das nur fo-alt enthält (fo-neu fehlt, wie auf einem anderen Gerät).
+    const neu = await idxFile('fo-neu');
+    const cloudZipA = await window.JSZip.loadAsync(await WA.buildBackupBlob({ folders: ['index', 'meta'] }));
+    await restore(neu); await WA.rebuildCatalog();
+    // Snapshot: fo-alt war synchronisiert, fo-neu NICHT.
+    await WA.applyBackupZip(cloudZipA, { clearFirst: true, folders: ['index', 'meta'], syncedSnapshot: { index: new Set(['fo-alt.json']), originals: new Set(), forum: new Set() } });
+    await WA.rebuildCatalog();
+    const neuSurvived = WA.state.catalog.some(c => c.id === 'fo-neu');
+
+    // Löschung propagieren: fo-alt WAR im Snapshot, fehlt jetzt in der Cloud → muss weg.
+    const alt = await idxFile('fo-alt');
+    const cloudZipB = await window.JSZip.loadAsync(await WA.buildBackupBlob({ folders: ['index', 'meta'] })); // ohne fo-alt
+    await restore(alt); await WA.rebuildCatalog(); // fo-alt lokal wieder da
+    await WA.applyBackupZip(cloudZipB, { clearFirst: true, folders: ['index', 'meta'], syncedSnapshot: { index: new Set(['fo-alt.json', 'fo-neu.json']), originals: new Set(), forum: new Set() } });
+    await WA.rebuildCatalog();
+    const altDeleted = !WA.state.catalog.some(c => c.id === 'fo-alt');
+
+    // Aufräumen
+    for (const id of ['fo-alt', 'fo-neu']) { try { await WA.state.dirs.index.removeEntry(id + '.json'); } catch (_) {} }
+    await WA.rebuildCatalog();
+    return { neuSurvived, altDeleted };
+  });
+  t.check('Snapshot-Schutz: neuer Eintrag überlebt Sync-Pull', snapProt.neuSurvived === true, JSON.stringify(snapProt));
+  t.check('Snapshot-Schutz: echte Löschung propagiert weiter', snapProt.altDeleted === true, JSON.stringify(snapProt));
+
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
   await browser.close();
   return t.fails();
