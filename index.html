@@ -263,6 +263,11 @@
     .toast{background:var(--text);color:var(--bg);padding:10px 16px;border-radius:8px;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.25);max-width:90vw;animation:fade .18s ease}
     .toast.err{background:var(--danger);color:#fff}
     .toast.ok{background:var(--good);color:#fff}
+    /* Globale Sync-Pille: zeigt laufende Cloud-Synchronisation samt Fortschritt in JEDER
+       Ansicht (nicht nur im Einstellungs-Chip) – dezent unten rechts. */
+    #sync-pill{position:fixed;right:14px;bottom:16px;z-index:89;display:none;align-items:center;gap:7px;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:20px;padding:7px 13px;font-size:12.5px;box-shadow:0 6px 20px rgba(0,0,0,.18)}
+    #sync-pill .busy2{width:11px;height:11px;border:2px solid var(--primary);border-top-color:transparent;border-radius:50%;animation:spin 0.9s linear infinite;flex:none}
+    @keyframes spin{to{transform:rotate(360deg)}}
 
     /* Copyright-Footer */
     .copyright{font-size:11px;color:var(--text-muted);opacity:.8;text-align:center}
@@ -703,6 +708,7 @@
 </div>
 
 <div id="toasts" role="status" aria-live="polite" aria-atomic="false"></div>
+<div id="sync-pill" role="status" aria-live="polite"><span class="busy2" aria-hidden="true"></span><span id="sync-pill-txt">☁</span></div>
 
 <!-- Update-Benachrichtigung: erscheint, wenn eine neue Version im Cache bereitliegt -->
 <div id="update-banner" role="alert">
@@ -719,7 +725,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.15';
+  const APP_VERSION = '1.9.16';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2329,7 +2335,8 @@
     if(folders.includes('index'))     await add(state.dirs.index,'index');
     if(folders.includes('meta'))      await add(state.dirs.meta,'meta', metaSkip);
     if(folders.includes('forum') && state.dirs.forum) await add(state.dirs.forum,'forum'); // Forum-Anhänge
-    return await zip.generateAsync({type:'blob'});
+    // opts.onProgress (0–100): Fortschritt beim Packen (grosse Archive brauchen spürbar Zeit).
+    return await zip.generateAsync({type:'blob'}, opts.onProgress?(m)=>{ try{ opts.onProgress(Math.round(m.percent)); }catch(e){} }:undefined);
   }
   async function exportBackup(){
     try{
@@ -2630,7 +2637,9 @@
   async function odPutFile(path, blob, o){
     const de=state.settings.lang==='de';
     if(blob.size > 2*1024*1024*1024) throw new Error(de?'Archiv größer als 2 GB – bitte große Anhänge entfernen.':'Archive larger than 2 GB – please remove large attachments.');
-    if(blob.size <= 60*1024*1024){
+    // Ab 8 MB per Upload-Session: liefert Fortschritt (↑ %) und ist auf Mobilnetzen
+    // robuster als ein einzelner grosser PUT.
+    if(blob.size <= 8*1024*1024){
       const headers={'Content-Type':'application/zip'};
       if(o.fresh) headers['If-None-Match']='*';
       else if(!o.force && o.etag) headers['If-Match']=o.etag;
@@ -2652,7 +2661,7 @@
     if(dj==='conflict') return 'conflict';
     OD.cfg.etag=dj.eTag||dj.cTag||''; await odSaveCfg();
     if(OD.cfg.blobDirty || opts.fresh || opts.force || opts.blobMissing){
-      const blobBlob=await buildBackupBlob({folders:['originals','forum']});
+      const blobBlob=await buildBackupBlob({folders:['originals','forum'], onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')});
       const bj=await odPutFile(OD.blobPath, blobBlob, {force:true});   // DATA war das Konflikt-Tor
       if(bj!=='conflict'){ OD.cfg.etagBlob=bj.eTag||bj.cTag||''; OD.cfg.blobDirty=false; await odSaveCfg(); }
     }
@@ -2673,7 +2682,7 @@
     try{
       for(let off=0; off<blob.size; off+=CHUNK){
         const end=Math.min(off+CHUNK, blob.size);
-        odSetStatus('syncing', Math.round(off/blob.size*100)+' %');   // Fortschritt im Status-Chip
+        odSetStatus('syncing', '↑ '+Math.round(off/blob.size*100)+' %');   // Fortschritt (Chip + Pille)
         const r=await fetch(url, { method:'PUT', headers:{'Content-Range':`bytes ${off}-${end-1}/${blob.size}`}, body:blob.slice(off,end) });
         if(r.status===412 || r.status===409) return 'conflict';
         if(end>=blob.size){
@@ -2697,6 +2706,19 @@
       await rotateBeforeSync(4);
     }catch(e){ if(strict) throw new Error((state.settings.lang==='de'?'Cloud-Sicherung fehlgeschlagen: ':'Cloud backup failed: ')+e.message); }
   }
+  // Download mit Fortschrittsanzeige: liest den Stream und meldet ↓-Prozent (bzw.
+  // heruntergeladene MB, wenn der Server keine Content-Length preisgibt).
+  async function odDownloadBlob(path, label){
+    const r=await odGraph(path+':/content');
+    if(!r.ok) throw new Error('Download '+r.status);
+    if(!r.body||!r.body.getReader) return await r.blob();   // sehr alte Browser: ohne Fortschritt
+    const total=+(r.headers.get('Content-Length')||0);
+    const reader=r.body.getReader(); const chunks=[]; let got=0;
+    while(true){ const {done,value}=await reader.read(); if(done)break; chunks.push(value); got+=value.byteLength;
+      odSetStatus('syncing', label+' '+(total?Math.round(got/total*100)+' %':fmtBytes(got))); }
+    odSetStatus('syncing');
+    return new Blob(chunks);
+  }
   async function odPull(meta, popts={}){
     await loadScript('vendor/jszip.min.js');
     const de=state.settings.lang==='de';
@@ -2710,13 +2732,11 @@
     // unverändert und liegen ohnehin in der Cloud. Schlägt die Sicherung fehl → Abbruch.
     if(state.catalog.length){
       const folders = OD.cfg.dirty ? ['originals','index','meta','forum'] : ['index','meta'];
-      try{ await writeFile(state.dirs.exports, beforeSyncName(), await buildBackupBlob({folders})); await rotateBeforeSync(4); }
+      try{ await writeFile(state.dirs.exports, beforeSyncName(), await buildBackupBlob({folders, onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')})); await rotateBeforeSync(4); }
       catch(e){ throw new Error((de?'Lokale Sicherung fehlgeschlagen – Pull abgebrochen: ':'Local backup failed – pull aborted: ')+e.message); }
     }
     // DATA laden – immer (klein). Spiegelt nur index/meta, lässt Originale/Anhänge unangetastet.
-    const dr=await odGraph(OD.dataPath+':/content');
-    if(!dr.ok) throw new Error('Download '+dr.status);
-    const dataZip=await window.JSZip.loadAsync(await dr.blob());
+    const dataZip=await window.JSZip.loadAsync(await odDownloadBlob(OD.dataPath, '↓'));
     const keyInZip = !!dataZip.files['meta/apikey.txt'];
     // Cloud-Dateinamen je Ordner – um danach lokale „Extras" (vom Schnappschuss-Schutz
     // behaltene, in der Cloud fehlende Einträge) zu erkennen und zum Hochladen zu markieren.
@@ -2729,9 +2749,7 @@
       // BLOBS (originals/forum) nur laden, wenn sich ihr eTag geändert hat – das spart
       // auf Konsum-Geräten den grossen Download bei jeder kleinen Cloud-Änderung.
       if(meta && meta.blob && meta.blob.etag !== OD.cfg.etagBlob){
-        const br=await odGraph(OD.blobPath+':/content');
-        if(!br.ok) throw new Error('Download '+br.status);
-        const blobZip=await window.JSZip.loadAsync(await br.blob());
+        const blobZip=await window.JSZip.loadAsync(await odDownloadBlob(OD.blobPath, '↓'));
         await applyBackupZip(blobZip, {clearFirst:true, folders:['originals','forum'], syncedSnapshot:snapSets});
         cloudOrig=cloudSet(blobZip,'originals'); cloudForum=cloudSet(blobZip,'forum'); blobLoaded=true;
         OD.cfg.etagBlob=meta.blob.etag;
@@ -2917,7 +2935,11 @@
     await odSaveCfg(); renderCloudPanel();
     toast(state.settings.lang==='de'?'OneDrive getrennt (Archiv-Daten bleiben lokal).':'OneDrive disconnected (archive data stays local).','ok');
   }
-  function odSetStatus(s, msg){ OD.status=s; OD.statusMsg=msg||''; renderCloudPanel(); }
+  function odSetStatus(s, msg){ OD.status=s; OD.statusMsg=msg||'';
+    // Globale Pille: waehrend des Syncs in jeder Ansicht sichtbar, inkl. Fortschritt.
+    const pill=$('#sync-pill'), pt=$('#sync-pill-txt');
+    if(pill&&pt){ if(s==='syncing'){ pt.textContent='☁ '+(msg||(state.settings.lang==='de'?'Synchronisiert…':'Syncing…')); pill.style.display='flex'; } else pill.style.display='none'; }
+    renderCloudPanel(); }
   function renderCloudPanel(){
     const wrap=$('#cloud-setup'); if(!wrap)return; const de=state.settings.lang==='de';
     const rc=$('#cloud-redirect'); if(rc)rc.textContent=odRedirectUri();
@@ -3174,7 +3196,7 @@
 
     if(window.__WA_MOCK_ROOT__||window.__WA_TEST__){
       // Test-Brücke – nur aktiv, wenn explizit injiziert (automatisierte Prüfung).
-      window.WA={ importFiles, runSearch, searchArchive, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, foAddComment,
+      window.WA={ importFiles, runSearch, searchArchive, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, odSetStatus, foAddComment,
         rebuildCatalog: async()=>{ state.indexCache.clear(); state.catalog=await rebuildCatalog(); renderLibrary(); return state.catalog; } };
     }
 
