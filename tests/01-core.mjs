@@ -371,6 +371,19 @@ export async function run(base) {
   t.check('Snapshot-Schutz: neuer Eintrag überlebt Sync-Pull', snapProt.neuSurvived === true, JSON.stringify(snapProt));
   t.check('Snapshot-Schutz: echte Löschung propagiert weiter', snapProt.altDeleted === true, JSON.stringify(snapProt));
 
+  // Globale Sync-Pille: bei Status 'syncing' in jeder Ansicht sichtbar (mit Fortschritt),
+  // danach wieder ausgeblendet.
+  const pill = await page.evaluate(async () => {
+    const vis = () => { const p = document.querySelector('#sync-pill'); return p && getComputedStyle(p).display !== 'none'; };
+    const hiddenBefore = !vis();
+    window.WA.odSetStatus('syncing', '↑ 43 %');
+    const shown = vis(); const txt = (document.querySelector('#sync-pill-txt')?.textContent || '');
+    window.WA.odSetStatus('connected');
+    const hiddenAfter = !vis();
+    return { hiddenBefore, shown, txt, hiddenAfter };
+  });
+  t.check('Sync-Pille: erscheint mit Fortschritt und verschwindet', pill.hiddenBefore && pill.shown && pill.txt.includes('43 %') && pill.hiddenAfter, JSON.stringify(pill));
+
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
   await browser.close();
   return t.fails();
