@@ -719,7 +719,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.14';
+  const APP_VERSION = '1.9.15';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2537,11 +2537,22 @@
   // (z. B. vom Browser autom. ausgefuellter Kontoname) und meldet sie klar –
   // statt die kryptische Microsoft-Meldung AADSTS700016 zu erzeugen.
   const isGuid=(s)=>/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test((s||'').trim());
+  // Ungültige Client-ID unübersehbar melden: Feld fokussieren/markieren, den festen
+  // Warnhinweis anzeigen und dorthin scrollen – ein flüchtiger Toast reicht am Handy nicht.
+  function odFlagClientId(msg){
+    const inp=$('#cloud-clientid'); const cw=$('#cloud-cid-warn'); const de=state.settings.lang==='de';
+    if(cw){ cw.style.display=''; cw.innerHTML='<span>⚠</span><span>'+esc(msg)+'</span>'; }
+    if(inp){ inp.style.borderColor='var(--danger)'; try{ inp.scrollIntoView({block:'center'}); inp.focus(); inp.select(); }catch(e){} setTimeout(()=>{ if(inp)inp.style.borderColor=''; }, 2500); }
+    toast(msg,'err');
+  }
   async function odConnect(){
     const de=state.settings.lang==='de';
+    // IMMER den aktuellen Feldwert übernehmen – falls Browser-Autofill o. Ä. das Feld
+    // gesetzt hat, ohne dass das gespeicherte OD.cfg.clientId aktualisiert wurde.
+    const inp=$('#cloud-clientid'); if(inp){ OD.cfg.clientId=(inp.value||'').trim(); await odSaveCfg(); }
     const cid=(OD.cfg.clientId||'').trim();
-    if(!cid){ toast(de?'Bitte zuerst die Client-ID eintragen.':'Please enter the Client ID first.','err'); return; }
-    if(!isGuid(cid)){ toast(de?'Die Client-ID sieht nicht wie eine gültige Azure-ID aus (Format 00000000-0000-0000-0000-000000000000). Kopiere die „Anwendungs-(Client-)ID" aus der Azure-App-Registrierung (Übersicht).':'The Client ID is not a valid Azure ID (format 00000000-0000-0000-0000-000000000000). Copy the “Application (client) ID” from your Azure app registration (Overview).','err'); return; }
+    if(!cid){ odFlagClientId(de?'Bitte zuerst die Client-ID (Anwendungs-(Client-)ID aus Azure) eintragen.':'Please enter the Client ID (Application (client) ID from Azure) first.'); return; }
+    if(!isGuid(cid)){ odFlagClientId(de?'Diese Client-ID ist ungültig (Format 00000000-0000-0000-0000-000000000000). Kopiere die „Anwendungs-(Client-)ID" aus deiner Azure-App-Registrierung (Übersicht).':'This Client ID is invalid (format 00000000-0000-0000-0000-000000000000). Copy the “Application (client) ID” from your Azure app registration (Overview).'); return; }
     try{
       const {verifier, challenge}=await odPkce();
       const st=b64url(crypto.getRandomValues(new Uint8Array(16)));
