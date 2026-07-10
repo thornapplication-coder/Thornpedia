@@ -725,7 +725,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.16';
+  const APP_VERSION = '1.9.17';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2822,7 +2822,7 @@
       if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
       // Nach erfolgreichem Abgleich sind lokal und Cloud gleich → Schnappschuss der
       // aktuellen Dateien als Basis für den nächsten Spiegel-Abgleich festhalten. Bei
-      // „nichts zu tun" nur einmalig bootstrappen (nicht bei jedem 45-s-Poll neu listen).
+      // „nichts zu tun" nur einmalig bootstrappen (nicht bei jedem 90-s-Poll neu listen).
       if(action!=='none' || !OD.cfg.snap) await odCaptureSnapshot();
       // Zeitstempel IMMER aktualisieren – auch wenn nichts zu tun war –, damit
       // „Jetzt synchronisieren" sichtbar reagiert.
@@ -2842,7 +2842,7 @@
     finally{
       OD.syncing=false; renderCloudPanel();
       // Nur NACH ERFOLG bald nachziehen, wenn waehrend des Syncs eine Aenderung kam.
-      // Bei einem Fehler NICHT eng weiterprobieren (sonst 1,5-s-Schleife) – der 45-s-
+      // Bei einem Fehler NICHT eng weiterprobieren (sonst 1,5-s-Schleife) – der 90-s-
       // Poll versucht es ohnehin erneut.
       if(ok && (OD.cfg.dirty||OD.cfg.blobDirty) && odConnected() && OD.cfg.auto!==false){ clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 1500); }
     }
@@ -2880,13 +2880,13 @@
     if(!odConnected()||OD.cfg.auto===false) return;
     clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 4000);
   }
-  // Dauer-Synchronisation: regelmäßig (alle 45 s), beim Zurückkehren zur App und
+  // Dauer-Synchronisation: regelmäßig (alle 90 s), beim Zurückkehren zur App und
   // bei (Wieder-)Verbindung nach Cloud-Änderungen sehen. odSync ist ein No-Op,
   // wenn nichts zu tun ist – dann läuft nur eine winzige Metadaten-Abfrage.
   function odStartAutoPoll(){
     if(OD._pollStarted) return; OD._pollStarted=true;
     const tick=()=>{ if(odConnected() && OD.cfg.auto!==false && !document.hidden && navigator.onLine && !OD.syncing) odSync(false); };
-    OD._pollTimer=setInterval(tick, 45000);
+    OD._pollTimer=setInterval(tick, 90000);
     document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) tick(); });
     window.addEventListener('online', tick);
     window.addEventListener('focus', tick);
