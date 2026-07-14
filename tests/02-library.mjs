@@ -161,7 +161,8 @@ export async function run(base) {
   });
   t.check('Untertags erscheinen unter dem Obertag (alphabetisch)', JSON.stringify(sub.subHeads) === JSON.stringify(['↳ Gutachten', '↳ Verträge']), JSON.stringify(sub.subHeads));
   t.check('Dokument liegt in seiner Untergruppe', sub.inVertraege === true, JSON.stringify(sub));
-  t.check('Obertag-Zähler summiert Untergruppen', sub.parentCount === '3', 'count=' + sub.parentCount);
+  // projektkonzept hat ZWEI Untertags von „Recht" → zählt als EIN Dokument (eindeutig).
+  t.check('Obertag-Zähler zählt eindeutige Dokumente', sub.parentCount === '2', 'count=' + sub.parentCount);
 
   // Obertag-Chip filtert inkl. Untertags (flache Liste mit allen Recht/*-Dokumenten).
   await page.evaluate(() => { window.WA.state.lib.tag = 'Recht'; window.WA.switchView('lib'); });
@@ -178,6 +179,130 @@ export async function run(base) {
     return hits.map(h => h.name);
   });
   t.check('Suche: Obertag-Filter trifft Untertag-Dokument', searchTag.includes('mietvertrag.pdf'), JSON.stringify(searchTag));
+
+  // ---- v1.10.1-Fixes: Review-Funde ----
+  const setTags2 = async (name, tags) => page.evaluate(async ({ name, tags }) => {
+    const WA = window.WA; const id = WA.state.catalog.find(c => c.name === name).id;
+    const doc = await WA.getIndex(id); doc.tags = tags;
+    const h = await WA.state.dirs.index.getFileHandle(id + '.json', { create: true });
+    const w = await h.createWritable(); await w.write(JSON.stringify(doc)); await w.close();
+  }, { name, tags });
+  const rebuildLib = () => page.evaluate(async () => { await window.WA.rebuildCatalog(); window.WA.switchView('lib'); });
+
+  // Fix 8 (Dedup): Dokument mit Obertag UND Untertag zählt/erscheint nur einmal in der Gruppe.
+  await setTags2('mietvertrag.pdf', ['Recht/Verträge']);
+  await setTags2('budget.xlsx', ['Recht']);
+  await setTags2('projektkonzept.docx', ['Recht', 'Recht/Verträge']);
+  await page.evaluate(() => window.WA.state.lib.expanded.clear());
+  await rebuildLib(); await page.waitForTimeout(150); await expandAll();
+  const dedup = await page.evaluate(() => ({
+    parentCount: [...document.querySelectorAll('#lib-content .lib-group-head:not(.lib-subgroup-head)')].find(h => h.textContent.includes('Recht'))?.querySelector('.lib-group-count')?.textContent,
+    pkRows: [...document.querySelectorAll('#lib-content .fname')].filter(e => e.textContent === 'projektkonzept.docx').length,
+  }));
+  t.check('Dedup: Obertag zählt eindeutige Dokumente (3)', dedup.parentCount === '3', JSON.stringify(dedup));
+  t.check('Dedup: Doppel-Tag-Dokument erscheint nur einmal', dedup.pkRows === 1, JSON.stringify(dedup));
+
+  // Fix 1: Schnellsuche (#lib-q) zeigt Treffer als flache Liste – nichts versteckt.
+  const qvis = await page.evaluate(() => {
+    window.WA.state.lib.q = 'budget'; window.WA.switchView('lib');
+    const rows = [...document.querySelectorAll('#lib-content .fname')].map(e => e.textContent);
+    const heads = document.querySelectorAll('#lib-content .lib-group-head').length;
+    window.WA.state.lib.q = '';
+    return { rows, heads };
+  });
+  t.check('Schnellsuche zeigt Treffer sofort (flach, keine zugeklappten Köpfe)', qvis.rows.includes('budget.xlsx') && qvis.heads === 0, JSON.stringify(qvis));
+
+  // Fix 3 (Alt-Tags mit Leerzeichen um '/'): Filter und Gruppierung stimmen überein.
+  await setTags2('budget.xlsx', ['Recht / Verträge']);
+  await rebuildLib(); await page.waitForTimeout(120);
+  const legacy = await page.evaluate(() => {
+    window.WA.state.lib.tag = 'Recht'; window.WA.switchView('lib');
+    const rows = [...document.querySelectorAll('#lib-content .fname')].map(e => e.textContent);
+    window.WA.state.lib.tag = null;
+    return rows;
+  });
+  t.check('Legacy-Tag „Recht / Verträge": Obertag-Filter trifft ihn', legacy.includes('budget.xlsx'), JSON.stringify(legacy));
+  await setTags2('budget.xlsx', ['Recht']); await rebuildLib();
+
+  // Fix 4 (hängender Schrägstrich): Tag-Dialog normalisiert 'Boeing/' → 'Boeing'.
+  await page.evaluate(() => { window.WA.state.lib.q = 'budget'; window.WA.switchView('lib'); });
+  await page.waitForTimeout(120);
+  await page.click('#lib-content [data-menu]');
+  await page.waitForTimeout(100);
+  await page.click('#lib-content .menu.show [data-act="tag"]');
+  await page.waitForTimeout(120);
+  await page.evaluate(() => { const i = document.querySelector('#prompt-input'); i.value = ' Boeing/ '; });
+  await page.click('#prompt-ok');
+  await page.waitForTimeout(200);
+  const norm = await page.evaluate(async () => {
+    const WA = window.WA; const id = WA.state.catalog.find(c => c.name === 'budget.xlsx').id;
+    const doc = await WA.getIndex(id); WA.state.lib.q = '';
+    return doc.tags;
+  });
+  t.check('Normalisierung: „ Boeing/ " wird als „Boeing" gespeichert', norm.includes('Boeing') && !norm.some(t => t.includes('/') && t.startsWith('Boeing')), JSON.stringify(norm));
+  await setTags2('budget.xlsx', ['Recht']); await rebuildLib();
+
+  // Fix 1b: Frischer Import ist trotz Gruppierung sofort sichtbar (Ohne-Tags auto-offen).
+  await page.evaluate(() => window.WA.state.lib.expanded.clear());
+  const imp2 = await page.evaluate(async () => {
+    await window.WA.importFiles([new File(['frischer inhalt'], 'frisch2.txt', { type: 'text/plain' })]);
+    window.WA.switchView('lib');
+    await new Promise(r => setTimeout(r, 150));
+    return [...document.querySelectorAll('#lib-content .fname')].map(e => e.textContent);
+  });
+  t.check('Frischer Import sofort sichtbar (Ohne-Tags aufgeklappt)', imp2.includes('frisch2.txt'), JSON.stringify(imp2));
+  await page.evaluate(async () => { const c = window.WA.state.catalog.find(x => x.name === 'frisch2.txt'); if (c) { await window.WA.state.dirs.index.removeEntry(c.id + '.json'); await window.WA.rebuildCatalog(); } });
+
+  // Fix 7 (Forum-Leck): Dokument-Tag-Filter matcht Forum-Tags nur exakt, nicht per Präfix.
+  const fleak = await page.evaluate(async () => {
+    const WA = window.WA;
+    await WA.foSaveEntry({ id: 'fx1', name: 'Xyzzykonzept', body: 'einzigartig', type: 'forum', ext: 'forum', importedAt: new Date().toISOString(), tags: ['Recht/Frage'], status: '', forum: { gid: 'g1', sid: null }, comments: [], attachments: [] });
+    const viaParent = (await WA.searchArchive({ q: 'Xyzzykonzept', tag: 'Recht' })).hits.length;
+    const viaExact = (await WA.searchArchive({ q: 'Xyzzykonzept', tag: 'Recht/Frage' })).hits.length;
+    await WA.state.dirs.index.removeEntry('fx1.json'); await WA.rebuildCatalog();
+    return { viaParent, viaExact };
+  });
+  t.check('Forum-Tags: kein Präfix-Leck (Obertag-Filter 0, exakt 1)', fleak.viaParent === 0 && fleak.viaExact === 1, JSON.stringify(fleak));
+
+  // Fix 2 (Alt-Export-Migration): Definitionen ohne hier-Flag bekommen tagExact.
+  const mig = await page.evaluate(async () => {
+    const WA = window.WA;
+    const h = await WA.state.dirs.meta.getFileHandle('exports.json', { create: true });
+    const w = await h.createWritable(); await w.write(JSON.stringify([{ id: 'old1', kind: 'hits', fmt: 'xlsx', fileBase: 'alt', search: { q: 'x', tag: 'AC' } }])); await w.close();
+    await WA.reloadArchiveViews();
+    const defs = WA.getExportDefs();
+    const exact = defs[0] && defs[0].search && defs[0].search.tagExact === true;
+    // exakter Filter matcht 'AC/DC' NICHT
+    const hit = (await WA.searchArchive({ q: 'irrelevantxyz', tag: 'AC', tagExact: true })).hits.length;
+    const w2 = await (await WA.state.dirs.meta.getFileHandle('exports.json', { create: true })).createWritable(); await w2.write('[]'); await w2.close();
+    await WA.reloadArchiveViews();
+    return { exact, hit };
+  });
+  t.check('Alt-Export-Definitionen bleiben exakt (tagExact migriert)', mig.exact === true, JSON.stringify(mig));
+
+  // Fix 5 (Kaskade): Obertag-Umbenennen zieht Untertags mit; Löschen entfernt den Baum.
+  await setTags2('mietvertrag.pdf', ['Recht/Verträge']);
+  await setTags2('budget.xlsx', ['Recht']);
+  await setTags2('projektkonzept.docx', ['Finanzen']);
+  await rebuildLib(); await page.waitForTimeout(120);
+  await page.evaluate(() => window.WA.switchView('settings'));
+  await page.waitForTimeout(200);
+  await page.click('[data-tren="Recht"]');
+  await page.waitForTimeout(120);
+  await page.evaluate(() => { document.querySelector('#prompt-input').value = 'Legal'; });
+  await page.click('#prompt-ok');
+  await page.waitForTimeout(300);
+  const casc = await page.evaluate(async () => {
+    const WA = window.WA; const tagsOf = async (n) => (await WA.getIndex(WA.state.catalog.find(c => c.name === n).id)).tags;
+    return { miet: await tagsOf('mietvertrag.pdf'), budget: await tagsOf('budget.xlsx') };
+  });
+  t.check('Kaskade: „Recht"→„Legal" benennt auch „Recht/Verträge" um', casc.budget.includes('Legal') && casc.miet.includes('Legal/Verträge'), JSON.stringify(casc));
+
+  page.once('dialog', d => d.accept());
+  await page.click('[data-tdel="Legal"]');
+  await page.waitForTimeout(300);
+  const afterDel = await page.evaluate(() => window.WA.state.catalog.flatMap(c => c.tags || []).filter(t => t === 'Legal' || t.startsWith('Legal/')));
+  t.check('Kaskade: Obertag-Löschen entfernt auch Untertags', afterDel.length === 0, JSON.stringify(afterDel));
 
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
   await browser.close();
