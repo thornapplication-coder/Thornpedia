@@ -304,6 +304,39 @@ export async function run(base) {
   const afterDel = await page.evaluate(() => window.WA.state.catalog.flatMap(c => c.tags || []).filter(t => t === 'Legal' || t.startsWith('Legal/')));
   t.check('Kaskade: Obertag-Löschen entfernt auch Untertags', afterDel.length === 0, JSON.stringify(afterDel));
 
+  // ---- v1.10.3: Zwei-Ebenen-Tag-Auswahl (aufklappbare Obertag-/Untertag-Chips) ----
+  await setTags2('mietvertrag.pdf', ['B737/Max Manuals']);
+  await setTags2('budget.xlsx', ['B737']);
+  await setTags2('projektkonzept.docx', ['EASA']);
+  await page.evaluate(() => { window.WA.state.lib.tag = null; });
+  await rebuildLib(); await page.waitForTimeout(150);
+  const chooserInit = await page.evaluate(() => ({
+    parents: [...document.querySelectorAll('#lib-content .tag-toolbar .chip.tag-parent')].map(e => e.textContent),
+    children: document.querySelectorAll('#lib-content .tag-toolbar .chip.tag-child').length,
+    hasToolbar: !!document.querySelector('#lib-content .tag-toolbar'),
+  }));
+  t.check('Tag-Auswahl: nur Obertag-Chips, Untertags anfangs zugeklappt',
+    chooserInit.hasToolbar && chooserInit.parents.some(p => p.includes('B737')) && chooserInit.parents.some(p => p.includes('EASA')) && chooserInit.children === 0, JSON.stringify(chooserInit));
+
+  await page.click('#lib-content .tag-toolbar [data-libtag="B737"]');
+  await page.waitForTimeout(150);
+  const opened = await page.evaluate(() => ({
+    subs: [...document.querySelectorAll('#lib-content .tag-toolbar .chip.tag-child')].map(e => e.textContent.trim()),
+    rows: [...document.querySelectorAll('#lib-content tbody tr .fname')].map(e => e.textContent).sort(),
+  }));
+  t.check('Tag-Auswahl: Obertag-Klick klappt Untertags auf & filtert inkl. Untertags',
+    opened.subs.some(s => s.includes('Max Manuals')) && JSON.stringify(opened.rows) === JSON.stringify(['budget.xlsx', 'mietvertrag.pdf']), JSON.stringify(opened));
+
+  await page.click('#lib-content .tag-toolbar [data-libtag="B737/Max Manuals"]');
+  await page.waitForTimeout(150);
+  const narrowed = await page.evaluate(() => ({
+    rows: [...document.querySelectorAll('#lib-content tbody tr .fname')].map(e => e.textContent).sort(),
+    childOn: !!document.querySelector('#lib-content .tag-toolbar .chip.tag-child.on'),
+  }));
+  t.check('Tag-Auswahl: Untertag-Klick filtert exakt auf den Untertag',
+    JSON.stringify(narrowed.rows) === JSON.stringify(['mietvertrag.pdf']) && narrowed.childOn === true, JSON.stringify(narrowed));
+  await page.evaluate(() => { window.WA.state.lib.tag = null; window.WA.switchView('lib'); });
+
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
   await browser.close();
   return t.fails();

@@ -155,6 +155,15 @@
     /* Untertag-Ebene: eingerückt, etwas kleiner/dezenter als der Obertag-Kopf. */
     .lib-subgroup{margin:8px 0 0 18px}
     .lib-subgroup-head{padding:8px 12px;font-size:13px;background:var(--bg-alt)}
+    /* Zwei-Ebenen-Tag-Auswahl: Obertag-Chips fliessen in einer Reihe; ein geoeffneter
+       Obertag nimmt die volle Breite und zeigt seine Untertags eingerueckt darunter. */
+    .tag-toolbar{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;margin:-2px 0 14px}
+    .tag-group{display:inline-flex;flex-direction:column;gap:6px}
+    .tag-group.open{flex:1 1 100%}
+    .tag-subrow{display:flex;flex-wrap:wrap;gap:6px;padding-left:16px}
+    .tag-chev{margin-left:4px;font-size:10px;opacity:.6}
+    .chip.tag-parent.open{border-color:var(--primary);color:var(--text);background:var(--surface-accent)}
+    .chip.tag-child{font-size:12px}
     /* Feste Spaltenbreiten: alle Gruppen-Tabellen richten sich identisch aus. */
     .lib-table{table-layout:fixed}
     .lib-table th:nth-child(4),.lib-table td:nth-child(4){width:104px}
@@ -728,7 +737,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.2';
+  const APP_VERSION = '1.10.3';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1134,6 +1143,32 @@
   // Der wiederkehrende Render-Dreiklang nach jeder Katalog-Änderung.
   function refreshLibrary(){ renderLibrary(); renderFilters(); return renderBackupStats(); }
 
+  // Zwei-Ebenen-Tag-Auswahl (Option A): eine Reihe Obertag-Chips; die Untertags eines
+  // Obertags klappen eingerückt darunter auf, sobald dieser Obertag (oder einer seiner
+  // Untertags) aktiv ist – so bleibt die Leiste auch bei vielen Tags übersichtlich
+  // (wichtig auf iPhone/iPad). Die Filterlogik bleibt unberührt: ein Obertag schließt
+  // seine Untertags ein (tagMatches), ein Untertag filtert exakt. `attr` ist das
+  // Datenattribut für die Verdrahtung ('libtag' in der Bibliothek, 'stag' im Suche-Tab)
+  // – dieselbe Darstellung greift damit in ALLEN Suchen.
+  function tagChooserHtml(active, attr){
+    const tags=allTags(); if(!tags.length) return '';
+    const parents=[...new Set(tags.map(t=>parseTag(t).p))].sort(natCmp);
+    const kids=new Map();
+    for(const t of tags){ const {p,c}=parseTag(t); if(c){ if(!kids.has(p))kids.set(p,[]); kids.get(p).push({full:t,c}); } }
+    const ap = active ? parseTag(active).p : null;
+    return parents.map(p=>{
+      const cs=(kids.get(p)||[]).sort((a,b)=>natCmp(a.c,b.c));
+      const open = ap===p && cs.length>0;
+      const chev = cs.length ? `<span class="tag-chev">${open?'▾':'▸'}</span>` : '';
+      const head=`<span class="chip tag-parent ${active===p?'on':''} ${open?'open':''}" data-${attr}="${esc(p)}">🏷 ${esc(p)}${chev}</span>`;
+      const subs = open ? `<span class="tag-subrow">${cs.map(k=>`<span class="chip tag-child ${active===k.full?'on':''}" data-${attr}="${esc(k.full)}">↳ ${esc(k.c)}</span>`).join('')}</span>` : '';
+      return `<span class="tag-group ${open?'open':''}">${head}${subs}</span>`;
+    }).join('');
+  }
+  // Klick-Umschaltung: Obertag an/aus (aus = Filter löschen); Untertag an/aus
+  // (aus = zurück auf den Obertag, damit die geöffnete Gruppe sichtbar bleibt).
+  function tagChooserToggle(cur, v){ const {c}=parseTag(v); if(c) return cur===v ? parseTag(v).p : v; return cur===v ? null : v; }
+
   function renderLibrary(){
     const el=$('#lib-content'); if(!el)return;
     const docs=state.catalog.filter(c=>c.type!=='forum'); // Forum-Einträge leben in ihrer eigenen Ansicht
@@ -1147,7 +1182,6 @@
     const dir=L.dir==='asc'?1:-1;
     rows.sort((a,b)=>{ if(L.sort==='name') return dir*natCmp(a.name||'',b.name||''); let x=a[L.sort],y=b[L.sort]; if(x<y)return -1*dir; if(x>y)return 1*dir; return 0; });
     const types=['all','pdf','docx','xlsx','csv','txt','md'];
-    const tagChips=allTags().map(t=>`<span class="chip ${L.tag===t?'on':''}" data-libtag="${esc(t)}">🏷 ${esc(t)}</span>`).join(' ');
     const sel=L.selected;
     const de2=state.settings.lang==='de';
 
@@ -1212,10 +1246,10 @@
     el.innerHTML=`
       <div class="toolbar">
         ${types.map(t=>`<span class="chip ${L.type===t?'on':''}" data-libtype="${t}">${t==='all'?(de2?'Alle':'All'):t.toUpperCase()}</span>`).join('')}
-        ${tagChips?'<span style="width:1px;height:22px;background:var(--line)"></span>'+tagChips:''}
         <div style="flex:1"></div>
         <div class="top-search" style="flex:0 1 220px"><input id="lib-q" placeholder="${tr('search-in-lib')}" value="${esc(L.q)}"></div>
       </div>
+      ${allTags().length?`<div class="tag-toolbar">${tagChooserHtml(L.tag,'libtag')}</div>`:''}
       ${sel.size?`<div class="notice info" style="margin-bottom:12px"><span>☑</span><span>${sel.size} ${tr('sel-count')} →</span> <button class="btn sm" id="batch-tag">🏷 ${tr('batch-tag')}</button> <button class="btn sm danger" id="batch-del">🗑 ${tr('batch-delete')}</button> <button class="btn sm ghost" id="batch-clear">✕</button></div>`:''}
       ${groupsHtml}`;
     wireLibrary(el);
@@ -1268,7 +1302,7 @@
   function wireLibrary(el){
     wireJump(el);
     $$('[data-libtype]',el).forEach(c=>c.onclick=()=>{ state.lib.type=c.dataset.libtype; renderLibrary(); });
-    $$('[data-libtag]',el).forEach(c=>c.onclick=()=>{ state.lib.tag=state.lib.tag===c.dataset.libtag?null:c.dataset.libtag; renderLibrary(); });
+    $$('[data-libtag]',el).forEach(c=>c.onclick=()=>{ state.lib.tag=tagChooserToggle(state.lib.tag, c.dataset.libtag); renderLibrary(); });
     $$('[data-grpkey]',el).forEach(h=>h.onclick=()=>{ const k=decodeURIComponent(h.dataset.grpkey); if(state.lib.expanded.has(k))state.lib.expanded.delete(k); else state.lib.expanded.add(k); renderLibrary(); });
     const q=$('#lib-q',el); if(q)q.oninput=()=>{ state.lib.q=q.value; const p=q.selectionStart; renderLibrary(); const nq=$('#lib-q'); if(nq){nq.focus();nq.setSelectionRange(p,p);} };
     $$('th.sortable',el).forEach(th=>{ const doSort=()=>{ const k=th.dataset.sort; if(state.lib.sort===k)state.lib.dir=state.lib.dir==='asc'?'desc':'asc'; else{state.lib.sort=k;state.lib.dir=k==='name'?'asc':'desc';} renderLibrary(); }; th.onclick=doSort; th.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); doSort(); } }; });
@@ -1995,9 +2029,9 @@
   function renderFilters(){
     const types=[['pdf','PDF'],['docx','DOCX'],['xlsx','XLSX'],['csv','CSV'],['txt','TXT'],['md','MD']];
     const ft=$('#filter-types'); if(ft) ft.innerHTML=types.map(([k,l])=>{ const n=state.catalog.filter(c=>c.type===k).length; return `<label class="check"><input type="checkbox" data-ftype="${k}" ${state.search.types.has(k)?'checked':''}> ${l} <span style="margin-left:auto;color:var(--text-muted)">${n}</span></label>`; }).join('');
-    const ftg=$('#filter-tags'); if(ftg) ftg.innerHTML=allTags().map(t=>`<span class="chip ${state.search.tag===t?'on':''}" data-stag="${esc(t)}">${esc(t)}</span>`).join(' ')||`<span style="color:var(--text-muted);font-size:12px">${state.settings.lang==='de'?'Keine Tags':'No tags'}</span>`;
+    const ftg=$('#filter-tags'); if(ftg) ftg.innerHTML=allTags().length?`<div class="tag-toolbar">${tagChooserHtml(state.search.tag,'stag')}</div>`:`<span style="color:var(--text-muted);font-size:12px">${state.settings.lang==='de'?'Keine Tags':'No tags'}</span>`;
     if(ft)$$('[data-ftype]',ft).forEach(cb=>cb.onchange=()=>{ if(cb.checked)state.search.types.add(cb.dataset.ftype); else state.search.types.delete(cb.dataset.ftype); if(state.search.q)runSearch(); });
-    if(ftg)$$('[data-stag]',ftg).forEach(c=>c.onclick=()=>{ state.search.tag=state.search.tag===c.dataset.stag?null:c.dataset.stag; renderFilters(); if(state.search.q)runSearch(); });
+    if(ftg)$$('[data-stag]',ftg).forEach(c=>c.onclick=()=>{ state.search.tag=tagChooserToggle(state.search.tag, c.dataset.stag); renderFilters(); if(state.search.q)runSearch(); });
     syncSearchControls();
   }
   // Haelt Eingabe-Platzhalter, Genau-/Markiert-Haken und den Markiert-Hinweis synchron.
