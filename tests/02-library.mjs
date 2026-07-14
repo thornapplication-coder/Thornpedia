@@ -68,6 +68,24 @@ export async function run(base) {
   });
   await page.waitForTimeout(200);
 
+  // Standard: ALLE Gruppen zugeklappt (übersichtlicher Start) – keine Zeilen sichtbar.
+  const initiallyClosed = await page.evaluate(() => ({
+    openHeads: document.querySelectorAll('#lib-content .lib-group-head[aria-expanded="true"]').length,
+    visibleRows: document.querySelectorAll('#lib-content tbody tr').length,
+    heads: document.querySelectorAll('#lib-content .lib-group-head').length,
+  }));
+  t.check('Gruppen starten zugeklappt', initiallyClosed.openHeads === 0 && initiallyClosed.visibleRows === 0 && initiallyClosed.heads >= 2, JSON.stringify(initiallyClosed));
+
+  // Alle Gruppen (inkl. Untergruppen) aufklappen – Klick für Klick wie ein Nutzer.
+  const expandAll = async () => {
+    for (let i = 0; i < 12; i++) {
+      const c = await page.evaluate(() => { const h = document.querySelector('#lib-content .lib-group-head[aria-expanded="false"]'); if (h) { h.click(); return true; } return false; });
+      if (!c) break;
+      await page.waitForTimeout(80);
+    }
+  };
+  await expandAll();
+
   const grp = await page.evaluate(() => {
     const heads = [...document.querySelectorAll('#lib-content .lib-group-head .lib-group-title')].map(e => e.textContent.trim());
     return {
@@ -111,6 +129,55 @@ export async function run(base) {
   await page.waitForTimeout(120);
   const afterCollapse = await page.evaluate(() => document.querySelectorAll('#lib-content .lib-group-head.collapsed').length);
   t.check('Gruppe lässt sich einklappen', afterCollapse === 1, 'collapsed='+afterCollapse);
+
+  // ---- Untertags: „Obertag/Untertag" bildet eine zweite Ebene ----
+  await page.evaluate(async () => {
+    const WA = window.WA;
+    const idOf = n => WA.state.catalog.find(c => c.name === n).id;
+    const setTags = async (name, tags) => {
+      const doc = await WA.getIndex(idOf(name)); doc.tags = tags;
+      const h = await WA.state.dirs.index.getFileHandle(doc.id + '.json', { create: true });
+      const w = await h.createWritable(); await w.write(JSON.stringify(doc)); await w.close();
+    };
+    await setTags('mietvertrag.pdf', ['Recht/Verträge']);
+    await setTags('budget.xlsx', ['Finanzen']);
+    await setTags('projektkonzept.docx', ['Recht/Verträge', 'Recht/Gutachten']);
+    await WA.state.lib.expanded.clear();
+    await WA.rebuildCatalog(); WA.switchView('lib');
+  });
+  await page.waitForTimeout(200);
+  const subInit = await page.evaluate(() => ({
+    parentHeads: [...document.querySelectorAll('#lib-content .lib-group-head:not(.lib-subgroup-head) .lib-group-title')].map(e => e.textContent.trim()),
+    subHeadsVisible: document.querySelectorAll('#lib-content .lib-subgroup-head').length,
+  }));
+  t.check('Untertags: Obertag-Köpfe (Recht, Finanzen), Untergruppen anfangs verborgen', subInit.parentHeads.some(h => h.includes('Recht')) && subInit.parentHeads.some(h => h.includes('Finanzen')) && subInit.subHeadsVisible === 0, JSON.stringify(subInit));
+
+  await expandAll();
+  const sub = await page.evaluate(() => {
+    const subHeads = [...document.querySelectorAll('#lib-content .lib-subgroup-head .lib-group-title')].map(e => e.textContent.trim());
+    const inVertraege = [...document.querySelectorAll('#lib-content .lib-subgroup')].some(sg => (sg.querySelector('.lib-group-title')?.textContent || '').includes('Verträge') && [...sg.querySelectorAll('.fname')].some(f => f.textContent === 'mietvertrag.pdf'));
+    const parentCount = [...document.querySelectorAll('#lib-content .lib-group-head:not(.lib-subgroup-head)')].find(h => h.textContent.includes('Recht'))?.querySelector('.lib-group-count')?.textContent;
+    return { subHeads, inVertraege, parentCount };
+  });
+  t.check('Untertags erscheinen unter dem Obertag (alphabetisch)', JSON.stringify(sub.subHeads) === JSON.stringify(['↳ Gutachten', '↳ Verträge']), JSON.stringify(sub.subHeads));
+  t.check('Dokument liegt in seiner Untergruppe', sub.inVertraege === true, JSON.stringify(sub));
+  t.check('Obertag-Zähler summiert Untergruppen', sub.parentCount === '3', 'count=' + sub.parentCount);
+
+  // Obertag-Chip filtert inkl. Untertags (flache Liste mit allen Recht/*-Dokumenten).
+  await page.evaluate(() => { window.WA.state.lib.tag = 'Recht'; window.WA.switchView('lib'); });
+  await page.waitForTimeout(150);
+  const parentFilter = await page.evaluate(() => [...document.querySelectorAll('#lib-content tbody tr .fname')].map(e => e.textContent).sort());
+  t.check('Obertag-Filter zeigt auch Untertag-Dokumente', JSON.stringify(parentFilter) === JSON.stringify(['mietvertrag.pdf', 'projektkonzept.docx']), JSON.stringify(parentFilter));
+  await page.evaluate(() => { window.WA.state.lib.tag = null; });
+
+  // Suche: Obertag-Filter schließt Untertags ein.
+  const searchTag = await page.evaluate(async () => {
+    window.WA.state.search.tag = 'Recht';
+    const { hits } = await window.WA.searchArchive({ q: 'Kuendigungsfrist', tag: 'Recht', types: [] });
+    window.WA.state.search.tag = null;
+    return hits.map(h => h.name);
+  });
+  t.check('Suche: Obertag-Filter trifft Untertag-Dokument', searchTag.includes('mietvertrag.pdf'), JSON.stringify(searchTag));
 
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
   await browser.close();
