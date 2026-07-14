@@ -150,7 +150,8 @@ export async function run(base) {
   });
   t.check('Forum: Datei-Anhang übersteht Backup-Restore', rt.restored === true, JSON.stringify(rt));
 
-  // Forum-Seitenleiste: Themen fett, Themen + Untergruppen alphabetisch, Untergruppen ein-/ausklappbar.
+  // Forum-Seitenleiste: Themen fett, Themen + Untergruppen alphabetisch, Untergruppen
+  // STANDARD zugeklappt, erst per Klick aufs Chevron auf (und wieder zu).
   const side = await page.evaluate(async () => {
     const WA = window.WA;
     WA.state.forum = { groups: [
@@ -159,25 +160,29 @@ export async function run(base) {
       { id: 'g1', name: 'Checklisten', subs: [] },
     ] };
     await WA.saveForum();
+    WA.state.forumExpanded = new Set();   // sicher zugeklappt starten
     WA.state.forumSel = { gid: null, sid: null }; WA.state.forumView = 'list';
     WA.switchView('forum');
     await new Promise(r => setTimeout(r, 150));
-    const topics = [...document.querySelectorAll('#forum-content .forum-topic')];
     const nameOf = (el) => el.querySelector('span[style]').textContent.trim().replace(/^\S+\s+/, '');
+    const topics = [...document.querySelectorAll('#forum-content .forum-topic')];
     const topicNames = topics.map(nameOf);
     const bold = topics.length > 0 && topics.every(t => { const fw = getComputedStyle(t).fontWeight; return fw === 'bold' || +fw >= 600; });
-    const subsBefore = [...document.querySelectorAll('#forum-content .forum-sub')].map(nameOf);
-    let zuluChev = null;
-    for (const t of topics) { const c = t.querySelector('.fo-chev'); if (c) { zuluChev = c; break; } }
-    if (zuluChev) zuluChev.click();
+    const subsCollapsed = document.querySelectorAll('#forum-content .forum-sub').length; // Default: 0
+    const firstChev = () => { for (const t of document.querySelectorAll('#forum-content .forum-topic')) { const c = t.querySelector('.fo-chev'); if (c) return c; } return null; };
+    let c = firstChev(); if (c) c.click();               // aufklappen
     await new Promise(r => setTimeout(r, 120));
-    const subsAfter = document.querySelectorAll('#forum-content .forum-sub').length;
-    return { topicNames, bold, subsBefore, subsAfter };
+    const subsExpanded = [...document.querySelectorAll('#forum-content .forum-sub')].map(nameOf);
+    c = firstChev(); if (c) c.click();                    // wieder zuklappen (neu gerendert → neu greifen)
+    await new Promise(r => setTimeout(r, 120));
+    const subsRecollapsed = document.querySelectorAll('#forum-content .forum-sub').length;
+    return { topicNames, bold, subsCollapsed, subsExpanded, subsRecollapsed };
   });
   t.check('Forum: Themen sind fett', side.bold === true, JSON.stringify(side));
   t.check('Forum: Themen alphabetisch geordnet', JSON.stringify(side.topicNames) === JSON.stringify(['Alpha-Thema', 'Checklisten', 'Zulu']), JSON.stringify(side.topicNames));
-  t.check('Forum: Untergruppen alphabetisch geordnet', JSON.stringify(side.subsBefore) === JSON.stringify(['Alpha', 'Yankee']), JSON.stringify(side.subsBefore));
-  t.check('Forum: Untergruppen ein-/ausklappbar', side.subsBefore.length === 2 && side.subsAfter === 0, JSON.stringify(side));
+  t.check('Forum: Untergruppen anfangs zugeklappt (Default)', side.subsCollapsed === 0, JSON.stringify(side));
+  t.check('Forum: Untergruppen per Klick auf & alphabetisch', JSON.stringify(side.subsExpanded) === JSON.stringify(['Alpha', 'Yankee']), JSON.stringify(side.subsExpanded));
+  t.check('Forum: Untergruppen wieder zuklappbar', side.subsRecollapsed === 0, JSON.stringify(side));
 
   // Such-Frische: NEU hochgeladene Dokumente und NEUE Forum-Einträge/Kommentare
   // müssen sofort (ohne Reload) in der Suche auftauchen – der indexCache darf nicht veralten.
@@ -208,6 +213,34 @@ export async function run(base) {
   t.check('Suche findet frisch importiertes Dokument sofort', fresh.docHit === true, JSON.stringify(fresh));
   t.check('Suche findet frischen Forum-Eintrag sofort', fresh.foHit === true, JSON.stringify(fresh));
   t.check('Suche findet frischen Forum-Kommentar sofort', fresh.cmtHit === true, JSON.stringify(fresh));
+
+  // Forum-Filterfeld (#fo-q) durchsucht jetzt den VOLLTEXT (Titel, Text, Kommentare),
+  // nicht nur Titel/Tags. fresh-fo: Titel 'Quastenflossergruppe', Body 'Rumpftext',
+  // Kommentar 'Nashornkaefertreffen im Kommentar'.
+  const foFilter = await page.evaluate(async () => {
+    const WA = window.WA;
+    WA.state.forumFilter = { status: '', tag: '', q: '' };
+    WA.state.forumSel = { gid: null, sid: null }; WA.state.forumView = 'list';
+    WA.switchView('forum');
+    await new Promise(r => setTimeout(r, 200));   // foPreloadIndexes lädt den Volltext
+    const run = async (q) => {
+      const inp = document.querySelector('#fo-q'); inp.value = q;
+      inp.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 90));
+      return [...document.querySelectorAll('#forum-content .forum-card')].some(c => c.textContent.includes('Quastenflossergruppe'));
+    };
+    const byBody = await run('Rumpftext');
+    const byComment = await run('Nashornkaefertreffen');
+    const byTitle = await run('Quastenfloss');
+    const none = await run('Gibtsnicht-xyz-123');
+    const inp = document.querySelector('#fo-q'); if (inp) { inp.value = ''; inp.dispatchEvent(new Event('input', { bubbles: true })); }
+    return { byBody, byComment, byTitle, none };
+  });
+  t.check('Forum-Filter findet Treffer im Text (Body)', foFilter.byBody === true, JSON.stringify(foFilter));
+  t.check('Forum-Filter findet Treffer im Kommentar', foFilter.byComment === true, JSON.stringify(foFilter));
+  t.check('Forum-Filter findet Treffer im Titel', foFilter.byTitle === true, JSON.stringify(foFilter));
+  t.check('Forum-Filter: kein falscher Treffer', foFilter.none === false, JSON.stringify(foFilter));
+  await page.evaluate(async () => { window.WA.state.forumFilter = { status: '', tag: '', q: '' }; window.WA.state.forumView = 'list'; });
 
   // Aufräumen, damit die Trefferzahlen der Folgeprüfungen stabil bleiben.
   await page.evaluate(async () => {
