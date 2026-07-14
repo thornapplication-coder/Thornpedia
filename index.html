@@ -152,6 +152,9 @@
     .lib-group-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .lib-group-count{margin-left:auto;background:var(--panel);border:1px solid var(--line);border-radius:20px;padding:1px 10px;font-size:12px;color:var(--text-muted);font-weight:normal;flex:none}
     .lib-group .panel{margin-top:8px}
+    /* Untertag-Ebene: eingerückt, etwas kleiner/dezenter als der Obertag-Kopf. */
+    .lib-subgroup{margin:8px 0 0 18px}
+    .lib-subgroup-head{padding:8px 12px;font-size:13px;background:var(--bg-alt)}
     /* Feste Spaltenbreiten: alle Gruppen-Tabellen richten sich identisch aus. */
     .lib-table{table-layout:fixed}
     .lib-table th:nth-child(4),.lib-table td:nth-child(4){width:104px}
@@ -725,7 +728,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.9.17';
+  const APP_VERSION = '1.10.0';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -751,7 +754,7 @@
     catalog:[],                 // [{id,name,ext,type,size,importedAt,scanned,pageCount,tags,note,unitCount}]
     indexCache:new Map(),       // id -> vollständiges Index-Objekt
     lastHits:[],                // letzte Suchtreffer
-    lib:{ sort:'name', dir:'asc', type:'all', tag:null, q:'' , selected:new Set(), collapsed:new Set() },
+    lib:{ sort:'name', dir:'asc', type:'all', tag:null, q:'' , selected:new Set(), expanded:new Set() },   // expanded: pro Sitzung geöffnete Tag-Gruppen (Start: alles zu)
     search:{ q:'', types:new Set(SUPPORTED.map(typeOf)), tag:null, selected:new Set(), mode:'text', scope:'all' },
     curDoc:null,                // {doc, ref, terms, page}
     pdfView:{docId:null,pdf:null}, // gecachtes PDF.js-Dokument fuer den Viewer
@@ -1098,6 +1101,13 @@
   // Nur Dokument-Tags: Forum-Einträge haben ihre eigene Tag-Oberfläche (foTags),
   // damit Forum-Tags nicht in Bibliothek/Suchfilter/Tag-Verwaltung auftauchen.
   function allTags(){ const s=new Set(); state.catalog.forEach(c=>{ if(c.type==='forum')return; (c.tags||[]).forEach(t=>s.add(t)); }); return Array.from(s).sort(); }
+  // Zwei-Ebenen-Tags: „Obertag/Untertag" (nur der ERSTE Schrägstrich trennt; tiefere
+  // Schrägstriche bleiben Teil des Untertag-Namens). Ohne Schrägstrich: nur Obertag.
+  function parseTag(t){ t=String(t||''); const i=t.indexOf('/'); return (i>0&&i<t.length-1) ? {p:t.slice(0,i).trim()||t.trim(), c:t.slice(i+1).trim()} : {p:t.trim(), c:null}; }
+  // Gruppenschluessel eines Tags fuer den Auf-/Zuklapp-Zustand (state.lib.expanded).
+  function tagGroupKey(t){ const {p,c}=parseTag(t); return c ? 'c:'+p+'/'+c : 'p:'+p; }
+  // Trifft ein Dokument-Tag den Filter? Ein OBERTAG-Filter schliesst seine Untertags ein.
+  function tagMatches(docTag, filterTag){ return docTag===filterTag || (!filterTag.includes('/') && docTag.startsWith(filterTag+'/')); }
   // Der wiederkehrende Render-Dreiklang nach jeder Katalog-Änderung.
   function refreshLibrary(){ renderLibrary(); renderFilters(); return renderBackupStats(); }
 
@@ -1109,7 +1119,7 @@
     const L=state.lib;
     let rows=docs.slice();
     if(L.type!=='all') rows=rows.filter(r=>r.type===L.type);
-    if(L.tag) rows=rows.filter(r=>(r.tags||[]).includes(L.tag));
+    if(L.tag) rows=rows.filter(r=>(r.tags||[]).some(t=>tagMatches(t,L.tag)));
     if(L.q){ const q=L.q.toLowerCase(); rows=rows.filter(r=>r.name.toLowerCase().includes(q)||(r.note||'').toLowerCase().includes(q)||(r.tags||[]).some(t=>t.toLowerCase().includes(q))); }
     const dir=L.dir==='asc'?1:-1;
     rows.sort((a,b)=>{ if(L.sort==='name') return dir*(a.name||'').localeCompare(b.name||'',undefined,{numeric:true,sensitivity:'base'}); let x=a[L.sort],y=b[L.sort]; if(x<y)return -1*dir; if(x>y)return 1*dir; return 0; });
@@ -1118,41 +1128,54 @@
     const sel=L.selected;
     const de2=state.settings.lang==='de';
 
-    // Nach Tags gruppieren: jedes Dokument erscheint unter jeder seiner Kategorien,
-    // Dokumente ohne Tag in einer eigenen Gruppe am Ende. So bilden die Tags
-    // Überschriften und die Bibliothek ist übersichtlich unterteilt statt „eine Wurst".
-    // Gruppenschlüssel sind präfixiert ('t:'+Tag bzw. 'u:'), damit ein Nutzer-Tag
-    // niemals mit dem „Ohne Tags"-Sentinel kollidieren kann.
-    const UNTAG='u:', keyOf=(t)=>'t:'+t;
-    const groups=new Map();
+    // Nach Tags gruppieren – ZWEI Ebenen: „Obertag/Untertag" bildet eine Untergruppe
+    // unter dem Obertag; ein Tag ohne Schrägstrich liegt direkt unter dem Obertag.
+    // Jedes Dokument erscheint unter jeder seiner Kategorien; Dokumente ohne Tag in
+    // einer eigenen Gruppe am Ende. Standard: ALLES zugeklappt (uebersichtlicher) –
+    // state.lib.expanded merkt sich pro Sitzung, was der Nutzer geoeffnet hat.
+    // Schluessel sind praefixiert ('p:'/'c:'/'u:') → keine Kollision mit Tag-Namen.
+    const parents=new Map();   // Obertag -> { direct:[Dokumente], subs:Map(Untertag->Dokumente) }
+    const untagged=[];
     for(const r of rows){
       const ts=(r.tags||[]).filter(Boolean);
-      if(ts.length){ for(const t of ts){ const k=keyOf(t); if(!groups.has(k))groups.set(k,[]); groups.get(k).push(r); } }
-      else { if(!groups.has(UNTAG))groups.set(UNTAG,[]); groups.get(UNTAG).push(r); }
+      if(!ts.length){ untagged.push(r); continue; }
+      for(const t of ts){
+        const {p,c}=parseTag(t);
+        if(!parents.has(p))parents.set(p,{direct:[],subs:new Map()});
+        const P=parents.get(p);
+        if(c){ if(!P.subs.has(c))P.subs.set(c,[]); P.subs.get(c).push(r); }
+        else P.direct.push(r);
+      }
     }
-    const tagKeys=[...groups.keys()].filter(k=>k!==UNTAG).sort((a,b)=>a.slice(2).localeCompare(b.slice(2),undefined,{sensitivity:'base'}));
-    const orderedKeys=tagKeys.concat(groups.has(UNTAG)?[UNTAG]:[]);
+    const cmp=(a,b)=>a.localeCompare(b,undefined,{sensitivity:'base',numeric:true});
     // Flache Liste (keine Gruppen-Kopfzeilen), wenn ohnehin nur eine Kategorie greift:
     // ausschließlich untaggte Dokumente – oder der Nutzer hat bereits per Tag-Chip gefiltert.
-    const flat = (orderedKeys.length<=1 && orderedKeys[0]===UNTAG) || !!L.tag;
+    const flat = parents.size===0 || !!L.tag;
 
+    const headHtml=(key, title, count, sub)=>{ const open=L.expanded.has(key);
+      return `<button class="lib-group-head ${sub?'lib-subgroup-head':''} ${open?'':'collapsed'}" data-grpkey="${encodeURIComponent(key)}" aria-expanded="${open?'true':'false'}">
+          <span class="chev">▾</span><span class="lib-group-title">${title}</span><span class="lib-group-count">${count}</span>
+        </button>`; };
     let groupsHtml;
     if(!rows.length){
       groupsHtml=`<div class="panel panel-pad" style="color:var(--text-muted)">${de2?'Keine Dokumente entsprechen den Filtern.':'No documents match the filters.'}</div>`;
     } else if(flat){
       groupsHtml=groupTableHtml(rows, sel, de2);
     } else {
-      groupsHtml=orderedKeys.map(k=>{
-        const grp=groups.get(k);
-        const collapsed=L.collapsed.has(k);
-        const title=k===UNTAG?(de2?'Ohne Tags':'Untagged'):('🏷 '+esc(k.slice(2)));
-        return `<div class="lib-group">
-          <button class="lib-group-head ${collapsed?'collapsed':''}" data-grpkey="${encodeURIComponent(k)}" aria-expanded="${collapsed?'false':'true'}">
-            <span class="chev">▾</span><span class="lib-group-title">${title}</span><span class="lib-group-count">${grp.length}</span>
-          </button>
-          ${collapsed?'':groupTableHtml(grp, sel, de2)}
-        </div>`;
-      }).join('');
+      groupsHtml=[...parents.keys()].sort(cmp).map(p=>{
+        const P=parents.get(p); const pk='p:'+p; const open=L.expanded.has(pk);
+        const total=P.direct.length+[...P.subs.values()].reduce((a,v)=>a+v.length,0);
+        let inner='';
+        if(open){
+          if(P.direct.length) inner+=groupTableHtml(P.direct, sel, de2);
+          inner+=[...P.subs.keys()].sort(cmp).map(c=>{
+            const ck='c:'+p+'/'+c; const copen=L.expanded.has(ck);
+            return `<div class="lib-subgroup">${headHtml(ck,'↳ '+esc(c),P.subs.get(c).length,true)}${copen?groupTableHtml(P.subs.get(c), sel, de2):''}</div>`;
+          }).join('');
+        }
+        return `<div class="lib-group">${headHtml(pk,'🏷 '+esc(p),total,false)}${inner}</div>`;
+      }).join('')
+      + (untagged.length?`<div class="lib-group">${headHtml('u:', de2?'Ohne Tags':'Untagged', untagged.length, false)}${L.expanded.has('u:')?groupTableHtml(untagged, sel, de2):''}</div>`:'');
     }
 
     el.innerHTML=`
@@ -1215,7 +1238,7 @@
     wireJump(el);
     $$('[data-libtype]',el).forEach(c=>c.onclick=()=>{ state.lib.type=c.dataset.libtype; renderLibrary(); });
     $$('[data-libtag]',el).forEach(c=>c.onclick=()=>{ state.lib.tag=state.lib.tag===c.dataset.libtag?null:c.dataset.libtag; renderLibrary(); });
-    $$('[data-grpkey]',el).forEach(h=>h.onclick=()=>{ const k=decodeURIComponent(h.dataset.grpkey); if(state.lib.collapsed.has(k))state.lib.collapsed.delete(k); else state.lib.collapsed.add(k); renderLibrary(); });
+    $$('[data-grpkey]',el).forEach(h=>h.onclick=()=>{ const k=decodeURIComponent(h.dataset.grpkey); if(state.lib.expanded.has(k))state.lib.expanded.delete(k); else state.lib.expanded.add(k); renderLibrary(); });
     const q=$('#lib-q',el); if(q)q.oninput=()=>{ state.lib.q=q.value; const p=q.selectionStart; renderLibrary(); const nq=$('#lib-q'); if(nq){nq.focus();nq.setSelectionRange(p,p);} };
     $$('th.sortable',el).forEach(th=>{ const doSort=()=>{ const k=th.dataset.sort; if(state.lib.sort===k)state.lib.dir=state.lib.dir==='asc'?'desc':'asc'; else{state.lib.sort=k;state.lib.dir=k==='name'?'asc':'desc';} renderLibrary(); }; th.onclick=doSort; th.onkeydown=(e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); doSort(); } }; });
     // Kopf-Checkbox einer Gruppe wählt genau die Zeilen dieser Gruppen-Tabelle.
@@ -1334,7 +1357,7 @@
   // Entfernt ein Tag von einem Dokument (Tags sind damit verwaltbar: hinzufuegen ueber
   // das Zeilenmenue, entfernen ueber das ✕ am Tag). Verschwindet ein Tag dadurch ganz,
   // wird es auch aus den aktiven Filtern entfernt.
-  async function removeTag(id, tag){ const doc=await getIndex(id).catch(()=>null); if(!doc)return; doc.tags=(doc.tags||[]).filter(t=>t!==tag); await persistDoc(doc); await saveCatalog(); const gone=!allTags().includes(tag); if(gone){ if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; state.lib.collapsed.delete('t:'+tag); } renderLibrary(); renderFilters(); renderTagAdmin(); }
+  async function removeTag(id, tag){ const doc=await getIndex(id).catch(()=>null); if(!doc)return; doc.tags=(doc.tags||[]).filter(t=>t!==tag); await persistDoc(doc); await saveCatalog(); const gone=!allTags().includes(tag); if(gone){ if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; state.lib.expanded.delete(tagGroupKey(tag)); } renderLibrary(); renderFilters(); renderTagAdmin(); }
   async function batchDelete(){ if(!confirm((state.settings.lang==='de'?'Ausgewählte löschen? ':'Delete selected? ')+state.lib.selected.size)){return;} for(const id of Array.from(state.lib.selected)) await deleteDoc(id,true); await saveCatalog(); refreshLibrary(); toast(state.settings.lang==='de'?'Gelöscht.':'Deleted.'); }
 
   // ---------- Tag-Verwaltung (global: umbenennen / zusammenführen / löschen) ----------
@@ -1347,7 +1370,7 @@
       const set=new Set(doc.tags||[]); set.delete(oldTag); set.add(newTag);
       doc.tags=Array.from(set); await persistDoc(doc); changed++; }
     if(changed){ await saveCatalog(); if(state.lib.tag===oldTag)state.lib.tag=newTag; if(state.search.tag===oldTag)state.search.tag=newTag;
-      if(state.lib.collapsed.delete('t:'+oldTag))state.lib.collapsed.add('t:'+newTag); }   // Einklapp-Zustand mitnehmen
+      if(state.lib.expanded.delete(tagGroupKey(oldTag)))state.lib.expanded.add(tagGroupKey(newTag)); }   // Aufklapp-Zustand mitnehmen
     renderTagAdmin(); renderLibrary(); renderFilters();
     toast(state.settings.lang==='de'?`Tag aktualisiert (${changed}).`:`Tag updated (${changed}).`,'ok');
   }
@@ -1358,7 +1381,7 @@
     for(const c of state.catalog){ if(c.type==='forum')continue; if(!(c.tags||[]).includes(tag))continue;
       const doc=await getIndex(c.id).catch(()=>null); if(!doc)continue;
       doc.tags=(doc.tags||[]).filter(t=>t!==tag); await persistDoc(doc); changed++; }
-    if(changed){ await saveCatalog(); if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; state.lib.collapsed.delete('t:'+tag); }
+    if(changed){ await saveCatalog(); if(state.lib.tag===tag)state.lib.tag=null; if(state.search.tag===tag)state.search.tag=null; state.lib.expanded.delete(tagGroupKey(tag)); }
     renderTagAdmin(); renderLibrary(); renderFilters();
     toast(de?`Tag gelöscht (${changed}).`:`Tag deleted (${changed}).`,'ok');
   }
@@ -1752,7 +1775,7 @@
       if(idset&&!idset.has(c.id))continue;
       // Forum-Einträge sind immer durchsuchbar; der Dateityp-Filter gilt nur für echte Dateien.
       if(types&&c.type!=='forum'&&!types.has(c.type))continue;
-      if(p.tag&&!(c.tags||[]).includes(p.tag))continue;
+      if(p.tag&&!(c.tags||[]).some(t=>tagMatches(t,p.tag)))continue;   // Obertag-Filter schliesst Untertags ein
       // from/to gibt es in der UI nicht mehr – nur noch fuer ALTE Live-Export-
       // Definitionen (exports.json), die einen Zeitraum gespeichert haben koennten.
       if(p.from&&c.importedAt&&c.importedAt.slice(0,10)<p.from)continue;
@@ -2978,11 +3001,17 @@
     const [t,l,ic]= isObj ? [null,null,(kind.icon||'✏️')] : (map[kind]||['rename-t','rename-l','✏️']);
     $('#prompt-title').textContent= isObj?(kind.title||''):tr(t); $('#prompt-label').textContent= isObj?(kind.label||''):tr(l); $('#prompt-icon').textContent=ic;
     const inp=$('#prompt-input'); inp.value=value||'';
-    // Beim Vergeben von Tags ein Dropdown der bereits vorhandenen Tags anbieten
-    // (freie Eingabe neuer Tags bleibt möglich).
+    // Beim Vergeben von Tags ein Dropdown anbieten: vorhandene Tags PLUS jeden
+    // Obertag mit angehaengtem "/" – so waehlt man den Obertag aus der Liste und
+    // tippt nur noch den Untertag dahinter. Freie Eingabe bleibt moeglich.
     const dl=$('#tag-suggestions'); const hint=$('#prompt-hint');
-    if(kind==='tag'){ const tags=allTags(); dl.innerHTML=tags.map(x=>`<option value="${esc(x)}"></option>`).join(''); inp.setAttribute('list','tag-suggestions');
-      if(hint){ hint.style.display=tags.length?'':'none'; hint.textContent=tags.length?(state.settings.lang==='de'?'Vorhandenen Tag wählen oder neuen eintippen.':'Pick an existing tag or type a new one.'):''; } }
+    if(kind==='tag'){ const tags=allTags();
+      const tops=[...new Set(tags.map(t=>parseTag(t).p))];
+      const sugg=[...new Set([...tags, ...tops.map(p=>p+'/')])].sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base',numeric:true}));
+      dl.innerHTML=sugg.map(x=>`<option value="${esc(x)}"></option>`).join(''); inp.setAttribute('list','tag-suggestions');
+      if(hint){ hint.style.display=''; hint.textContent=(state.settings.lang==='de'
+        ?'Mit „Obertag/Untertag" (z. B. Boeing/737 MAX) erstellst du eine Untergruppe. Vorhandenen Tag wählen oder neuen eintippen.'
+        :'Use “Parent/Subtag” (e.g. Boeing/737 MAX) to create a subgroup. Pick an existing tag or type a new one.'); } }
     else { inp.removeAttribute('list'); dl.innerHTML=''; if(hint){ hint.style.display='none'; hint.textContent=''; } }
     const dlg=$('#dlg-prompt'); dlg.classList.add('show'); inp.focus(); inp.select();
     const ok=()=>{ dlg.classList.remove('show'); onOk(inp.value); cleanup(); };
