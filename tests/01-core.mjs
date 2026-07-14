@@ -242,6 +242,49 @@ export async function run(base) {
   t.check('Forum-Filter: kein falscher Treffer', foFilter.none === false, JSON.stringify(foFilter));
   await page.evaluate(async () => { window.WA.state.forumFilter = { status: '', tag: '', q: '' }; window.WA.state.forumView = 'list'; });
 
+  // v1.10.4 Fund 1: Der Forum-Volltextfilter muss ein Leeren des indexCache (wie es
+  // reloadArchiveViews nach jedem Sync/Restore tut) überleben – _foIdxReady wird
+  // zurückgesetzt, sodass foPreloadIndexes erneut lädt. Sonst fiele der Filter still
+  // auf Titel+Tags zurück (fresh-fo hat 'Rumpftext' nur im Body).
+  const afterClear = await page.evaluate(async () => {
+    const WA = window.WA;
+    await WA.reloadArchiveViews();                 // leert indexCache, setzt _foIdxReady zurück
+    WA.state.forumFilter = { status: '', tag: '', q: '' };
+    WA.state.forumSel = { gid: null, sid: null }; WA.state.forumView = 'list';
+    WA.switchView('forum');
+    await new Promise(r => setTimeout(r, 300));     // foPreloadIndexes lädt erneut
+    const inp = document.querySelector('#fo-q'); inp.value = 'Rumpftext';
+    inp.dispatchEvent(new Event('input', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 120));
+    const hit = [...document.querySelectorAll('#forum-content .forum-card')].some(c => c.textContent.includes('Quastenflossergruppe'));
+    const i2 = document.querySelector('#fo-q'); if (i2) { i2.value = ''; i2.dispatchEvent(new Event('input', { bubbles: true })); }
+    return hit;
+  });
+  t.check('Forum-Filter überlebt indexCache.clear (Sync) – findet weiter im Body', afterClear === true);
+
+  // v1.10.4 Fund 3: units von Einträgen VOR dem Feature (ohne Kommentar-Anhang-Namen)
+  // werden beim Öffnen des Forums einmalig nachgezogen → global über den Anhang-Namen
+  // auffindbar. Wir schreiben absichtlich veraltete units auf die Platte.
+  const reidx = await page.evaluate(async () => {
+    const WA = window.WA;
+    const id = 'fxreidx';
+    const entry = { id, name: 'Reindex-Test', body: '', type: 'forum', ext: 'forum', importedAt: new Date().toISOString(), updatedAt: new Date().toISOString(), tags: [], status: '', forum: { gid: 'g1', sid: null },
+      comments: [{ text: 'Kommentar', attachments: [{ name: 'Geheimprotokoll-XYZ.pdf', storedAs: 'x', mime: 'application/pdf' }] }], attachments: [] };
+    entry.units = [{ ref: { section: 'Titel' }, text: 'Reindex-Test' }, { ref: { section: 'Kommentar 1' }, text: 'Kommentar' }]; // STALE: ohne Anhang-Name
+    const h = await WA.state.dirs.index.getFileHandle(id + '.json', { create: true });
+    const w = await h.createWritable(); await w.write(JSON.stringify(entry)); await w.close();
+    await WA.reloadArchiveViews();
+    WA.state.forumView = 'list'; WA.switchView('forum');
+    await new Promise(r => setTimeout(r, 350));    // foPreloadIndexes migriert die units
+    document.querySelector('#search-input').value = 'Geheimprotokoll'; WA.state.search.q = 'Geheimprotokoll';
+    await WA.runSearch();
+    const found = WA.state.lastHits.some(hh => hh.type === 'forum' && hh.name === 'Reindex-Test');
+    await WA.state.dirs.index.removeEntry(id + '.json'); await WA.rebuildCatalog();
+    return found;
+  });
+  t.check('Alt-Einträge: Kommentar-Anhang-Namen werden nachindiziert & global auffindbar', reidx === true);
+  await page.evaluate(async () => { window.WA.state.forumFilter = { status: '', tag: '', q: '' }; window.WA.state.forumView = 'list'; window.WA.switchView('search'); });
+
   // Aufräumen, damit die Trefferzahlen der Folgeprüfungen stabil bleiben.
   await page.evaluate(async () => {
     for (const id of ['fresh-fo']) { try { await window.WA.state.dirs.index.removeEntry(id + '.json'); } catch (_) {} }
