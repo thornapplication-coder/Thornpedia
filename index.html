@@ -728,7 +728,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.1';
+  const APP_VERSION = '1.10.2';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1464,7 +1464,7 @@
   // (PDF, Word, Excel, PowerPoint, Text/CSV, Archive). Nicht-Medien werden als
   // Download-Link angezeigt; die Speicher-/Sync-Logik behandelt sie ohnehin generisch.
   const FO_ACCEPT='image/*,video/*,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.rtf,.ppt,.pptx,.odt,.ods,.odp,.zip';
-  function foBuildUnits(e){ const u=[{ref:{section:'Titel'},text:String(e.name||'')}]; if(e.body)u.push({ref:{section:'Text'},text:String(e.body)}); (e.comments||[]).forEach((c,i)=>{ if(c.text)u.push({ref:{section:'Kommentar '+(i+1)},text:String(c.text)}); }); (e.attachments||[]).forEach(a=>u.push({ref:{section:'Anhang'},text:String(a.name||'')})); if((e.tags||[]).length)u.push({ref:{section:'Tags'},text:(e.tags||[]).join(', ')}); if((e.refs||[]).length)u.push({ref:{section:'Querverweise'},text:(e.refs||[]).map(r=>r.name).join(', ')}); return u; }
+  function foBuildUnits(e){ const u=[{ref:{section:'Titel'},text:String(e.name||'')}]; if(e.body)u.push({ref:{section:'Text'},text:String(e.body)}); (e.comments||[]).forEach((c,i)=>{ if(c.text)u.push({ref:{section:'Kommentar '+(i+1)},text:String(c.text)}); (c.attachments||[]).forEach(a=>u.push({ref:{section:'Kommentar '+(i+1)+' · Anhang'},text:String(a.name||'')})); }); (e.attachments||[]).forEach(a=>u.push({ref:{section:'Anhang'},text:String(a.name||'')})); if((e.tags||[]).length)u.push({ref:{section:'Tags'},text:(e.tags||[]).join(', ')}); if((e.refs||[]).length)u.push({ref:{section:'Querverweise'},text:(e.refs||[]).map(r=>r.name).join(', ')}); return u; }
   async function foSaveEntry(e){ e.type='forum'; e.ext='forum'; e.tags=Array.isArray(e.tags)?e.tags:[]; e.units=foBuildUnits(e); e.size=(e.body||'').length; const now=new Date().toISOString(); if(!e.importedAt)e.importedAt=now; e.updatedAt=now; await writeIndex(e); const i=state.catalog.findIndex(c=>c.id===e.id); if(i>=0)state.catalog[i]=summaryOf(e); else state.catalog.push(summaryOf(e)); await saveCatalog(); }
   // Status (frei lassen oder einer der drei) + kleine Chips.
   const FO_STATUS=[{k:'important',emoji:'⭐',de:'Wichtig',en:'Important'},{k:'open',emoji:'🔵',de:'Offen',en:'Open'},{k:'done',emoji:'✅',de:'Erledigt',en:'Done'}];
@@ -1491,14 +1491,34 @@
     return out.join('');
   }
 
+  // Volltext eines Forum-Eintrags fürs Filterfeld: bevorzugt die geladenen Index-
+  // Einheiten (Titel, Text, Kommentare, Anhang-Namen, Tags, Querverweise – wie die
+  // globale Suche); solange der Index noch nicht geladen ist, greift der Katalog-
+  // Kurzstand (Titel + Tags) als Übergang, bis foPreloadIndexes nachlädt.
+  function foText(e){ const d=state.indexCache.get(e.id); if(d&&d.units&&d.units.length) return d.units.map(u=>u.text).join(' \n '); return (e.name||'')+' '+((e.tags||[]).join(' ')); }
+  // Damit das Forum-Filterfeld WIRKLICH alles durchsucht (nicht nur Titel/Tags),
+  // laden wir die vollen Index-Dateien der Forum-Einträge einmal in den Cache und
+  // rendern danach neu. Neue/geänderte Einträge landen über writeIndex ohnehin
+  // sofort im Cache, gelöschte fallen aus der Liste – deshalb genügt EIN Durchlauf.
+  async function foPreloadIndexes(){
+    if(state._foIdxReady||state._foIdxLoading)return;
+    state._foIdxLoading=true;
+    for(const c of forumEntries()){ if(!state.indexCache.has(c.id)){ try{ await getIndex(c.id); }catch(_){} } }
+    state._foIdxLoading=false; state._foIdxReady=true;
+    if(state.forumView==='list'&&$('#forum-content'))renderForum();
+  }
   function renderForum(){
     const el=$('#forum-content'); if(!el)return;
     (state._forumUrls||[]).forEach(u=>{try{URL.revokeObjectURL(u);}catch(_){}}); state._forumUrls=[];
     if(!state.forumSel)state.forumSel={gid:null,sid:null};
     if(state.forumView==='edit'){ renderForumEditor(el); return; }
     if(state.forumView==='entry'&&state.forumEntryId){ renderForumEntry(el); return; }
+    foPreloadIndexes();
     const de=state.settings.lang==='de'; const sel=state.forumSel; const groups=forumGroups();
-    if(!state.forumCollapsed)state.forumCollapsed=new Set();
+    // Standard: ALLE Themen zugeklappt (übersichtlicher) – Untergruppen gehen erst
+    // per Klick auf das Chevron auf. state.forumExpanded merkt sich pro Sitzung, was
+    // der Nutzer geöffnet hat (leere Menge = alles zu).
+    if(!state.forumExpanded)state.forumExpanded=new Set();
     // Themen und Untergruppen alphabetisch (numerisch-tolerant, z. B. „6000" vor „6500").
     const foCmp=(a,b)=>natCmp(a.name||'', b.name||'');   // gemeinsamer natuerlicher Vergleich
     const sortedGroups=groups.slice().sort(foCmp);
@@ -1507,7 +1527,7 @@
       <div class="forum-grp ${sel.gid===null?'on':''}" data-fg="">📋 ${tr('fo-allentries')}</div>
       ${sortedGroups.map(g=>{
         const subs=(g.subs||[]).slice().sort(foCmp);
-        const hasSubs=subs.length>0; const isColl=state.forumCollapsed.has(g.id);
+        const hasSubs=subs.length>0; const isColl=!state.forumExpanded.has(g.id);
         const chev=hasSubs
           ? `<button class="fo-chev ${isColl?'collapsed':''}" data-fgtoggle="${esc(g.id)}" aria-label="${de?'Untergruppen ein-/ausklappen':'Toggle subgroups'}" aria-expanded="${isColl?'false':'true'}">▾</button>`
           : `<span class="fo-chev-spacer"></span>`;
@@ -1527,7 +1547,7 @@
     if(ff.tag&&!foTags.includes(ff.tag))ff.tag=''; // Filter zurücksetzen, wenn der Tag nicht mehr existiert (sonst leere Liste ohne Bedienelement)
     if(ff.status)entries=entries.filter(e=>(e.status||'')===ff.status);
     if(ff.tag)entries=entries.filter(e=>(e.tags||[]).includes(ff.tag));
-    if(ff.q){ const q=ff.q.toLowerCase(); entries=entries.filter(e=>(e.name||'').toLowerCase().includes(q)||(e.tags||[]).some(t=>t.toLowerCase().includes(q))); }
+    if(ff.q){ const q=fold(ff.q); entries=entries.filter(e=>fold(foText(e)).includes(q)); }
     entries.sort((a,b)=> state.forumSort==='old'?(a.importedAt||'').localeCompare(b.importedAt||'')
       : state.forumSort==='title'?(a.name||'').toLowerCase().localeCompare((b.name||'').toLowerCase())
       : state.forumSort==='upd'?upd(b).localeCompare(upd(a))
@@ -1539,7 +1559,7 @@
     const optTag=`<option value="">${de?'Tag: alle':'Tag: all'}</option>`+foTags.map(t=>`<option value="${esc(t)}" ${ff.tag===t?'selected':''}>${esc(t)}</option>`).join('');
     const listHtml=`<div>
       <div class="row" style="justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px"><strong>${entries.length} ${de?'Einträge':'entries'}</strong>${canAdd?`<div class="row" style="gap:6px;flex-wrap:wrap"><span style="color:var(--text-muted);font-size:12px;align-self:center">${tr('fo-export')}</span><button class="btn sm neutral" data-fotopicexp="pdf">PDF</button><button class="btn sm neutral" data-fotopicexp="docx">Word</button><button class="btn sm neutral" data-fotopicexp="xlsx">Excel</button><button class="btn sm" id="fo-newentry">${tr('fo-newentry')}</button></div>`:`<span style="color:var(--text-muted);font-size:12px">${de?'Wähle links ein Thema, um Einträge anzulegen.':'Pick a topic on the left to add entries.'}</span>`}</div>
-      <div class="row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap"><input id="fo-q" placeholder="${de?'Im Forum filtern …':'Filter forum …'}" value="${esc(ff.q)}" style="flex:1;min-width:140px"><select id="fo-sort" style="${ss}">${optSort}</select><select id="fo-fstatus" style="${ss}">${optStatus}</select>${foTags.length?`<select id="fo-ftag" style="${ss}">${optTag}</select>`:''}</div>
+      <div class="row" style="gap:8px;margin-bottom:12px;flex-wrap:wrap"><input id="fo-q" placeholder="${de?'Im Forum suchen (Titel, Text, Kommentare, Anhänge) …':'Search forum (title, text, comments, attachments) …'}" value="${esc(ff.q)}" style="flex:1;min-width:140px"><select id="fo-sort" style="${ss}">${optSort}</select><select id="fo-fstatus" style="${ss}">${optStatus}</select>${foTags.length?`<select id="fo-ftag" style="${ss}">${optTag}</select>`:''}</div>
       ${entries.map(e=>{ const loc=forumLoc(e); const tags=(e.tags||[]).map(t=>`<span class="chip">🏷 ${esc(t)}</span>`).join(' ');
         return `<div class="forum-card" data-foopen="${esc(e.id)}"><div class="row" style="justify-content:space-between;gap:8px"><div style="font-weight:600;min-width:0;word-break:break-word">${esc(e.name||tr('fo-untitled'))}</div>${foStatusChip(e.status)}</div><div class="fmeta" style="margin-top:3px">${loc?esc(loc)+' · ':''}${fmtDateTime(upd(e))}${e.att?` · 📎 ${e.att}`:''}${e.cmt?` · 💬 ${e.cmt}`:''}</div>${tags?`<div style="margin-top:6px">${tags}</div>`:''}</div>`; }).join('')||`<p style="color:var(--text-muted)">${tr('fo-noentries')}</p>`}
     </div>`;
@@ -1550,7 +1570,7 @@
     $$('[data-fgren]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();foRenameGroup(b.dataset.fgren);});
     $$('[data-fgdel]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();foDeleteGroup(b.dataset.fgdel);});
     $$('[data-fsadd]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();foAddSub(b.dataset.fsadd);});
-    $$('[data-fgtoggle]',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const g=b.dataset.fgtoggle; if(state.forumCollapsed.has(g))state.forumCollapsed.delete(g); else state.forumCollapsed.add(g); renderForum(); });
+    $$('[data-fgtoggle]',el).forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); const g=b.dataset.fgtoggle; if(state.forumExpanded.has(g))state.forumExpanded.delete(g); else state.forumExpanded.add(g); renderForum(); });
     $$('[data-fsren]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();const[g,s]=b.dataset.fsren.split('|');foRenameSub(g,s);});
     $$('[data-fsdel]',el).forEach(b=>b.onclick=(e)=>{e.stopPropagation();const[g,s]=b.dataset.fsdel.split('|');foDeleteSub(g,s);});
     const ne=$('#fo-newentry',el); if(ne)ne.onclick=()=>{ state.forumEditId=null; state.forumView='edit'; renderForum(); };
@@ -1679,7 +1699,7 @@
   function foAddGroup(){ promptDlg({title:tr('fo-newtheme'),label:tr('fo-theme-name'),icon:'💬'},'',async(v)=>{ v=(v||'').trim(); if(!v)return; forumGroups().push({id:foUuid(),name:v,subs:[]}); await saveForum(); renderForum(); }); }
   function foRenameGroup(gid){ const g=forumGroup(gid); if(!g)return; promptDlg({title:tr('fo-rename'),label:tr('fo-theme-name'),icon:'✎'},g.name,async(v)=>{ v=(v||'').trim(); if(!v)return; g.name=v; await saveForum(); renderForum(); }); }
   async function foDeleteGroup(gid){ if(!confirm(tr('fo-del-theme')))return; for(const c of forumEntries().filter(e=>e.forum&&e.forum.gid===gid)) await deleteDoc(c.id,true); state.forum.groups=forumGroups().filter(g=>g.id!==gid); if(state.forumSel&&state.forumSel.gid===gid)state.forumSel={gid:null,sid:null}; await saveCatalog(); await saveForum(); renderForum(); }
-  function foAddSub(gid){ const g=forumGroup(gid); if(!g)return; promptDlg({title:tr('fo-newsub'),label:tr('fo-sub-name'),icon:'↳'},'',async(v)=>{ v=(v||'').trim(); if(!v)return; g.subs=g.subs||[]; g.subs.push({id:foUuid(),name:v}); if(state.forumCollapsed)state.forumCollapsed.delete(gid); await saveForum(); renderForum(); }); }
+  function foAddSub(gid){ const g=forumGroup(gid); if(!g)return; promptDlg({title:tr('fo-newsub'),label:tr('fo-sub-name'),icon:'↳'},'',async(v)=>{ v=(v||'').trim(); if(!v)return; g.subs=g.subs||[]; g.subs.push({id:foUuid(),name:v}); (state.forumExpanded||(state.forumExpanded=new Set())).add(gid); await saveForum(); renderForum(); }); }
   function foRenameSub(gid,sid){ const s=forumSub(forumGroup(gid),sid); if(!s)return; promptDlg({title:tr('fo-rename'),label:tr('fo-sub-name'),icon:'✎'},s.name,async(v)=>{ v=(v||'').trim(); if(!v)return; s.name=v; await saveForum(); renderForum(); }); }
   async function foDeleteSub(gid,sid){ if(!confirm(tr('fo-del-sub')))return; const g=forumGroup(gid); if(!g)return; g.subs=(g.subs||[]).filter(s=>s.id!==sid); for(const c of forumEntries().filter(e=>e.forum&&e.forum.gid===gid&&e.forum.sid===sid)){ const full=await getIndex(c.id).catch(()=>null); if(full){ full.forum=full.forum||{}; full.forum.sid=null; await foSaveEntry(full); } } if(state.forumSel&&state.forumSel.gid===gid&&state.forumSel.sid===sid)state.forumSel={gid,sid:null}; await saveForum(); renderForum(); }
   // Eine Anhang-Datei (Bild, Video oder Dokument) im Forum-Ordner ablegen und die
