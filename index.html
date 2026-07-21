@@ -254,6 +254,9 @@
     .chat-role{font-size:12px;color:var(--text-muted);margin:0 4px 4px}
     .chat-bubble{border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;background:var(--panel);box-shadow:var(--shadow)}
     .chat-user .chat-bubble{background:var(--surface-accent);border-color:var(--secondary);white-space:pre-wrap;word-break:break-word}
+    .chat-composer{display:flex;gap:8px;margin-top:16px;position:sticky;bottom:0;background:var(--bg);padding:10px 0 4px}
+    .chat-composer input{flex:1;min-width:0;padding:11px 13px;border:1px solid var(--line);border-radius:var(--radius);background:var(--panel);color:var(--text);font-size:14px}
+    .chat-composer input:focus{outline:none;border-color:var(--secondary)}
 
     /* Fundstelle */
     .doc-view{display:grid;grid-template-columns:1fr 300px;gap:20px;align-items:start}
@@ -759,7 +762,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.6';
+  const APP_VERSION = '1.10.7';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -792,7 +795,7 @@
     _renderSeq:0, _renderTask:null,
     parseWorker:null,
     findMode:'search',   // vereinheitlichter Suche/KI-Tab
-    chat:{ messages:[], pending:false, error:'' },  // „KI fragen"-Verlauf (Sitzung): [{role:'user'|'assistant', content, cost?}]
+    chat:{ messages:[], pending:false, error:'', draft:'' },  // „KI fragen"-Verlauf (Sitzung): [{role:'user'|'assistant', content, cost?}]
   };
 
   // ---------- Toast ----------
@@ -2013,46 +2016,59 @@
     const resEl=$('#search-results');
     if(!state.apiKey){ $('#search-count').textContent=''; resEl.innerHTML=`<div class="empty"><div class="big">🤖</div><p>${tr('ask-nokey')}</p><button class="btn sm" data-view-jump="settings" style="margin-top:8px">⚙️ ${tr('nav-set')}</button></div>`; wireJump(resEl); return; }
     state.chat.messages.push({role:'user', content:q});
-    state.chat.error=''; state.chat.pending=true;
-    const inp=$('#search-input'); if(inp) inp.value='';   // Frage steht jetzt im Verlauf
+    state.chat.error=''; state.chat.draft=''; state.chat.pending=true;
     renderChat();
     try{
       const ans=await claudeChat(state.chat.messages);
       state.chat.messages.push({role:'assistant', content:ans.text, cost:aiCostLabel(ans.usage)});
     }catch(e){
       // Fehlgeschlagene Frage wieder entfernen → Verlauf bleibt gültig (Rollen wechseln
-      // sich ab) und die Frage kommt zum erneuten Senden zurück ins Eingabefeld.
-      state.chat.messages.pop(); state.chat.error=e.message; if(inp) inp.value=q;
+      // sich ab) und die Frage kommt zum erneuten Senden zurück in das Chat-Feld.
+      state.chat.messages.pop(); state.chat.error=e.message; state.chat.draft=q;
     }finally{
-      state.chat.pending=false; renderChat();
+      state.chat.pending=false; renderChat(); const ci=$('#chat-input'); if(ci)ci.focus();
     }
   }
-  // Rendert den kompletten Chat-Verlauf in die Ergebnis-Spalte (#search-results).
+  // Rendert den kompletten Chat-Verlauf in die Ergebnis-Spalte (#search-results) –
+  // MIT eigenem Eingabefeld UNTEN unter dem Verlauf (wie in einem Chat), damit man
+  // der KI direkt darunter antwortet und nicht im Suchfeld oben.
   function renderChat(){
     const resEl=$('#search-results'); if(!resEl)return;
     const de=state.settings.lang==='de'; const msgs=state.chat.messages;
     $('#search-count').textContent='';   // Chat hat keine Trefferzahl
-    if(!msgs.length && !state.chat.pending && !state.chat.error){
-      resEl.innerHTML=`<div class="empty"><div class="big">🤖</div><p>${tr('chat-empty')}</p></div>`; return;
-    }
     const you=de?'Du':'You';
-    let html='<div class="chat-thread">';
-    for(const m of msgs){
-      if(m.role==='user'){
-        html+=`<div class="chat-msg chat-user"><div class="chat-role">🙋 ${you}</div><div class="chat-bubble">${esc(m.content)}</div></div>`;
-      }else{
-        html+=`<div class="chat-msg chat-ai"><div class="chat-role">🤖 Claude</div><div class="chat-bubble fo-body" style="line-height:1.7">${foMd(m.content)}</div>${costLine(m.cost)}</div>`;
+    let html='';
+    if(msgs.length){ html+=`<div class="row" style="justify-content:flex-end;margin-bottom:10px"><button class="btn sm neutral" id="chat-clear">🗑 ${tr('chat-new')}</button></div>`; }
+    if(!msgs.length && !state.chat.pending){
+      html+=`<div class="empty"><div class="big">🤖</div><p>${tr('chat-empty')}</p></div>`;
+    }else{
+      html+='<div class="chat-thread">';
+      for(const m of msgs){
+        if(m.role==='user'){
+          html+=`<div class="chat-msg chat-user"><div class="chat-role">🙋 ${you}</div><div class="chat-bubble">${esc(m.content)}</div></div>`;
+        }else{
+          html+=`<div class="chat-msg chat-ai"><div class="chat-role">🤖 Claude</div><div class="chat-bubble fo-body" style="line-height:1.7">${foMd(m.content)}</div>${costLine(m.cost)}</div>`;
+        }
       }
+      if(state.chat.pending){
+        html+=`<div class="chat-msg chat-ai"><div class="chat-role">🤖 Claude</div><div class="chat-bubble"><span class="busy"></span> <span style="margin-left:8px">${tr('ask-working')}</span></div></div>`;
+      }
+      html+='</div>';
     }
-    if(state.chat.pending){
-      html+=`<div class="chat-msg chat-ai"><div class="chat-role">🤖 Claude</div><div class="chat-bubble"><span class="busy"></span> <span style="margin-left:8px">${tr('ask-working')}</span></div></div>`;
-    }
-    html+='</div>';
     if(state.chat.error){ html+=`<div class="notice err" style="margin-top:12px"><span>⚠</span><span>${esc(state.chat.error)}</span></div>`; }
-    if(msgs.length){ html+=`<div class="row" style="margin-top:14px"><button class="btn sm neutral" id="chat-clear">🗑 ${tr('chat-new')}</button></div>`; }
+    // Eingabefeld UNTEN (klebt am unteren Rand) – hier antwortet man der KI.
+    const busy=state.chat.pending?'disabled':'';
+    html+=`<div class="chat-composer">
+        <input id="chat-input" autocomplete="off" placeholder="${esc(de?'Antwort schreiben – wie im Chat …':'Write a message – like a chat …')}" value="${esc(state.chat.draft||'')}" ${busy}>
+        <button class="btn" id="chat-send" ${busy}>${de?'Senden':'Send'}</button>
+      </div>`;
     resEl.innerHTML=html;
-    const cc=$('#chat-clear',resEl); if(cc)cc.onclick=()=>{ state.chat.messages=[]; state.chat.error=''; state.chat.pending=false; renderChat(); const i=$('#search-input'); if(i)i.focus(); };
-    const last=resEl.querySelector('.chat-msg:last-child'); if(last)last.scrollIntoView({block:'nearest'});
+    const cc=$('#chat-clear',resEl); if(cc)cc.onclick=()=>{ state.chat.messages=[]; state.chat.error=''; state.chat.draft=''; state.chat.pending=false; renderChat(); const i=$('#chat-input'); if(i)i.focus(); };
+    const send=()=>{ const i=$('#chat-input'); if(!i||state.chat.pending)return; const q=i.value.trim(); if(!q)return; state.chat.draft=''; askQuestion(q); };
+    const ci=$('#chat-input',resEl); const cs=$('#chat-send',resEl);
+    if(cs)cs.onclick=send;
+    if(ci)ci.onkeydown=(e)=>{ if(e.key==='Enter'){ e.preventDefault(); send(); } };
+    const last=resEl.querySelector('.chat-thread .chat-msg:last-child'); if(last)last.scrollIntoView({block:'nearest'});
   }
   // ---------- Gemeinsame Bausteine der Claude-API-Aufrufe ----------
   // (KI-Frage und Verbindungstest teilen sich die Header; Fetch/Parse der
@@ -2128,6 +2144,9 @@
     // „Genauer Wortlaut"/„Nur markierte" nur beim Suchen – die KI durchsucht immer ALLE Dokumente.
     const oe=$('#opt-exact'); if(oe)oe.style.display=isAsk?'none':'';
     const os=$('#opt-scope'); if(os)os.style.display=isAsk?'none':'';
+    // Das obere Suchfeld gehört zur Suche – im Chat ausblenden. Geantwortet wird im
+    // eigenen Eingabefeld UNTEN unter dem Verlauf (renderChat), nicht hier oben.
+    const ir=$('#find-inputrow'); if(ir)ir.style.display=isAsk?'none':'';
     // Der ganze Optionen-/Filterblock und die Treffer-Aktionsleiste (Anzahl, Alle wählen,
     // Export) gehören zur Suche – im Chat ausblenden (sonst „0 Treffer" über einer Antwort).
     const sr=$('#find-subrow'); if(sr)sr.style.display=isAsk?'none':'';

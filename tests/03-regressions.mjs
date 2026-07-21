@@ -138,15 +138,31 @@ export async function run(base) {
     window.WA.switchView('search');
     window.WA.setFindMode('ask');
 
-    const ask = async (q) => { document.querySelector('#search-input').value = q; await window.WA.runSearch(); };
-    await ask('Erste Frage');
-    await ask('Zweite Frage');   // Rückfrage im selben Chat
+    // Gesendet wird über das Chat-Feld UNTEN (#chat-input/#chat-send) – NICHT über das
+    // Suchfeld oben. Auf Abschluss der gemockten Anfrage warten.
+    const send = async (q) => {
+      const before = window.WA.state.chat.messages.filter(m => m.role === 'assistant').length;
+      document.querySelector('#chat-input').value = q;
+      document.querySelector('#chat-send').click();
+      for (let k = 0; k < 100; k++) {
+        if (!window.WA.state.chat.pending && window.WA.state.chat.messages.filter(m => m.role === 'assistant').length > before) break;
+        await new Promise(r => setTimeout(r, 20));
+      }
+    };
+    await send('Erste Frage');
+    await send('Zweite Frage');   // Rückfrage im selben Chat
 
     const bubbles = () => ({
       users: [...document.querySelectorAll('#search-results .chat-user .chat-bubble')].map(b => b.textContent.trim()),
       ais: [...document.querySelectorAll('#search-results .chat-ai .chat-bubble')].map(b => b.textContent.trim()),
     });
     const afterTwo = bubbles();
+
+    // Layout: Eingabefeld liegt UNTERHALB des Verlaufs, und das obere Suchfeld ist im Chat aus.
+    const thread = document.querySelector('#search-results .chat-thread');
+    const composer = document.querySelector('#search-results .chat-composer');
+    const composerBelowThread = !!(thread && composer && (thread.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const topSearchHidden = getComputedStyle(document.querySelector('#find-inputrow')).display === 'none';
 
     // Kontext der 2. Anfrage: enthält den kompletten bisherigen Verlauf (user/assistant/user).
     const secondCall = window.__aiCalls[1];
@@ -165,9 +181,11 @@ export async function run(base) {
     document.querySelector('#chat-clear')?.click();
     const afterClear = bubbles();
 
-    return { afterTwo, secondCallRoles: (secondCall.messages || []).map(m => m.role), secondCallHasSystem: !!secondCall.system, afterNav, afterTabToggle, actionbarHiddenInAsk, afterClear };
+    return { afterTwo, composerBelowThread, topSearchHidden, secondCallRoles: (secondCall.messages || []).map(m => m.role), secondCallHasSystem: !!secondCall.system, afterNav, afterTabToggle, actionbarHiddenInAsk, afterClear };
   });
   t.check('KI-Chat: Frage + Antwort erscheinen als Bubbles', chat.afterTwo.users.length === 2 && chat.afterTwo.ais.length === 2 && chat.afterTwo.ais[0] === 'Antwort 1', JSON.stringify(chat.afterTwo));
+  t.check('KI-Chat: Eingabefeld liegt UNTER dem Verlauf', chat.composerBelowThread === true);
+  t.check('KI-Chat: oberes Suchfeld im Chat ausgeblendet', chat.topSearchHidden === true);
   t.check('KI-Chat: Rückfrage sendet GESAMTEN Verlauf (Multi-Turn)', JSON.stringify(chat.secondCallRoles) === JSON.stringify(['user', 'assistant', 'user']) && chat.secondCallHasSystem, JSON.stringify(chat.secondCallRoles));
   t.check('KI-Chat: Antwort überlebt Ansichts-Wechsel (nicht mehr „weg")', chat.afterNav.ais.length === 2 && chat.afterNav.users.length === 2, JSON.stringify(chat.afterNav));
   t.check('KI-Chat: Antwort überlebt Tab-Wechsel Suchen↔KI', chat.afterTabToggle.ais.length === 2, JSON.stringify(chat.afterTabToggle));
