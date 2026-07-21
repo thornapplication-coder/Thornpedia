@@ -246,6 +246,15 @@
     mark{background:var(--secondary);color:#08323c;padding:0 2px;border-radius:2px}
     .result .r-foot{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center}
 
+    /* KI-Chat („KI fragen") */
+    .chat-thread{display:flex;flex-direction:column;gap:14px}
+    .chat-msg{max-width:min(760px,92%)}
+    .chat-user{align-self:flex-end}
+    .chat-ai{align-self:flex-start}
+    .chat-role{font-size:12px;color:var(--text-muted);margin:0 4px 4px}
+    .chat-bubble{border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;background:var(--panel);box-shadow:var(--shadow)}
+    .chat-user .chat-bubble{background:var(--surface-accent);border-color:var(--secondary);white-space:pre-wrap;word-break:break-word}
+
     /* Fundstelle */
     .doc-view{display:grid;grid-template-columns:1fr 300px;gap:20px;align-items:start}
     /* min-width:0 verhindert, dass eine breite Tabelle das 1fr-Feld (und damit die
@@ -750,7 +759,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.5';
+  const APP_VERSION = '1.10.6';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -783,6 +792,7 @@
     _renderSeq:0, _renderTask:null,
     parseWorker:null,
     findMode:'search',   // vereinheitlichter Suche/KI-Tab
+    chat:{ messages:[], pending:false, error:'' },  // „KI fragen"-Verlauf (Sitzung): [{role:'user'|'assistant', content, cost?}]
   };
 
   // ---------- Toast ----------
@@ -830,6 +840,8 @@
     'scope-none':['Es sind keine Dokumente markiert. Setze in der Bibliothek Haken bei den gewünschten Dokumenten.','No documents are selected. Tick the documents you want in the library.'],
     'ask-nokey':['Für die KI-Frage wird ein Claude-API-Key benötigt (Einstellungen).','The AI question needs a Claude API key (Settings).'],
     'ask-working':['Antwort wird erstellt …','Generating answer …'],
+    'chat-empty':['Stell Claude eine Frage – wie in einem Chat. Deine Fragen und die Antworten bleiben hier stehen, du kannst also nachhaken.','Ask Claude a question – like a chat. Your questions and the answers stay here, so you can follow up.'],
+    'chat-new':['Neuer Chat','New chat'],
     'f-type':['Dateityp','File type'],'f-tags':['Tags / Kategorien','Tags / categories'],'f-reset':['Filter zurücksetzen','Reset filters'],
     'select-all':['Alle wählen','Select all'],'export':['Export','Export'],
     'doc-original':['Original','Original'],'reindex':['Neu-Indexieren','Re-index'],
@@ -1949,6 +1961,9 @@
   }
   function renderSearchHistory(){
     const el=$('#search-history'); if(!el)return; const de=state.settings.lang==='de';
+    // „Zuletzt gesucht" ist ein Such-Feature – im KI-Chat ausblenden (verhindert auch
+    // den Modus-Bruch, dass ein Chip-Klick still auf Text-Suche zurückschaltet).
+    if(state.search.mode==='ask'){ el.style.display='none'; return; }
     const h=Array.isArray(state.settings.searchHistory)?state.settings.searchHistory:[];
     if(!h.length){ el.style.display='none'; el.innerHTML=''; return; }
     el.style.display='';
@@ -1959,13 +1974,16 @@
     const c=$('#sh-clear',el); if(c)c.onclick=()=>{ state.settings.searchHistory=[]; persistSettings(); renderSearchHistory(); };
   }
   async function runSearch(){
-    const q=$('#search-input').value.trim(); state.search.q=q;
+    const q=$('#search-input').value.trim();
+    // KI-Chat zuerst behandeln – NICHT state.search.q setzen (sonst würde ein
+    // Rückkehren in die Suche-Ansicht die Frage als „offene Suche" erneut abfeuern).
+    if(state.search.mode==='ask'){ if(q) await askQuestion(q); else renderChat(); return; }
+    state.search.q=q;
     const resEl=$('#search-results'); state.search.selected.clear();
     if(!q){ resEl.innerHTML=`<div class="empty"><div class="big">🔎</div><p>${tr('type-search-hint')}</p></div>`; $('#search-count').textContent='—'; return; }
     if(state.search.scope==='selected' && !state.lib.selected.size){ resEl.innerHTML=`<div class="empty"><div class="big">☑</div><p>${tr('scope-none')}</p></div>`; $('#search-count').textContent='—'; return; }
     // Erst nach den Guards in den Verlauf – so landen nur tatsächlich ausgeführte Suchen dort.
     pushSearchHistory(q);
-    if(state.search.mode==='ask'){ await askQuestion(q); return; }
     resEl.innerHTML=`<div class="empty"><span class="busy"></span></div>`;
     const {terms,hits}=await searchArchive(currentSearchParams());
     state.lastHits=hits; state.search.terms=terms;
@@ -1988,36 +2006,70 @@
                   thorough: de?'≈ 4–8 Cent pro Frage · lange, ausführliche Antworten':'≈ 4–8 cents per question · long, detailed answers' };
     const h=$('#aib-hint'); if(h)h.textContent=hints[cur]||hints.standard;
   }
+  // „KI fragen" ist ein echter, mehrstufiger Chat: Fragen und Antworten bleiben im
+  // Verlauf (state.chat) stehen (überlebt Ansichts-Wechsel/Sprachumschaltung), und der
+  // GESAMTE Verlauf wird mitgeschickt – so kann die KI Rückfragen im Kontext beantworten.
   async function askQuestion(q){
-    const resEl=$('#search-results'); $('#search-count').textContent='';
-    if(!state.apiKey){ resEl.innerHTML=`<div class="empty"><div class="big">🤖</div><p>${tr('ask-nokey')}</p><button class="btn sm" data-view-jump="settings" style="margin-top:8px">⚙️ ${tr('nav-set')}</button></div>`; wireJump(resEl); return; }
-    resEl.innerHTML=`<div class="empty"><span class="busy"></span> <span style="margin-left:8px">${tr('ask-working')}</span></div>`;
+    const resEl=$('#search-results');
+    if(!state.apiKey){ $('#search-count').textContent=''; resEl.innerHTML=`<div class="empty"><div class="big">🤖</div><p>${tr('ask-nokey')}</p><button class="btn sm" data-view-jump="settings" style="margin-top:8px">⚙️ ${tr('nav-set')}</button></div>`; wireJump(resEl); return; }
+    state.chat.messages.push({role:'user', content:q});
+    state.chat.error=''; state.chat.pending=true;
+    const inp=$('#search-input'); if(inp) inp.value='';   // Frage steht jetzt im Verlauf
+    renderChat();
     try{
-      // Normaler Claude-Chat – bezieht sich NICHT auf die hochgeladenen Dokumente.
-      const ans=await claudeAnswer(q);
-      const cost=aiCostLabel(ans.usage);
-      resEl.innerHTML=`<div class="panel panel-pad"><div class="r-title" style="font-weight:600;margin-bottom:10px">🤖 ${esc(q)}</div><div class="fo-body" style="line-height:1.7">${foMd(ans.text)}</div>${costLine(cost)}</div>`;
-    }catch(e){ resEl.innerHTML=`<div class="empty"><p style="color:var(--danger)">${esc(e.message)}</p></div>`; }
+      const ans=await claudeChat(state.chat.messages);
+      state.chat.messages.push({role:'assistant', content:ans.text, cost:aiCostLabel(ans.usage)});
+    }catch(e){
+      // Fehlgeschlagene Frage wieder entfernen → Verlauf bleibt gültig (Rollen wechseln
+      // sich ab) und die Frage kommt zum erneuten Senden zurück ins Eingabefeld.
+      state.chat.messages.pop(); state.chat.error=e.message; if(inp) inp.value=q;
+    }finally{
+      state.chat.pending=false; renderChat();
+    }
+  }
+  // Rendert den kompletten Chat-Verlauf in die Ergebnis-Spalte (#search-results).
+  function renderChat(){
+    const resEl=$('#search-results'); if(!resEl)return;
+    const de=state.settings.lang==='de'; const msgs=state.chat.messages;
+    $('#search-count').textContent='';   // Chat hat keine Trefferzahl
+    if(!msgs.length && !state.chat.pending && !state.chat.error){
+      resEl.innerHTML=`<div class="empty"><div class="big">🤖</div><p>${tr('chat-empty')}</p></div>`; return;
+    }
+    const you=de?'Du':'You';
+    let html='<div class="chat-thread">';
+    for(const m of msgs){
+      if(m.role==='user'){
+        html+=`<div class="chat-msg chat-user"><div class="chat-role">🙋 ${you}</div><div class="chat-bubble">${esc(m.content)}</div></div>`;
+      }else{
+        html+=`<div class="chat-msg chat-ai"><div class="chat-role">🤖 Claude</div><div class="chat-bubble fo-body" style="line-height:1.7">${foMd(m.content)}</div>${costLine(m.cost)}</div>`;
+      }
+    }
+    if(state.chat.pending){
+      html+=`<div class="chat-msg chat-ai"><div class="chat-role">🤖 Claude</div><div class="chat-bubble"><span class="busy"></span> <span style="margin-left:8px">${tr('ask-working')}</span></div></div>`;
+    }
+    html+='</div>';
+    if(state.chat.error){ html+=`<div class="notice err" style="margin-top:12px"><span>⚠</span><span>${esc(state.chat.error)}</span></div>`; }
+    if(msgs.length){ html+=`<div class="row" style="margin-top:14px"><button class="btn sm neutral" id="chat-clear">🗑 ${tr('chat-new')}</button></div>`; }
+    resEl.innerHTML=html;
+    const cc=$('#chat-clear',resEl); if(cc)cc.onclick=()=>{ state.chat.messages=[]; state.chat.error=''; state.chat.pending=false; renderChat(); const i=$('#search-input'); if(i)i.focus(); };
+    const last=resEl.querySelector('.chat-msg:last-child'); if(last)last.scrollIntoView({block:'nearest'});
   }
   // ---------- Gemeinsame Bausteine der Claude-API-Aufrufe ----------
   // (KI-Frage und Verbindungstest teilen sich die Header; Fetch/Parse der
   //  Antwort liegt zentral in claudeMessage.)
   const anthropicHeaders=()=>({'content-type':'application/json','x-api-key':state.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'});
-  async function claudeMessage(prompt, maxTokens){
-    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:anthropicHeaders(), body:JSON.stringify({model:'claude-opus-4-8',max_tokens:maxTokens,messages:[{role:'user',content:prompt}]}) });
+  // „KI fragen" ist ein normaler Claude-Chat – die Antworten beziehen sich NICHT auf
+  // die hochgeladenen Dokumente, sondern kommen aus dem allgemeinen Wissen von Claude.
+  // Der komplette Gesprächsverlauf wird gesendet (Multi-Turn), damit Rückfragen im
+  // Kontext beantwortet werden. Sprache folgt der App-Einstellung (System-Prompt).
+  async function claudeChat(messages){
+    if(!navigator.onLine) throw new Error(state.settings.lang==='de'?'Keine Internetverbindung.':'No internet connection.');
+    const B=aiLimits();
+    const sys = state.settings.lang==='de' ? 'Bitte antworte auf Deutsch.' : 'Please answer in English.';
+    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:anthropicHeaders(), body:JSON.stringify({model:'claude-opus-4-8',max_tokens:B.ans,system:sys,messages:messages.map(m=>({role:m.role,content:m.content}))}) });
     if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('API '+r.status+': '+t.slice(0,200)); }
     const data=await r.json();
     return { text:(data.content||[]).map(c=>c.text||'').join('\n').trim(), usage:data.usage||null };
-  }
-  // „KI fragen" ist ein normaler Claude-Chat – die Antwort bezieht sich NICHT auf
-  // die hochgeladenen Dokumente, sondern kommt aus dem allgemeinen Wissen von Claude.
-  // Sprache folgt der App-Einstellung (Deutsch, umschaltbar auf Englisch).
-  async function claudeAnswer(q){
-    if(!navigator.onLine) throw new Error(state.settings.lang==='de'?'Keine Internetverbindung.':'No internet connection.');
-    const B=aiLimits();
-    const instr = state.settings.lang==='de' ? 'Bitte antworte auf Deutsch.' : 'Please answer in English.';
-    const {text, usage}=await claudeMessage(instr+'\n\n'+q, B.ans);
-    return {text, usage};
   }
   // Grobe Kostenschätzung einer KI-Anfrage aus der zurückgegebenen Token-Nutzung
   // (Opus 4.8: 5 $ / 25 $ je 1 Mio. Token). Reine Info in der Oberfläche – wird
@@ -2034,9 +2086,10 @@
   const costLine=(cost)=>cost?`<p style="color:var(--text-muted);font-size:12px;margin:10px 0 0">${esc(cost)}</p>`:'';
   function refLabel(ref){ if(!ref)return ''; if(ref.page!=null)return `${tr('page')} ${ref.page}`; if(ref.sheet!=null)return `${tr('sheet')} „${ref.sheet}"${ref.row!=null?` · ${tr('row')} ${ref.row}`:(ref.cell?` · ${tr('cell')} ${ref.cell}`:'')}`; if(ref.section!=null)return `${tr('section')} ${ref.section}`; return ''; }
   function renderSearchResults(){
-    // Im KI-Frage-Modus verwaltet askQuestion die Ergebnisliste selbst – nicht
-    // mit (veralteten) Volltext-Treffern ueberschreiben (z. B. bei Sprachwechsel).
-    if(state.search.mode==='ask')return;
+    // Im KI-Frage-Modus zeigt die Ergebnis-Spalte den Chat-Verlauf (aus state.chat) –
+    // nicht mit (veralteten) Volltext-Treffern ueberschreiben. So ueberlebt die Antwort
+    // Ansichts-Wechsel und Sprachumschaltung (refreshAll ruft renderSearchResults).
+    if(state.search.mode==='ask'){ renderChat(); return; }
     const resEl=$('#search-results'); if(!resEl)return; const hits=state.lastHits; const terms=state.search.terms||[];
     if(!state.search.q){ resEl.innerHTML=`<div class="empty"><div class="big">🔎</div><p>${tr('type-search-hint')}</p></div>`; $('#search-count').textContent='—'; return; }
     $('#search-count').textContent=`${hits.length} ${tr('hits')}`;
@@ -2075,9 +2128,18 @@
     // „Genauer Wortlaut"/„Nur markierte" nur beim Suchen – die KI durchsucht immer ALLE Dokumente.
     const oe=$('#opt-exact'); if(oe)oe.style.display=isAsk?'none':'';
     const os=$('#opt-scope'); if(os)os.style.display=isAsk?'none':'';
+    // Der ganze Optionen-/Filterblock und die Treffer-Aktionsleiste (Anzahl, Alle wählen,
+    // Export) gehören zur Suche – im Chat ausblenden (sonst „0 Treffer" über einer Antwort).
+    const sr=$('#find-subrow'); if(sr)sr.style.display=isAsk?'none':'';
+    const ab=$('#find-actionbar'); if(ab)ab.style.display=isAsk?'none':'';
+    const ff=$('#find-filters'); if(ff&&isAsk)ff.style.display='none';
     state.search.mode = isAsk ? 'ask' : ($('#chk-exact') && $('#chk-exact').checked ? 'exact' : 'text');
     syncSearchControls(); renderSearchHistory();
-    if(state.search.q) runSearch(); else renderSearchResults();
+    // Beim Chat NICHT automatisch eine (kostenpflichtige) API-Anfrage abfeuern – nur den
+    // gespeicherten Verlauf zeigen. Bei der Suche wie bisher die offene Suche erneuern.
+    if(isAsk){ renderChat(); }
+    else if(state.search.q){ runSearch(); }
+    else { renderSearchResults(); }
   }
 
   // ---------- Fundstelle ----------
@@ -3405,7 +3467,7 @@
 
     if(window.__WA_MOCK_ROOT__||window.__WA_TEST__){
       // Test-Brücke – nur aktiv, wenn explizit injiziert (automatisierte Prüfung).
-      window.WA={ importFiles, runSearch, searchArchive, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, odSetStatus, foAddComment,
+      window.WA={ importFiles, runSearch, setFindMode, askQuestion, renderChat, searchArchive, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, odSetStatus, foAddComment,
         rebuildCatalog: async()=>{ state.indexCache.clear(); state._foIdxReady=false; state.catalog=await rebuildCatalog(); renderLibrary(); return state.catalog; } };
     }
 
