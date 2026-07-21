@@ -120,6 +120,60 @@ export async function run(base) {
   });
   t.check('Leer-Export wirft nicht', guard === true, guard);
 
+  // „KI fragen" ist ein echter Chat: Verlauf bleibt stehen (überlebt Ansichts-Wechsel)
+  // und der GESAMTE Verlauf wird gesendet, damit Rückfragen im Kontext beantwortet werden.
+  const chat = await page.evaluate(async () => {
+    // Anthropic-API mocken – jede Antwort nummeriert; Request-Bodies mitschneiden.
+    window.__aiCalls = [];
+    const realFetch = window.fetch;
+    window.fetch = async (url, opts) => {
+      if (typeof url === 'string' && url.includes('api.anthropic.com')) {
+        window.__aiCalls.push(JSON.parse(opts.body));
+        const n = window.__aiCalls.length;
+        return new Response(JSON.stringify({ content: [{ type: 'text', text: 'Antwort ' + n }], usage: { input_tokens: 10, output_tokens: 5 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return realFetch(url, opts);
+    };
+    window.WA.state.apiKey = 'test-key';
+    window.WA.switchView('search');
+    window.WA.setFindMode('ask');
+
+    const ask = async (q) => { document.querySelector('#search-input').value = q; await window.WA.runSearch(); };
+    await ask('Erste Frage');
+    await ask('Zweite Frage');   // Rückfrage im selben Chat
+
+    const bubbles = () => ({
+      users: [...document.querySelectorAll('#search-results .chat-user .chat-bubble')].map(b => b.textContent.trim()),
+      ais: [...document.querySelectorAll('#search-results .chat-ai .chat-bubble')].map(b => b.textContent.trim()),
+    });
+    const afterTwo = bubbles();
+
+    // Kontext der 2. Anfrage: enthält den kompletten bisherigen Verlauf (user/assistant/user).
+    const secondCall = window.__aiCalls[1];
+
+    // Ansichts-Wechsel weg und zurück → Antwort darf NICHT verschwinden.
+    window.WA.switchView('lib');
+    window.WA.switchView('search');
+    const afterNav = bubbles();
+
+    // Zum „Suchen"-Tab und zurück → Chat bleibt ebenfalls erhalten.
+    window.WA.setFindMode('search');
+    const actionbarHiddenInAsk = (() => { window.WA.setFindMode('ask'); return getComputedStyle(document.querySelector('#find-actionbar')).display === 'none'; })();
+    const afterTabToggle = bubbles();
+
+    // Neuer Chat leert den Verlauf.
+    document.querySelector('#chat-clear')?.click();
+    const afterClear = bubbles();
+
+    return { afterTwo, secondCallRoles: (secondCall.messages || []).map(m => m.role), secondCallHasSystem: !!secondCall.system, afterNav, afterTabToggle, actionbarHiddenInAsk, afterClear };
+  });
+  t.check('KI-Chat: Frage + Antwort erscheinen als Bubbles', chat.afterTwo.users.length === 2 && chat.afterTwo.ais.length === 2 && chat.afterTwo.ais[0] === 'Antwort 1', JSON.stringify(chat.afterTwo));
+  t.check('KI-Chat: Rückfrage sendet GESAMTEN Verlauf (Multi-Turn)', JSON.stringify(chat.secondCallRoles) === JSON.stringify(['user', 'assistant', 'user']) && chat.secondCallHasSystem, JSON.stringify(chat.secondCallRoles));
+  t.check('KI-Chat: Antwort überlebt Ansichts-Wechsel (nicht mehr „weg")', chat.afterNav.ais.length === 2 && chat.afterNav.users.length === 2, JSON.stringify(chat.afterNav));
+  t.check('KI-Chat: Antwort überlebt Tab-Wechsel Suchen↔KI', chat.afterTabToggle.ais.length === 2, JSON.stringify(chat.afterTabToggle));
+  t.check('KI-Chat: keine Treffer-Aktionsleiste im Chat', chat.actionbarHiddenInAsk === true);
+  t.check('KI-Chat: „Neuer Chat" leert den Verlauf', chat.afterClear.users.length === 0 && chat.afterClear.ais.length === 0, JSON.stringify(chat.afterClear));
+
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
   await browser.close();
   return t.fails();
