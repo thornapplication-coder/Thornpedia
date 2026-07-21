@@ -58,21 +58,25 @@ function parseSheet(buffer, ext) {
     if (!ws || !ws['!ref']) continue;
     const range = XLSX.utils.decode_range(ws['!ref']);
     for (let R = range.s.r; R <= range.e.r; R++) {
-      const cells = [];
+      // POSITIONSTREU: pro Spalte einen Eintrag (leere Zellen als '') – so kann der
+      // Dokument-View die Zeilen wieder als AUSGERICHTETE Tabelle darstellen. Der
+      // Suchtext bleibt unveraendert (nur die nicht-leeren Zellen, mit '  ·  ' verbunden).
+      const row = [];
+      let any = false;
       for (let C = range.s.c; C <= range.e.c; C++) {
         // Auch die reine Iteration deckeln: eine kaputte/boesartige Datei kann
         // ein riesiges !ref (z.B. A1:XFD1048576) deklarieren und wuerde sonst
         // den Worker praktisch endlos blockieren.
         if (++scanned > SCAN_CAP) return { kind: 'sheet', scanned: false, units, truncated: true };
         const cell = ws[XLSX.utils.encode_cell({ r: R, c: C })];
-        if (!cell) continue;
-        const val = cell.w != null ? cell.w : cell.v;
-        if (val === undefined || val === null) continue;
-        const v = norm(val); if (!v) continue;
-        cells.push(v);
+        let v = '';
+        if (cell) { const val = cell.w != null ? cell.w : cell.v; if (val !== undefined && val !== null) v = norm(val); }
+        row.push(v);
+        if (v) any = true;
       }
-      if (!cells.length) continue;
-      units.push({ ref: { sheet: sheetName, row: R + 1 }, text: cells.join('  ·  ') });
+      if (!any) continue;
+      while (row.length && !row[row.length - 1]) row.pop(); // nachlaufende Leerzellen kappen
+      units.push({ ref: { sheet: sheetName, row: R + 1 }, text: row.filter(Boolean).join('  ·  '), cells: row });
       if (units.length >= CAP) return { kind: 'sheet', scanned: false, units, truncated: true };
     }
   }

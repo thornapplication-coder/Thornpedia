@@ -155,6 +155,24 @@ export async function run(base) {
     t.check('iPhone: Meta-Zeile (Datum/Größe) sichtbar', libMobile.metaVis === true, JSON.stringify(libMobile));
     t.check('iPhone: Datums-Spalte ausgeblendet', libMobile.dateHidden === true, JSON.stringify(libMobile));
 
+    // iPhone: eine breite Excel/CSV-Tabelle im Dokument-View scrollt HORIZONTAL im
+    // Container, statt die ganze Seite aufzublähen (kein Seiten-Overflow).
+    const sheetOverflow = await page.evaluate(async () => {
+      const csv = ['Supplier,Training path,Location,OCC Ready,vs. average,Total FFS hours,Relationship,ZFTT agreement',
+                   'BAA Training,Direct MAX type rating,BCN,16500,-5216,44 h MAX FFS,New supplier,Pending',
+                   'CATC,NG rating + MAX difference,PRG / AMS,17600,-4116,42 h,Trusted,A320'].join('\n');
+      await window.WA.importFiles([new File([csv], 'wide.csv')]);
+      const id = window.WA.state.catalog.find(c => c.name === 'wide.csv').id;
+      await window.WA.openDoc(id);
+      await new Promise(r => setTimeout(r, 300));
+      const s = document.querySelector('#doc-main .sheet-scroll');
+      return { page: document.documentElement.scrollWidth, table: !!document.querySelector('#doc-main .sheet-table'),
+               scrollable: !!s && s.scrollWidth > s.clientWidth + 5 };
+    });
+    t.check('iPhone: breite Tabelle → kein Seiten-Overflow', sheetOverflow.page <= 391, JSON.stringify(sheetOverflow));
+    t.check('iPhone: breite Tabelle scrollt im Container', sheetOverflow.table === true && sheetOverflow.scrollable === true, JSON.stringify(sheetOverflow));
+    await page.evaluate(() => window.WA.switchView('lib'));
+
     // iPad hochkant (768px): ebenfalls kompakte Liste, kein horizontaler Overflow.
     await page.setViewportSize({ width: 768, height: 1024 });
     await page.waitForTimeout(150);

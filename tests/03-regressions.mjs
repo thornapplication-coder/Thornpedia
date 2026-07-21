@@ -88,12 +88,30 @@ export async function run(base) {
   await page.waitForTimeout(400);
   const cap = await page.evaluate(() => ({
     notice: !!document.querySelector('#doc-main .notice.info'),
-    rendered: document.querySelectorAll('#doc-main .section-text > div').length,
-    hit: !!document.querySelector('#doc-main [style*="surface-accent"]'),
+    rendered: document.querySelectorAll('#doc-main .sheet-table tbody tr').length,
+    hit: !!document.querySelector('#doc-main .sheet-hit'),
+    aligned: !!document.querySelector('#doc-main .sheet-table'),
   }));
   t.check('Cap-Hinweis bei großer Tabelle', cap.notice);
   t.check('Nur Fenster um Treffer gerendert (300)', cap.rendered === 300, 'rendered='+cap.rendered);
   t.check('Treffer im Fenster sichtbar', cap.hit);
+  t.check('CSV als ausgerichtete Tabelle gerendert', cap.aligned);
+
+  // Tabellen werden AUSGERICHTET dargestellt – auch mit Lücken: eine leere Mittelzelle
+  // (a1,,c1) behält ihre Spaltenposition, statt zu verrutschen.
+  const sheetView = await page.evaluate(async () => {
+    const csv = 'Kopf A,Kopf B,Kopf C\na1,,c1\na2,b2,c2\n';
+    await window.WA.importFiles([new File([csv], 'ausricht.csv')]);
+    const id = window.WA.state.catalog.find(c => c.name === 'ausricht.csv').id;
+    await window.WA.openDoc(id);
+    await new Promise(r => setTimeout(r, 250));
+    const rows = [...document.querySelectorAll('#doc-main .sheet-table tbody tr')].map(tr => [...tr.querySelectorAll('td')].map(td => td.textContent));
+    const gapRow = rows.find(r => r[0] === 'a1');
+    return { cols: rows.map(r => r.length), gapRow, title: document.querySelector('#doc-main .sheet-title')?.textContent || '' };
+  });
+  t.check('Tabelle: ausgerichtet, konstante Spaltenzahl (3)', sheetView.cols.length === 3 && sheetView.cols.every(n => n === 3), JSON.stringify(sheetView.cols));
+  t.check('Tabelle: leere Zelle behält Spaltenposition (a1,·,c1)', JSON.stringify(sheetView.gapRow) === JSON.stringify(['a1', '', 'c1']), JSON.stringify(sheetView.gapRow));
+  t.check('Tabelle: Blatt-Überschrift sichtbar', /Blatt/.test(sheetView.title), sheetView.title);
 
   // Export-Guard bei leerer Trefferliste
   const guard = await page.evaluate(async () => {

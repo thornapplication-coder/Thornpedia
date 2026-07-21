@@ -164,6 +164,16 @@
     .tag-chev{margin-left:4px;font-size:10px;opacity:.6}
     .chip.tag-parent.open{border-color:var(--primary);color:var(--text);background:var(--surface-accent)}
     .chip.tag-child{font-size:12px}
+    /* Excel/CSV im Dokument-View: ausgerichtete Tabelle je Blatt, horizontal scrollbar. */
+    .sheet-block{margin-bottom:18px}
+    .sheet-title{font-weight:bold;font-size:14px;margin:0 0 6px;color:var(--text)}
+    .sheet-scroll{overflow-x:auto;border:1px solid var(--line);border-radius:8px;-webkit-overflow-scrolling:touch}
+    .sheet-table{border-collapse:collapse;font-size:13px;width:auto}
+    /* min-width je Zelle: die Tabelle wird lieber breiter als der Bildschirm (→ horizontal
+       scrollen) als die Spalten zu Buchstaben-Säulen zusammenzuquetschen. */
+    .sheet-table td,.sheet-table th{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top;min-width:96px;max-width:340px;word-break:break-word}
+    .sheet-rownum{min-width:34px;width:34px;background:var(--surface-accent);color:var(--text-muted);font-weight:normal;text-align:right;position:sticky;left:0;z-index:1;font-variant-numeric:tabular-nums}
+    .sheet-table tr.sheet-hit td,.sheet-table tr.sheet-hit th{background:var(--surface-accent)}
     /* Feste Spaltenbreiten: alle Gruppen-Tabellen richten sich identisch aus. */
     .lib-table{table-layout:fixed}
     .lib-table th:nth-child(4),.lib-table td:nth-child(4){width:104px}
@@ -238,6 +248,9 @@
 
     /* Fundstelle */
     .doc-view{display:grid;grid-template-columns:1fr 300px;gap:20px;align-items:start}
+    /* min-width:0 verhindert, dass eine breite Tabelle das 1fr-Feld (und damit die
+       ganze Seite) aufbläht – stattdessen scrollt sie im Container horizontal. */
+    #doc-main{min-width:0}
     .pdf-canvas-wrap{background:var(--bg-alt);border:1px solid var(--line);border-radius:8px;padding:16px;display:grid;place-items:center;overflow:auto;max-height:74vh}
     .pdf-canvas-wrap canvas{max-width:100%;height:auto;box-shadow:var(--shadow);background:#fff}
     .section-text{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:18px;line-height:1.7;max-height:74vh;overflow:auto;white-space:pre-wrap}
@@ -737,7 +750,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.4';
+  const APP_VERSION = '1.10.5';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2101,17 +2114,49 @@
         units=all.slice(offset, offset+CAPV);
         capNote=`<div class="notice info" style="margin-bottom:10px"><span>ℹ️</span><span>${state.settings.lang==='de'?`Zeige ${offset+1}–${offset+units.length} von ${all.length} Abschnitten (Ausschnitt um die Fundstelle).`:`Showing ${offset+1}–${offset+units.length} of ${all.length} sections (window around the hit).`}</span></div>`;
       }
-      // Word/Text fliessen als zusammenhaengender Text (Label nur an der Fundstelle);
-      // Excel-Zeilen behalten ihr Zeilen-Label (listenartig).
-      const showLabel=(u,isHit)=>isHit||doc.type==='xlsx'||doc.type==='csv';
-      const body=units.map((u,j)=>{ const isHit=(offset+j)===hitIdx; const txt=isHit&&terms.length?snippetFull(u.text,terms):esc(u.text); const label=showLabel(u,isHit)?`<div class="fmeta">${esc(refLabel(u.ref))}</div>`:''; return `<div style="margin-bottom:10px${isHit?';background:var(--surface-accent);padding:8px;border-radius:6px':''}">${label}${txt}</div>`; }).join('') || `<p style="color:var(--text-muted)">${state.settings.lang==='de'?'Kein extrahierbarer Text.':'No extractable text.'}</p>`;
+      // Excel/CSV als AUSGERICHTETE Tabelle (Blatt-Überschrift, Zeilennummern-Spalte,
+      // horizontal scrollbar) – viel übersichtlicher als eine „·"-Textwurst. Word/Text
+      // fliessen weiter als zusammenhaengender Text (Label nur an der Fundstelle).
+      let body;
+      if(doc.type==='xlsx'||doc.type==='csv'){
+        body=renderSheetTables(units, offset, hitIdx, terms);
+      } else {
+        body=units.map((u,j)=>{ const isHit=(offset+j)===hitIdx; const txt=isHit&&terms.length?snippetFull(u.text,terms):esc(u.text); const label=isHit?`<div class="fmeta">${esc(refLabel(u.ref))}</div>`:''; return `<div style="margin-bottom:10px${isHit?';background:var(--surface-accent);padding:8px;border-radius:6px':''}">${label}${txt}</div>`; }).join('') || `<p style="color:var(--text-muted)">${state.settings.lang==='de'?'Kein extrahierbarer Text.':'No extractable text.'}</p>`;
+      }
       main.innerHTML=`${capNote}<div class="section-text">${body}</div>`;
-      const hit=main.querySelector('[style*="surface-accent"]'); if(hit)hit.scrollIntoView({block:'center'});
+      const hit=main.querySelector('.sheet-hit,[style*="surface-accent"]'); if(hit)hit.scrollIntoView({block:'center'});
     }
     $('#doc-download').onclick=()=>docAction('download',doc.id);
     $('#doc-reindex').onclick=async()=>{ await reindexDoc(doc); await renderDoc(); };
   }
   function snippetFull(text, terms){ return highlightEscape(text, terms); }
+  // Zellen einer Tabellenzeile fürs Rendern: bevorzugt das positionstreue cells-Array
+  // (neue/neu-indexierte Dateien → exakte Spaltenausrichtung); für Alt-Einträge ohne
+  // cells wird der Suchtext am „·"-Trenner zerlegt (norm() verhindert Doppel-Leerzeichen
+  // in Zellwerten, daher ist der Split eindeutig – nur weggelassene Leerzellen fehlen).
+  function docCells(u){ if(Array.isArray(u.cells)) return u.cells; const t=u&&u.text?String(u.text):''; return t?t.split('  ·  '):[]; }
+  // Excel/CSV-Einheiten als ausgerichtete Tabellen rendern, nach Blatt gruppiert.
+  function renderSheetTables(units, offset, hitIdx, terms){
+    if(!units.length) return `<p style="color:var(--text-muted)">${state.settings.lang==='de'?'Kein extrahierbarer Text.':'No extractable text.'}</p>`;
+    const de=state.settings.lang==='de'; const hasTerms=terms&&terms.length;
+    let html=''; let i=0;
+    while(i<units.length){
+      const sheet=units[i].ref&&units[i].ref.sheet;
+      const group=[]; let j=i;
+      while(j<units.length && ((units[j].ref&&units[j].ref.sheet)===sheet)){ group.push({u:units[j], gi:j}); j++; }
+      let cols=0; for(const g of group) cols=Math.max(cols, docCells(g.u).length);
+      const rowsHtml=group.map(({u,gi})=>{
+        const isHit=(offset+gi)===hitIdx; const cells=docCells(u);
+        let tds='';
+        for(let c=0;c<cols;c++){ const val=cells[c]||''; tds+=`<td>${(isHit&&hasTerms)?highlightEscape(val,terms):esc(val)}</td>`; }
+        const rn=(u.ref&&u.ref.row!=null)?u.ref.row:'';
+        return `<tr class="${isHit?'sheet-hit':''}"><th class="sheet-rownum">${rn}</th>${tds}</tr>`;
+      }).join('');
+      html+=`<div class="sheet-block">${sheet!=null?`<div class="sheet-title">${de?'Blatt':'Sheet'} „${esc(String(sheet))}"</div>`:''}<div class="sheet-scroll"><table class="sheet-table"><tbody>${rowsHtml}</tbody></table></div></div>`;
+      i=j;
+    }
+    return html;
+  }
   async function closePdfView(){
     if(state._renderTask){ try{state._renderTask.cancel();}catch(e){} state._renderTask=null; }
     if(state.pdfView.pdf){ try{await state.pdfView.pdf.destroy();}catch(e){} }
