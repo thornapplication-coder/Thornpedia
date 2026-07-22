@@ -125,6 +125,50 @@ export async function run(base) {
   const realErrors2 = errors2.filter((e) => !/central directory|is this a zip/i.test(e));
   t.check('Keine unerwarteten Konsolenfehler (Teil 2)', realErrors2.length === 0, realErrors2.join(' | '));
   await ctx2.close();
+
+  // --- Sync-Datenverlust-Schutz für Originale (getrennter Blob-Sync) ---
+  const ctx3 = await browser.newContext({ viewport: { width: 1280, height: 860 } });
+  await ctx3.addInitScript(MOCK);
+  const page3 = await ctx3.newPage();
+  const errors3 = [];
+  collectErrors(page3, errors3);
+  await page3.goto(base, { waitUntil: 'networkidle' });
+  await page3.waitForFunction('!!window.WA', { timeout: 15000 });
+
+  const sync = await page3.evaluate(async () => {
+    await window.WA.importFiles([new File(['xdata'], 'guard_me.txt')]);
+    if (!window.JSZip) await window.WA.buildBackupBlob({ folders: ['index'] });   // JSZip laden
+    const id = window.WA.state.catalog.find(c => c.name === 'guard_me.txt').id;
+    const doc = await window.WA.getIndex(id);
+    const storedAs = doc.storedAs;
+    const has = async () => { try { await window.WA.state.dirs.originals.getFileHandle(storedAs); return true; } catch (e) { return false; } };
+
+    // originalsComplete spiegelt „alle Originale lokal vorhanden".
+    const completeFull = await window.WA.originalsComplete();
+    await window.WA.state.dirs.originals.removeEntry(storedAs);
+    const completeMissing = await window.WA.originalsComplete();
+    // Original für die Spiegel-Tests wiederherstellen.
+    let w = await (await window.WA.state.dirs.originals.getFileHandle(storedAs, { create: true })).createWritable(); await w.write('xdata'); await w.close();
+
+    const snap = { originals: new Set([storedAs]), index: new Set([id + '.json']), forum: new Set() };
+    // (1) Ein unvollständiger Cloud-Blob (kennt das Original NICHT), aber der Index kennt es
+    //     weiter → Original MUSS erhalten bleiben (kein Wegspiegeln).
+    await window.WA.applyBackupZip(new window.JSZip(), { clearFirst: true, folders: ['originals', 'forum'], syncedSnapshot: snap });
+    const keptWhileIndexed = await has();
+    // (2) Dokument wirklich gelöscht (Index-Datei weg) → Original wird nun gespiegelt gelöscht.
+    await window.WA.state.dirs.index.removeEntry(id + '.json');
+    await window.WA.applyBackupZip(new window.JSZip(), { clearFirst: true, folders: ['originals', 'forum'], syncedSnapshot: snap });
+    const removedWhenGone = !(await has());
+
+    return { completeFull, completeMissing, keptWhileIndexed, removedWhenGone };
+  });
+  t.check('originalsComplete: true wenn alle Originale da', sync.completeFull === true);
+  t.check('originalsComplete: false wenn ein Original fehlt', sync.completeMissing === false);
+  t.check('Sync: unvollständiger Cloud-Blob löscht KEIN indiziertes Original (kein Datenverlust)', sync.keptWhileIndexed === true);
+  t.check('Sync: echte Löschung (Index weg) spiegelt das Original korrekt weg', sync.removedWhenGone === true);
+  t.check('Keine Konsolenfehler (Teil 3)', errors3.length === 0, errors3.join(' | '));
+  await ctx3.close();
+
   await browser.close();
   return t.fails();
 }
