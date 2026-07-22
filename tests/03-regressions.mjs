@@ -192,6 +192,23 @@ export async function run(base) {
   t.check('KI-Chat: keine Treffer-Aktionsleiste im Chat', chat.actionbarHiddenInAsk === true);
   t.check('KI-Chat: „Neuer Chat" leert den Verlauf', chat.afterClear.users.length === 0 && chat.afterClear.ais.length === 0, JSON.stringify(chat.afterClear));
 
+  // Download: Index vorhanden, Original fehlt (getrennter Cloud-Sync) → hilfreiche
+  // Meldung statt sackgassigem „Originaldatei nicht gefunden."; odFetchBlobs ohne Cloud
+  // ist ein gefahrloser No-Op (false).
+  const dl = await page.evaluate(async () => {
+    await window.WA.importFiles([new File(['hallo welt'], 'download_me.txt')]);
+    const id = window.WA.state.catalog.find(c => c.name === 'download_me.txt').id;
+    const doc = await window.WA.getIndex(id);
+    // Original aus dem App-Speicher entfernen → simuliert „Status indexiert, Original fehlt".
+    await window.WA.state.dirs.originals.removeEntry(doc.storedAs);
+    await window.WA.docAction('download', id);   // keine Cloud verbunden
+    const toasts = [...document.querySelectorAll('#toasts .toast')].map(t => t.textContent);
+    const fetchFalse = await window.WA.odFetchBlobs();   // ohne Cloud → false, kein Fehler
+    return { toast: toasts[toasts.length - 1] || '', fetchFalse };
+  });
+  t.check('Download fehlendes Original: hilfreiche Meldung mit Handlungshinweis', /nicht vorhanden/.test(dl.toast) && /(importier|synchronisier)/i.test(dl.toast), dl.toast);
+  t.check('odFetchBlobs ohne Cloud: false (gefahrloser No-Op)', dl.fetchFalse === false);
+
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
   await browser.close();
   return t.fails();
