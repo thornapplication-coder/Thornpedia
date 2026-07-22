@@ -762,7 +762,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.8';
+  const APP_VERSION = '1.10.9';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2751,7 +2751,15 @@
         if(!folderSet.has(d)) continue;
         const dir=state.dirs[d]; if(!dir)continue;
         const sset=snap&&snap[d];
-        for(const nm of preExisting[d]||[]){ if(present[d].has(nm))continue; if(sset&&!sset.has(nm))continue; await removeFile(dir, nm); }
+        for(const nm of preExisting[d]||[]){
+          if(present[d].has(nm))continue; if(sset&&!sset.has(nm))continue;
+          // Ein Original NUR entfernen, wenn sein Dokument wirklich weg ist (Index-Datei
+          // fehlt). Solange der Index es noch kennt, NIE löschen – schützt davor, dass ein
+          // unvollständiger Cloud-Blob (z. B. von einem Gerät mit Alt-Version) ein Original
+          // wegspiegelt, das noch gebraucht wird.
+          if(d==='originals'){ const id=String(nm).split('__')[0]; if(id){ let idxThere=false; try{ await state.dirs.index.getFileHandle(id+'.json'); idxThere=true; }catch(_){} if(idxThere) continue; } }
+          await removeFile(dir, nm);
+        }
       }
     }
   }
@@ -2955,6 +2963,16 @@
     if(dj==='conflict') return 'conflict';
     OD.cfg.etag=dj.eTag||dj.cTag||''; await odSaveCfg();
     if(OD.cfg.blobDirty || opts.fresh || opts.force || opts.blobMissing){
+      // DATENVERLUST-SCHUTZ: Fehlen DIESEM Gerät lokal Originale (getrennter Sync liegt
+      // zurück – Index/Status „indexiert" da, große Originale-Datei noch nicht), darf der
+      // hier gebaute BLOB die vollständige Cloud-Fassung NICHT überschreiben – sonst
+      // verschwänden dort vorhandene Originale (und würden per Spiegel überall gelöscht).
+      // Daher vorher die fehlenden Originale add-only aus der Cloud nachziehen; danach ist
+      // der Upload ein vollständiger Spiegel. force/fresh (bewusste Nutzerentscheidung) und
+      // blobMissing (Cloud hat ohnehin nichts zu verlieren) überspringen den Schritt.
+      if(!opts.force && !opts.fresh && !opts.blobMissing && !(await originalsComplete())){
+        try{ await odApplyCloudBlobAddOnly(); }catch(e){ console.warn('Vor-Upload-Heilung fehlgeschlagen:', e); }
+      }
       const blobBlob=await buildBackupBlob({folders:['originals','forum'], onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')});
       const bj=await odPutFile(OD.blobPath, blobBlob, {force:true});   // DATA war das Konflikt-Tor
       if(bj!=='conflict'){ OD.cfg.etagBlob=bj.eTag||bj.cTag||''; OD.cfg.blobDirty=false; await odSaveCfg(); }
@@ -3079,27 +3097,39 @@
       OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); OD.cfg.gen=(OD.cfg.gen||0)+1; await odSaveCfg();
     }
   }
-  // Lädt die BLOB-Datei (Originale + Forum-Anhänge) aus der Cloud und ERGÄNZT lokal
-  // fehlende Dateien – ohne Spiegel-/Löschlogik (add-only, gefahrlos: es wird nichts
-  // gelöscht). Dient dem „Original nachladen", wenn der Index einen Eintrag kennt,
-  // dessen Original hier (noch) fehlt – z. B. weil ein anderes Gerät importiert hat und
-  // der getrennte, eTag-gesteuerte Blob-Sync noch zurückliegt. Liefert true, wenn eine
-  // Cloud-Blob-Datei vorhanden war und eingespielt wurde.
+  // Kern: die Cloud-BLOB-Datei (Originale + Forum-Anhänge) laden und lokal FEHLENDE
+  // Dateien ERGÄNZEN – ohne Spiegel-/Löschlogik (add-only, es wird nichts gelöscht).
+  // Setzt bewusst KEINEN OD.syncing-Guard, damit es auch INNERHALB eines laufenden
+  // Syncs (odPush) aufgerufen werden kann. Liefert true, wenn eine Cloud-Blob-Datei da war.
+  async function odApplyCloudBlobAddOnly(){
+    await loadScript('vendor/jszip.min.js');
+    const m=await odMeta1(OD.blobPath); if(!m) return false;   // Cloud hat (noch) keine Blob-Datei
+    OD.applying=true;
+    try{
+      const blobZip=await window.JSZip.loadAsync(await odDownloadBlob(OD.blobPath,'↓'));
+      await applyBackupZip(blobZip, {folders:['originals','forum']});   // kein clearFirst → nur ergänzen
+      OD.cfg.etagBlob=m.etag||OD.cfg.etagBlob; await odSaveCfg();
+    } finally{ OD.applying=false; }
+    return true;
+  }
+  // Sind alle vom Katalog referenzierten Originale lokal vorhanden? (Dateiname beginnt mit
+  // „<id>__". Forum-Anhänge liegen separat und werden hier nicht geprüft.) Fehlt eines, ist
+  // dieser Stand UNVOLLSTÄNDIG – dann darf er die vollständige Cloud-BLOB-Datei nicht
+  // überschreiben (sonst gingen dort vorhandene Originale verloren und würden per Spiegel
+  // auf allen Geräten gelöscht). Im Zweifel (Fehler) nicht blockieren.
+  async function originalsComplete(){
+    try{
+      const names=[]; for await(const [nm,h] of state.dirs.originals.entries()){ if(h.kind==='file') names.push(nm); }
+      for(const c of state.catalog){ if(c.type==='forum') continue; const pre=c.id+'__'; if(!names.some(n=>n.startsWith(pre))) return false; }
+      return true;
+    }catch(e){ return true; }
+  }
+  // On-Demand („Original nachladen", Download-Fall): mit Guard + Statusanzeige.
   async function odFetchBlobs(){
     if(!odConnected() || OD.syncing) return false;
-    await loadScript('vendor/jszip.min.js');
     OD.syncing=true; odSetStatus('syncing');
-    try{
-      const meta=await odRemoteMeta();
-      if(!meta || !meta.blob) return false;   // Cloud hat (noch) keine Blob-Datei
-      OD.applying=true;
-      try{
-        const blobZip=await window.JSZip.loadAsync(await odDownloadBlob(OD.blobPath,'↓'));
-        await applyBackupZip(blobZip, {folders:['originals','forum']});   // kein clearFirst → nur ergänzen
-        OD.cfg.etagBlob=(meta.blob&&meta.blob.etag)||OD.cfg.etagBlob; await odSaveCfg();
-      } finally{ OD.applying=false; }
-      return true;
-    } finally{ OD.syncing=false; odSetStatus(odConnected()?'connected':''); renderCloudPanel(); }
+    try{ return await odApplyCloudBlobAddOnly(); }
+    finally{ OD.syncing=false; odSetStatus(odConnected()?'connected':''); renderCloudPanel(); }
   }
   // Zentrale, konfliktbewusste Synchronisation. Modell fuer den Einzelnutzer:
   //  · Remote unveraendert  -> nur hochladen, wenn lokal etwas geaendert wurde.
@@ -3530,7 +3560,7 @@
 
     if(window.__WA_MOCK_ROOT__||window.__WA_TEST__){
       // Test-Brücke – nur aktiv, wenn explizit injiziert (automatisierte Prüfung).
-      window.WA={ importFiles, runSearch, setFindMode, askQuestion, renderChat, docAction, odFetchBlobs, searchArchive, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, odSetStatus, foAddComment,
+      window.WA={ importFiles, runSearch, setFindMode, askQuestion, renderChat, docAction, odFetchBlobs, originalsComplete, searchArchive, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, odSetStatus, foAddComment,
         rebuildCatalog: async()=>{ state.indexCache.clear(); state._foIdxReady=false; state.catalog=await rebuildCatalog(); renderLibrary(); return state.catalog; } };
     }
 
