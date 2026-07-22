@@ -143,28 +143,42 @@ export async function run(base) {
     const storedAs = doc.storedAs;
     const has = async () => { try { await window.WA.state.dirs.originals.getFileHandle(storedAs); return true; } catch (e) { return false; } };
 
-    // originalsComplete spiegelt „alle Originale lokal vorhanden".
-    const completeFull = await window.WA.originalsComplete();
+    // blobComplete spiegelt „alle Blob-Dateien lokal vorhanden".
+    const completeFull = await window.WA.blobComplete();
     await window.WA.state.dirs.originals.removeEntry(storedAs);
-    const completeMissing = await window.WA.originalsComplete();
+    const completeMissing = await window.WA.blobComplete();
     // Original für die Spiegel-Tests wiederherstellen.
     let w = await (await window.WA.state.dirs.originals.getFileHandle(storedAs, { create: true })).createWritable(); await w.write('xdata'); await w.close();
 
-    const snap = { originals: new Set([storedAs]), index: new Set([id + '.json']), forum: new Set() };
+    // blobComplete deckt AUCH Forum-Anhänge ab: fehlt ein referenzierter Anhang, false.
+    const foId = 'fo-guard-1';
+    let fw = await (await window.WA.state.dirs.index.getFileHandle(foId + '.json', { create: true })).createWritable();
+    await fw.write(JSON.stringify({ id: foId, name: 'Forumeintrag', type: 'forum', importedAt: '2026', units: [], attachments: [{ name: 'a.png', storedAs: 'foX__a.png' }] }));
+    await fw.close();
+    await window.WA.state.catalog.push({ id: foId, name: 'Forumeintrag', type: 'forum' });
+    const completeForumMissing = await window.WA.blobComplete();   // Anhang foX__a.png fehlt → false
+    let aw = await (await window.WA.state.dirs.forum.getFileHandle('foX__a.png', { create: true })).createWritable(); await aw.write('img'); await aw.close();
+    const completeForumPresent = await window.WA.blobComplete();   // jetzt vorhanden → true
+
+    const snap = { originals: new Set([storedAs]), index: new Set([id + '.json']), forum: new Set(['foX__a.png']) };
     // (1) Ein unvollständiger Cloud-Blob (kennt das Original NICHT), aber der Index kennt es
     //     weiter → Original MUSS erhalten bleiben (kein Wegspiegeln).
     await window.WA.applyBackupZip(new window.JSZip(), { clearFirst: true, folders: ['originals', 'forum'], syncedSnapshot: snap });
     const keptWhileIndexed = await has();
+    const foKeptWhileReferenced = await (async () => { try { await window.WA.state.dirs.forum.getFileHandle('foX__a.png'); return true; } catch (e) { return false; } })();
     // (2) Dokument wirklich gelöscht (Index-Datei weg) → Original wird nun gespiegelt gelöscht.
     await window.WA.state.dirs.index.removeEntry(id + '.json');
     await window.WA.applyBackupZip(new window.JSZip(), { clearFirst: true, folders: ['originals', 'forum'], syncedSnapshot: snap });
     const removedWhenGone = !(await has());
 
-    return { completeFull, completeMissing, keptWhileIndexed, removedWhenGone };
+    return { completeFull, completeMissing, completeForumMissing, completeForumPresent, keptWhileIndexed, foKeptWhileReferenced, removedWhenGone };
   });
-  t.check('originalsComplete: true wenn alle Originale da', sync.completeFull === true);
-  t.check('originalsComplete: false wenn ein Original fehlt', sync.completeMissing === false);
+  t.check('blobComplete: true wenn alle Originale da', sync.completeFull === true);
+  t.check('blobComplete: false wenn ein Original fehlt', sync.completeMissing === false);
+  t.check('blobComplete: false wenn ein Forum-Anhang fehlt', sync.completeForumMissing === false);
+  t.check('blobComplete: true wenn Forum-Anhang vorhanden', sync.completeForumPresent === true);
   t.check('Sync: unvollständiger Cloud-Blob löscht KEIN indiziertes Original (kein Datenverlust)', sync.keptWhileIndexed === true);
+  t.check('Sync: unvollständiger Cloud-Blob löscht KEINEN referenzierten Forum-Anhang', sync.foKeptWhileReferenced === true);
   t.check('Sync: echte Löschung (Index weg) spiegelt das Original korrekt weg', sync.removedWhenGone === true);
   t.check('Keine Konsolenfehler (Teil 3)', errors3.length === 0, errors3.join(' | '));
   await ctx3.close();

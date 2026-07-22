@@ -192,6 +192,28 @@ export async function run(base) {
   t.check('KI-Chat: keine Treffer-Aktionsleiste im Chat', chat.actionbarHiddenInAsk === true);
   t.check('KI-Chat: „Neuer Chat" leert den Verlauf', chat.afterClear.users.length === 0 && chat.afterClear.ais.length === 0, JSON.stringify(chat.afterClear));
 
+  // „Neuer Chat" WÄHREND einer laufenden Anfrage: die verspätete Antwort darf den (jetzt
+  // leeren) Verlauf NICHT beschädigen (sonst führender Assistant-Turn → nächste API 400).
+  const raceGuard = await page.evaluate(async () => {
+    let resolveFetch;
+    const prev = window.fetch;
+    window.fetch = (url, opts) => {
+      if (typeof url === 'string' && url.includes('api.anthropic.com')) {
+        return new Promise(res => { resolveFetch = () => res(new Response(JSON.stringify({ content: [{ type: 'text', text: 'späte Antwort' }], usage: {} }), { status: 200, headers: { 'content-type': 'application/json' } })); });
+      }
+      return prev(url, opts);
+    };
+    window.WA.state.chat.messages = []; window.WA.state.chat.error = ''; window.WA.setFindMode('ask');
+    document.querySelector('#chat-input').value = 'frage während der Verlauf gleich geleert wird';
+    document.querySelector('#chat-send').click();          // pending, wartet auf resolveFetch
+    document.querySelector('#chat-clear').click();          // „Neuer Chat" mitten in der Anfrage
+    resolveFetch();                                         // verspätete Antwort trifft ein
+    await new Promise(r => setTimeout(r, 40));
+    window.fetch = prev;
+    return { roles: window.WA.state.chat.messages.map(m => m.role) };
+  });
+  t.check('KI-Chat: „Neuer Chat" verwirft die verspätete Antwort (kein führender Assistant-Turn)', raceGuard.roles.length === 0, JSON.stringify(raceGuard.roles));
+
   // Download: Index vorhanden, Original fehlt (getrennter Cloud-Sync) → hilfreiche
   // Meldung statt sackgassigem „Originaldatei nicht gefunden."; odFetchBlobs ohne Cloud
   // ist ein gefahrloser No-Op (false).
