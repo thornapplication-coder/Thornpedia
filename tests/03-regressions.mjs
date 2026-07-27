@@ -195,24 +195,34 @@ export async function run(base) {
   // „Neuer Chat" WÄHREND einer laufenden Anfrage: die verspätete Antwort darf den (jetzt
   // leeren) Verlauf NICHT beschädigen (sonst führender Assistant-Turn → nächste API 400).
   const raceGuard = await page.evaluate(async () => {
-    let resolveFetch;
     const prev = window.fetch;
-    window.fetch = (url, opts) => {
-      if (typeof url === 'string' && url.includes('api.anthropic.com')) {
-        return new Promise(res => { resolveFetch = () => res(new Response(JSON.stringify({ content: [{ type: 'text', text: 'späte Antwort' }], usage: {} }), { status: 200, headers: { 'content-type': 'application/json' } })); });
-      }
-      return prev(url, opts);
-    };
-    window.WA.state.chat.messages = []; window.WA.state.chat.error = ''; window.WA.setFindMode('ask');
-    document.querySelector('#chat-input').value = 'frage während der Verlauf gleich geleert wird';
-    document.querySelector('#chat-send').click();          // pending, wartet auf resolveFetch
-    document.querySelector('#chat-clear').click();          // „Neuer Chat" mitten in der Anfrage
-    resolveFetch();                                         // verspätete Antwort trifft ein
-    await new Promise(r => setTimeout(r, 40));
-    window.fetch = prev;
-    return { roles: window.WA.state.chat.messages.map(m => m.role) };
+    try {
+      let resolveFetch = null, aborted = false;
+      window.fetch = (url, opts) => {
+        if (typeof url === 'string' && url.includes('api.anthropic.com')) {
+          return new Promise((res, rej) => {
+            if (opts && opts.signal) opts.signal.addEventListener('abort', () => { aborted = true; rej(new DOMException('aborted', 'AbortError')); });
+            resolveFetch = () => res(new Response(JSON.stringify({ content: [{ type: 'text', text: 'späte Antwort' }], usage: {} }), { status: 200, headers: { 'content-type': 'application/json' } }));
+          });
+        }
+        return prev(url, opts);
+      };
+      window.WA.state.chat.messages = []; window.WA.state.chat.error = ''; window.WA.setFindMode('ask');
+      document.querySelector('#chat-input').value = 'frage während der Verlauf gleich geleert wird';
+      document.querySelector('#chat-send').click();
+      // Auf den tatsächlichen pending-Zustand warten (statt fester Wartezeit).
+      for (let k = 0; k < 100 && !window.WA.state.chat.pending; k++) await new Promise(r => setTimeout(r, 10));
+      const clear = document.querySelector('#chat-clear');
+      if (!clear) return { error: 'kein #chat-clear im pending-Zustand' };
+      clear.click();                                        // „Neuer Chat" mitten in der Anfrage
+      if (resolveFetch) resolveFetch();                     // verspätete Antwort trifft trotzdem ein
+      // Nachlaufende Microtasks abarbeiten lassen, dann Zustand prüfen.
+      for (let k = 0; k < 20; k++) await new Promise(r => setTimeout(r, 10));
+      return { roles: window.WA.state.chat.messages.map(m => m.role), aborted, pending: window.WA.state.chat.pending };
+    } finally { window.fetch = prev; }                      // IMMER zurücksetzen (auch bei Fehler)
   });
-  t.check('KI-Chat: „Neuer Chat" verwirft die verspätete Antwort (kein führender Assistant-Turn)', raceGuard.roles.length === 0, JSON.stringify(raceGuard.roles));
+  t.check('KI-Chat: „Neuer Chat" verwirft die verspätete Antwort (kein führender Assistant-Turn)', !raceGuard.error && raceGuard.roles.length === 0, JSON.stringify(raceGuard));
+  t.check('KI-Chat: „Neuer Chat" bricht die laufende Anfrage ab (spart Kosten)', raceGuard.aborted === true, JSON.stringify(raceGuard));
 
   // Download: Index vorhanden, Original fehlt (getrennter Cloud-Sync) → hilfreiche
   // Meldung statt sackgassigem „Originaldatei nicht gefunden."; odFetchBlobs ohne Cloud

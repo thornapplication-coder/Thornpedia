@@ -150,36 +150,93 @@ export async function run(base) {
     // Original für die Spiegel-Tests wiederherstellen.
     let w = await (await window.WA.state.dirs.originals.getFileHandle(storedAs, { create: true })).createWritable(); await w.write('xdata'); await w.close();
 
-    // blobComplete deckt AUCH Forum-Anhänge ab: fehlt ein referenzierter Anhang, false.
+    // blobComplete deckt AUCH Forum-Anhänge ab – inkl. Anhängen an KOMMENTAREN.
     const foId = 'fo-guard-1';
+    const foDoc = { id: foId, name: 'Forumeintrag', type: 'forum', importedAt: '2026', units: [],
+      attachments: [{ name: 'a.png', storedAs: 'foX__a.png' }],
+      comments: [{ text: 'k', attachments: [{ name: 'c.png', storedAs: 'foX__c.png' }] }] };
     let fw = await (await window.WA.state.dirs.index.getFileHandle(foId + '.json', { create: true })).createWritable();
-    await fw.write(JSON.stringify({ id: foId, name: 'Forumeintrag', type: 'forum', importedAt: '2026', units: [], attachments: [{ name: 'a.png', storedAs: 'foX__a.png' }] }));
-    await fw.close();
-    await window.WA.state.catalog.push({ id: foId, name: 'Forumeintrag', type: 'forum' });
-    const completeForumMissing = await window.WA.blobComplete();   // Anhang foX__a.png fehlt → false
+    await fw.write(JSON.stringify(foDoc)); await fw.close();
+    window.WA.state.catalog.push({ id: foId, name: 'Forumeintrag', type: 'forum' });
+    const completeForumMissing = await window.WA.blobComplete();   // beide Anhänge fehlen → false
     let aw = await (await window.WA.state.dirs.forum.getFileHandle('foX__a.png', { create: true })).createWritable(); await aw.write('img'); await aw.close();
-    const completeForumPresent = await window.WA.blobComplete();   // jetzt vorhanden → true
+    const completeCommentAttMissing = await window.WA.blobComplete();   // Kommentar-Anhang fehlt noch → false
+    let cw = await (await window.WA.state.dirs.forum.getFileHandle('foX__c.png', { create: true })).createWritable(); await cw.write('img'); await cw.close();
+    const completeForumPresent = await window.WA.blobComplete();   // jetzt beide da → true
 
-    const snap = { originals: new Set([storedAs]), index: new Set([id + '.json']), forum: new Set(['foX__a.png']) };
-    // (1) Ein unvollständiger Cloud-Blob (kennt das Original NICHT), aber der Index kennt es
-    //     weiter → Original MUSS erhalten bleiben (kein Wegspiegeln).
+    // Verwaister Anhang: von KEINEM Eintrag referenziert, war aber im letzten Sync dabei.
+    let ow = await (await window.WA.state.dirs.forum.getFileHandle('foX__orphan.png', { create: true })).createWritable(); await ow.write('img'); await ow.close();
+
+    const foHas = async (n) => { try { await window.WA.state.dirs.forum.getFileHandle(n); return true; } catch (e) { return false; } };
+    const snap = { originals: new Set([storedAs]), index: new Set([id + '.json']),
+      forum: new Set(['foX__a.png', 'foX__c.png', 'foX__orphan.png']) };
+    // (1) Ein unvollständiger Cloud-Blob (kennt die Dateien NICHT), aber Index/Eintrag kennen
+    //     sie weiter → MÜSSEN erhalten bleiben. Der verwaiste Anhang MUSS dagegen weg.
     await window.WA.applyBackupZip(new window.JSZip(), { clearFirst: true, folders: ['originals', 'forum'], syncedSnapshot: snap });
     const keptWhileIndexed = await has();
-    const foKeptWhileReferenced = await (async () => { try { await window.WA.state.dirs.forum.getFileHandle('foX__a.png'); return true; } catch (e) { return false; } })();
+    const foKeptWhileReferenced = await foHas('foX__a.png');
+    const foCommentKept = await foHas('foX__c.png');
+    const foOrphanRemoved = !(await foHas('foX__orphan.png'));
     // (2) Dokument wirklich gelöscht (Index-Datei weg) → Original wird nun gespiegelt gelöscht.
     await window.WA.state.dirs.index.removeEntry(id + '.json');
     await window.WA.applyBackupZip(new window.JSZip(), { clearFirst: true, folders: ['originals', 'forum'], syncedSnapshot: snap });
     const removedWhenGone = !(await has());
 
-    return { completeFull, completeMissing, completeForumMissing, completeForumPresent, keptWhileIndexed, foKeptWhileReferenced, removedWhenGone };
+    // Fixture wieder abräumen, damit spätere Prüfungen sauberen Zustand sehen.
+    await window.WA.state.dirs.index.removeEntry(foId + '.json').catch(() => {});
+    window.WA.state.catalog = window.WA.state.catalog.filter(c => c.id !== foId);
+    window.WA.state.indexCache.delete(foId);
+
+    return { completeFull, completeMissing, completeForumMissing, completeCommentAttMissing, completeForumPresent,
+      keptWhileIndexed, foKeptWhileReferenced, foCommentKept, foOrphanRemoved, removedWhenGone };
   });
   t.check('blobComplete: true wenn alle Originale da', sync.completeFull === true);
   t.check('blobComplete: false wenn ein Original fehlt', sync.completeMissing === false);
   t.check('blobComplete: false wenn ein Forum-Anhang fehlt', sync.completeForumMissing === false);
-  t.check('blobComplete: true wenn Forum-Anhang vorhanden', sync.completeForumPresent === true);
+  t.check('blobComplete: false wenn ein KOMMENTAR-Anhang fehlt', sync.completeCommentAttMissing === false);
+  t.check('blobComplete: true wenn alle Forum-Anhänge vorhanden', sync.completeForumPresent === true);
   t.check('Sync: unvollständiger Cloud-Blob löscht KEIN indiziertes Original (kein Datenverlust)', sync.keptWhileIndexed === true);
   t.check('Sync: unvollständiger Cloud-Blob löscht KEINEN referenzierten Forum-Anhang', sync.foKeptWhileReferenced === true);
+  t.check('Sync: Kommentar-Anhang bleibt ebenfalls erhalten', sync.foCommentKept === true);
+  t.check('Sync: NICHT referenzierter Forum-Anhang wird korrekt weggespiegelt', sync.foOrphanRemoved === true);
   t.check('Sync: echte Löschung (Index weg) spiegelt das Original korrekt weg', sync.removedWhenGone === true);
+  // Der AUTOMATISCHE Konfliktpfad (odConflict → odPush{force}) darf den Blob-Vollständigkeits-
+  // schutz NICHT umgehen: sonst überschreibt ein unvollständiges Gerät die vollständige
+  // Cloud-Fassung, und odBackupRemote sichert nur DATA – die Originale wären unrettbar weg.
+  const forceGuard = await page3.evaluate(async () => {
+    const WA = window.WA, OD = WA.OD;
+    await WA.importFiles([new File(['zdata'], 'force_guard.txt')]);
+    const id = WA.state.catalog.find(c => c.name === 'force_guard.txt').id;
+    const doc = await WA.getIndex(id);
+    await WA.state.dirs.originals.removeEntry(doc.storedAs);   // Gerät ist jetzt UNVOLLSTÄNDIG
+    const incomplete = !(await WA.blobComplete());
+
+    // Cloud-Zugriffe abfangen: kein echtes OneDrive. Heilung schlägt fehl (Netzfehler).
+    const puts = [];
+    const realFetch = window.fetch;
+    // Gültiges Token im Speicher → kein Refresh, kein Client-ID-Pfad.
+    OD.tokens = { access_token: 't', refresh_token: 'r', expires_at: Date.now() + 3600e3 };
+    window.fetch = async (url, opts) => {
+      const u = String(url);
+      if (u.includes('graph.microsoft.com')) {
+        if (opts && opts.method === 'PUT') { puts.push(u); return new Response(JSON.stringify({ eTag: 'e2' }), { status: 200, headers: { 'content-type': 'application/json' } }); }
+        if (u.includes(':/content')) throw new Error('Netzfehler beim Blob-Download');   // Heilung scheitert
+        return new Response(JSON.stringify({ eTag: 'e1', cTag: 'c1', size: 10, lastModifiedDateTime: '2026-01-01T00:00:00Z' }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return realFetch(url, opts);
+    };
+    let res = null, err = '';
+    try { OD.cfg.blobDirty = true; res = await WA.odPush({ force: true }); }   // = was odConflict tut
+    catch (e) { err = e.message; }
+    finally { window.fetch = realFetch; OD.tokens = null; }
+    const blobPut = puts.some(u => u.includes('blobs'));
+    return { incomplete, res, err, blobPut, blobDirtyStill: OD.cfg.blobDirty };
+  });
+  t.check('Vorbedingung: Gerät ist unvollständig', forceGuard.incomplete === true, JSON.stringify(forceGuard));
+  t.check('Auto-Konflikt (force) überschreibt den Cloud-Blob NICHT bei unvollständigem Stand', forceGuard.blobPut === false, JSON.stringify(forceGuard));
+  t.check('Übersprungener Blob-Upload meldet „partial" statt Erfolg', forceGuard.res === 'partial', JSON.stringify(forceGuard));
+  t.check('blobDirty bleibt gesetzt → späterer Sync versucht es erneut', forceGuard.blobDirtyStill === true, JSON.stringify(forceGuard));
+
   t.check('Keine Konsolenfehler (Teil 3)', errors3.length === 0, errors3.join(' | '));
   await ctx3.close();
 
