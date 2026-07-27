@@ -762,7 +762,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.10';
+  const APP_VERSION = '1.10.11';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -795,7 +795,7 @@
     _renderSeq:0, _renderTask:null,
     parseWorker:null,
     findMode:'search',   // vereinheitlichter Suche/KI-Tab
-    chat:{ messages:[], pending:false, error:'', draft:'', gen:0 },  // „KI fragen"-Verlauf (Sitzung): [{role:'user'|'assistant', content, cost?}]; gen entwertet in-flight-Antworten nach „Neuer Chat"
+    chat:{ messages:[], pending:false, error:'', draft:'', gen:0, ctrl:null },  // „KI fragen"-Verlauf (Sitzung): [{role:'user'|'assistant', content, cost?}]; gen entwertet in-flight-Antworten nach „Neuer Chat"
   };
 
   // ---------- Toast ----------
@@ -1004,7 +1004,15 @@
   // id nur aus sicheren Zeichen – ist zugleich Dateiname (id+'.json'). Beim
   // Restore garantiert das: kein Path-/Attribut-Ausbruch, Datei ist auffindbar.
   const SAFE_ID=/^[A-Za-z0-9_-]{1,120}$/;
-  function summaryOf(doc){ const s={id:doc.id,name:String(doc.name==null?'':doc.name),ext:doc.ext,type:safeType(doc),size:doc.size,importedAt:doc.importedAt,scanned:!!doc.scanned,ocr:!!doc.ocr,pageCount:doc.pageCount||null,tags:Array.isArray(doc.tags)?doc.tags.map(String):[],note:String(doc.note||''),unitCount:(doc.units||[]).length,hash:doc.hash||''}; if(doc.type==='forum'){ s.forum=doc.forum||{}; s.att=(doc.attachments||[]).length; s.cmt=(doc.comments||[]).length; s.status=doc.status||''; s.updatedAt=doc.updatedAt||doc.importedAt; } return s; }
+  // Alle Anhang-Dateinamen eines Forum-Eintrags (Eintrag + Kommentare) – tolerant gegen
+  // fremde/alte Strukturen (comments kein Array, Nulleinträge). Eine Quelle für Katalog-
+  // Zusammenfassung und Vollständigkeitsprüfung.
+  function attNamesOf(doc){
+    const out=[]; const lists=[doc&&doc.attachments].concat(Array.isArray(doc&&doc.comments)?doc.comments.map(c=>c&&c.attachments):[]);
+    for(const l of lists){ if(!Array.isArray(l))continue; for(const a of l){ if(a&&a.storedAs) out.push(String(a.storedAs)); } }
+    return out;
+  }
+  function summaryOf(doc){ const s={id:doc.id,name:String(doc.name==null?'':doc.name),ext:doc.ext,type:safeType(doc),size:doc.size,importedAt:doc.importedAt,scanned:!!doc.scanned,ocr:!!doc.ocr,pageCount:doc.pageCount||null,tags:Array.isArray(doc.tags)?doc.tags.map(String):[],note:String(doc.note||''),unitCount:(doc.units||[]).length,hash:doc.hash||''}; if(doc.type==='forum'){ s.forum=doc.forum||{}; s.att=(doc.attachments||[]).length; s.cmt=(doc.comments||[]).length; s.attNames=attNamesOf(doc); s.status=doc.status||''; s.updatedAt=doc.updatedAt||doc.importedAt; } return s; }
   async function rebuildCatalog(){ const cat=[]; try{ for await(const [name,h] of state.dirs.index.entries()){ if(h.kind==='file'&&name.endsWith('.json')){ const stem=name.slice(0,-5); if(!SAFE_ID.test(stem))continue; try{ const d=JSON.parse(await (await h.getFile()).text()); d.id=stem; cat.push(summaryOf(d)); }catch(e){} } } }catch(e){} cat.sort((a,b)=>(b.importedAt||'').localeCompare(a.importedAt||'')); return cat; }
   async function getIndex(id){ if(state.indexCache.has(id))return state.indexCache.get(id); const d=JSON.parse(await readFileText(state.dirs.index,id+'.json')); state.indexCache.set(id,d); return d; }
   async function writeIndex(doc){ await writeFile(state.dirs.index,doc.id+'.json',JSON.stringify(doc)); state.indexCache.set(doc.id,doc); }
@@ -2041,11 +2049,15 @@
     // sich gen → die (verspätete) Antwort wird verworfen, statt den neuen/leeren Verlauf zu
     // beschädigen (sonst entstünde ein führender Assistant-Turn → nächste API-Anfrage 400).
     const gen=(state.chat.gen=(state.chat.gen||0)+1);
+    // Abbrechbar: „Neuer Chat" bricht die laufende Anfrage WIRKLICH ab, statt die Antwort
+    // nur wegzuwerfen – sonst liefe eine (kostenpflichtige) Anfrage voll durch.
+    const ctrl = (typeof AbortController!=='undefined') ? new AbortController() : null;
+    state.chat.ctrl=ctrl;
     state.chat.messages.push({role:'user', content:q});
     state.chat.error=''; state.chat.draft=''; state.chat.pending=true;
     renderChat();
     try{
-      const ans=await claudeChat(state.chat.messages);
+      const ans=await claudeChat(state.chat.messages, ctrl&&ctrl.signal);
       if(gen!==state.chat.gen) return;   // Chat wurde inzwischen geleert → Ergebnis verwerfen
       state.chat.messages.push({role:'assistant', content:ans.text, cost:aiCostLabel(ans.usage)});
     }catch(e){
@@ -2054,6 +2066,7 @@
       // sich ab) und die Frage kommt zum erneuten Senden zurück in das Chat-Feld.
       state.chat.messages.pop(); state.chat.error=e.message; state.chat.draft=q;
     }finally{
+      if(state.chat.ctrl===ctrl) state.chat.ctrl=null;
       if(gen===state.chat.gen){ state.chat.pending=false; renderChat(); const ci=$('#chat-input'); if(ci)ci.focus(); }
     }
   }
@@ -2091,7 +2104,12 @@
         <button class="btn" id="chat-send" ${busy}>${de?'Senden':'Send'}</button>
       </div>`;
     resEl.innerHTML=html;
-    const cc=$('#chat-clear',resEl); if(cc)cc.onclick=()=>{ state.chat.messages=[]; state.chat.error=''; state.chat.draft=''; state.chat.pending=false; state.chat.gen=(state.chat.gen||0)+1; renderChat(); const i=$('#chat-input'); if(i)i.focus(); };
+    const cc=$('#chat-clear',resEl); if(cc)cc.onclick=()=>{
+      // Laufende Anfrage abbrechen (spart Kosten) und per gen entwerten.
+      if(state.chat.ctrl){ try{ state.chat.ctrl.abort(); }catch(_){ } state.chat.ctrl=null; }
+      state.chat.messages=[]; state.chat.error=''; state.chat.draft=''; state.chat.pending=false; state.chat.gen=(state.chat.gen||0)+1;
+      renderChat(); const i=$('#chat-input'); if(i)i.focus();
+    };
     const send=()=>{ const i=$('#chat-input'); if(!i||state.chat.pending)return; const q=i.value.trim(); if(!q)return; state.chat.draft=''; askQuestion(q); };
     const ci=$('#chat-input',resEl); const cs=$('#chat-send',resEl);
     if(cs)cs.onclick=send;
@@ -2106,11 +2124,11 @@
   // die hochgeladenen Dokumente, sondern kommen aus dem allgemeinen Wissen von Claude.
   // Der komplette Gesprächsverlauf wird gesendet (Multi-Turn), damit Rückfragen im
   // Kontext beantwortet werden. Sprache folgt der App-Einstellung (System-Prompt).
-  async function claudeChat(messages){
+  async function claudeChat(messages, signal){
     if(!navigator.onLine) throw new Error(state.settings.lang==='de'?'Keine Internetverbindung.':'No internet connection.');
     const B=aiLimits();
     const sys = state.settings.lang==='de' ? 'Bitte antworte auf Deutsch.' : 'Please answer in English.';
-    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:anthropicHeaders(), body:JSON.stringify({model:'claude-opus-4-8',max_tokens:B.ans,system:sys,messages:messages.map(m=>({role:m.role,content:m.content}))}) });
+    const r=await fetch('https://api.anthropic.com/v1/messages',{ method:'POST', headers:anthropicHeaders(), body:JSON.stringify({model:'claude-opus-4-8',max_tokens:B.ans,system:sys,messages:messages.map(m=>({role:m.role,content:m.content}))}), signal });
     if(!r.ok){ const t=await r.text().catch(()=>''); throw new Error('API '+r.status+': '+t.slice(0,200)); }
     const data=await r.json();
     return { text:(data.content||[]).map(c=>c.text||'').join('\n').trim(), usage:data.usage||null };
@@ -2756,10 +2774,28 @@
       // Referenzierte Forum-Anhänge (Eintrag + Kommentare) – lazy, nur wenn ein Anhang
       // überhaupt zum Löschen ansteht (selten). Solange ein Anhang noch referenziert ist,
       // wird er NIE weggespiegelt (Schutz wie bei den Originalen, für Anhänge).
-      let foRef=null;
-      const forumReferenced=async()=>{ if(foRef)return foRef; foRef=new Set();
-        try{ for(const c of state.catalog){ if(c.type!=='forum')continue; const dd=await getIndex(c.id).catch(()=>null); if(!dd)continue; for(const a of [...(dd.attachments||[]), ...((dd.comments||[]).flatMap(cm=>cm.attachments||[]))]){ if(a&&a.storedAs) foRef.add(a.storedAs); } } }catch(e){}
-        return foRef; };
+      // Quelle sind bewusst die FRISCH geschriebenen Index-Dateien auf der Platte – nicht
+      // state.catalog/indexCache: die werden erst nach diesem Lauf (reloadArchiveViews)
+      // aktualisiert, ein Anhang könnte also nach veraltetem Stand „noch referenziert"
+      // wirken und als Waise zurückbleiben (der dann zwischen Geräten hin- und herwandert).
+      // Fehlerfall: null → im Zweifel NICHTS löschen (fail-safe, wie bei den Originalen).
+      let foRef=null, foRefFailed=false;
+      const forumReferenced=async()=>{
+        if(foRef||foRefFailed) return foRef;
+        const set=new Set();
+        try{
+          for await(const [nm,h] of state.dirs.index.entries()){
+            if(h.kind!=='file'||!/\.json$/i.test(nm)) continue;
+            // Eine unlesbare Index-Datei könnte ein Forum-Eintrag sein → dann lieber gar
+            // nichts löschen, statt mit einer unvollständigen Referenzliste weiterzumachen.
+            let dd=null; try{ dd=JSON.parse(await (await h.getFile()).text()); }catch(_){ throw new Error('Index-Datei unlesbar: '+nm); }
+            if(!dd||dd.type!=='forum') continue;
+            const lists=[dd.attachments].concat(Array.isArray(dd.comments)?dd.comments.map(cm=>cm&&cm.attachments):[]);
+            for(const l of lists){ if(!Array.isArray(l))continue; for(const a of l){ if(a&&a.storedAs) set.add(a.storedAs); } }
+          }
+        }catch(e){ foRefFailed=true; console.warn('Forum-Referenzen nicht ermittelbar – Anhänge werden vorsichtshalber behalten:', e); return null; }
+        foRef=set; return foRef;
+      };
       for(const d of ['originals','index','forum']){
         if(!folderSet.has(d)) continue;
         const dir=state.dirs[d]; if(!dir)continue;
@@ -2771,8 +2807,10 @@
           // unvollständiger Cloud-Blob (z. B. von einem Gerät mit Alt-Version) ein Original
           // wegspiegelt, das noch gebraucht wird.
           if(d==='originals'){ const id=String(nm).split('__')[0]; if(id){ let idxThere=false; try{ await state.dirs.index.getFileHandle(id+'.json'); idxThere=true; }catch(_){} if(idxThere) continue; } }
-          // Analog für Forum-Anhänge: nur löschen, wenn kein Forum-Eintrag sie mehr referenziert.
-          if(d==='forum'){ const ref=await forumReferenced(); if(ref.has(nm)) continue; }
+          // Analog für Forum-Anhänge: nur löschen, wenn kein Forum-Eintrag sie mehr
+          // referenziert – und nur, wenn die Referenzen überhaupt ermittelbar waren (ref=null
+          // ⇒ unklar ⇒ behalten).
+          if(d==='forum'){ const ref=await forumReferenced(); if(!ref||ref.has(nm)) continue; }
           await removeFile(dir, nm);
         }
       }
@@ -2977,18 +3015,22 @@
     const dj=await odPutFile(OD.dataPath, dataBlob, {fresh:opts.fresh, force:opts.force, etag:OD.cfg.etag});
     if(dj==='conflict') return 'conflict';
     OD.cfg.etag=dj.eTag||dj.cTag||''; await odSaveCfg();
+    let blobSkipped=false;
     if(OD.cfg.blobDirty || opts.fresh || opts.force || opts.blobMissing){
       // DATENVERLUST-SCHUTZ: Fehlen DIESEM Gerät lokal Blob-Dateien (Originale/Forum-Anhänge;
       // getrennter Sync liegt zurück – Index/Status „indexiert" da, die große Datei noch
       // nicht), darf der hier gebaute BLOB die vollständige Cloud-Fassung NICHT überschreiben
       // – sonst verschwänden dort vorhandene Dateien (und würden per Spiegel überall gelöscht).
-      // Erst hochladen, wenn der lokale Stand sicher ein OBER­MENGE der Cloud ist:
-      //   · force/fresh (bewusste Nutzerentscheidung) oder blobMissing (Cloud hat nichts zu
-      //     verlieren) → immer erlaubt;
+      // Erst hochladen, wenn der lokale Stand sicher eine OBERMENGE der Cloud ist:
+      //   · userForce (ausdrückliche Nutzer-Entscheidung in odForcePush, inkl. Rückfrage)
+      //     oder fresh/blobMissing (Cloud hat nichts zu verlieren) → immer erlaubt.
+      //     BEWUSST NICHT opts.force allein: den setzt auch der AUTOMATISCHE Konfliktpfad
+      //     (odConflict) – dort entscheidet niemand bewusst, und die Vor-Sicherung
+      //     odBackupRemote sichert nur die DATA-Datei, nicht die Blobs.
       //   · sonst nur, wenn lokal vollständig – oder das add-only Nachziehen der Cloud-Blobs
       //     GELINGT (danach ist lokal ⊇ Cloud). Scheitert das Nachziehen (z. B. Netzfehler),
-      //     wird NICHT hochgeladen; blobDirty bleibt gesetzt → nächster Sync versucht es erneut.
-      let mayUpload = opts.force || opts.fresh || opts.blobMissing;
+      //     wird NICHT hochgeladen; blobDirty bleibt gesetzt und odPush meldet 'partial'.
+      let mayUpload = opts.userForce || opts.fresh || opts.blobMissing;
       if(!mayUpload){
         if(await blobComplete()){ mayUpload=true; }
         else { try{ await odApplyCloudBlobAddOnly(); mayUpload=true; }catch(e){ console.warn('Vor-Upload-Heilung fehlgeschlagen – Blob-Upload übersprungen (Schutz vor Überschreiben):', e); } }
@@ -2997,9 +3039,11 @@
         const blobBlob=await buildBackupBlob({folders:['originals','forum'], onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')});
         const bj=await odPutFile(OD.blobPath, blobBlob, {force:true});   // DATA war das Konflikt-Tor
         if(bj!=='conflict'){ OD.cfg.etagBlob=bj.eTag||bj.cTag||''; OD.cfg.blobDirty=false; await odSaveCfg(); }
+      } else {
+        blobSkipped=true;   // Aufrufer MUSS das wissen: kein Erfolg melden, kein Schnappschuss
       }
     }
-    return 'ok';
+    return blobSkipped ? 'partial' : 'ok';
   }
   // Grosse Dateien per Graph-Upload-Session: createUploadSession (traegt die Konflikt-
   // Vorbedingungen), danach sequenzielle PUT-Bloecke an die vor-authentifizierte
@@ -3146,14 +3190,24 @@
       for await(const [nm,h] of state.dirs.originals.entries()){ if(h.kind==='file'){ const i=String(nm).indexOf('__'); if(i>0) origIds.add(String(nm).slice(0,i)); } }
       for(const c of state.catalog){ if(c.type==='forum') continue; if(!origIds.has(c.id)) return false; }
       // Forum-Anhänge: jede referenzierte Anhang-Datei (Eintrag + Kommentare) muss da sein.
+      // Die Namen stehen im Katalog (summaryOf.attNames) – kein Index-Lesen je Eintrag.
+      // Nur für Alt-Kataloge ohne attNames wird der Eintrag einzeln nachgelesen.
       const foNames=new Set();
       if(state.dirs.forum){ for await(const [nm,h] of state.dirs.forum.entries()){ if(h.kind==='file') foNames.add(nm); } }
-      for(const c of state.catalog){ if(c.type!=='forum') continue; const d=await getIndex(c.id).catch(()=>null); if(!d) continue;
-        const atts=[...(d.attachments||[]), ...((d.comments||[]).flatMap(cm=>cm.attachments||[]))];
-        for(const a of atts){ if(a&&a.storedAs&&!foNames.has(a.storedAs)) return false; }
+      for(const c of state.catalog){ if(c.type!=='forum') continue;
+        let names=Array.isArray(c.attNames)?c.attNames:null;
+        if(!names){ const d=await getIndex(c.id).catch(()=>null); if(!d) continue; names=attNamesOf(d); }
+        for(const n of names){ if(n&&!foNames.has(n)) return false; }
       }
       return true;
-    }catch(e){ return true; }
+    }catch(e){
+      // Unklar = NICHT „vollständig". Sonst würde ein einzelner transienter Lesefehler
+      // (iOS „Connection is lost", OPFS-Hänger) den ganzen Schutz aushebeln und einen
+      // unvollständigen Blob hochladen lassen. Der Aufrufer zieht dann erst die Cloud-
+      // Blobs add-only nach (billig, add-only) und lädt danach hoch.
+      console.warn('Vollständigkeitsprüfung fehlgeschlagen – vorsichtshalber als unvollständig behandelt:', e);
+      return false;
+    }
   }
   // On-Demand („Original nachladen", Download-Fall): mit Guard + Statusanzeige.
   async function odFetchBlobs(){
@@ -3188,7 +3242,7 @@
       if(!meta.data){
         const res=await odPush({fresh:true});   // fresh lädt Daten UND Blobs hoch
         if(res==='conflict'){ await odConflict(); action='conflict'; }   // anderes Gerät war schneller → zusammenführen
-        else action='push';
+        else action=(res==='partial'?'partial':'push');
       } else if(meta.data.etag && meta.data.etag===OD.cfg.etag){
         // Remote-DATA unverändert. Hochladen nur bei lokaler Änderung (dirty wird seit
         // v1.9.10 auch offline gepflegt), oder wenn die BLOB-Datei in der Cloud fehlt
@@ -3196,7 +3250,7 @@
         if(OD.cfg.dirty || OD.cfg.blobDirty || blobMissing){
           const res=await odPush({blobMissing});
           if(res==='conflict'){ await odConflict(); action='conflict'; }   // Remote hat sich im Fenster geaendert
-          else action='push';
+          else action=(res==='partial'?'partial':'push');
         }
       } else if(OD.cfg.dirty){
         // KONFLIKT: Remote UND lokal geaendert → die NEUERE Fassung gewinnt (Zeit).
@@ -3210,18 +3264,30 @@
       // getaetigte Aenderung (z. B. eine Loeschung) verloren.
       if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
       // Nach erfolgreichem Abgleich sind lokal und Cloud gleich → Schnappschuss der
-      // aktuellen Dateien als Basis für den nächsten Spiegel-Abgleich festhalten. Bei
-      // „nichts zu tun" nur einmalig bootstrappen (nicht bei jedem 90-s-Poll neu listen).
-      if(action!=='none' || !OD.cfg.snap) await odCaptureSnapshot();
+      // aktuellen Dateien als Basis für den nächsten Spiegel-Abgleich festhalten. NICHT bei
+      // 'partial' (Blob-Upload übersprungen): dann sind Cloud und lokal gerade NICHT gleich –
+      // ein Schnappschuss würde die nicht hochgeladenen Dateien als „synchronisiert" merken
+      // und sie beim nächsten Spiegel-Pull zum Löschkandidaten machen.
+      if(action==='partial'){
+        // Ehrlich bleiben: kein Erfolg. Daten sind sicher (nichts überschrieben), aber die
+        // Originale/Anhänge liegen noch NICHT in der Cloud. Der 5-Minuten-Takt versucht es
+        // erneut – bewusst KEIN 1,5-s-Nachfassen (das wäre bei dauerhaftem Fehler eine
+        // Endlosschleife mit vollem DATA-Upload und Blob-Download je Runde).
+        odSetStatus('error', de?'Originale noch nicht hochgeladen – nächster Versuch folgt':'Originals not uploaded yet – will retry');
+        if(manual) toast(de?'Daten hochgeladen, aber die Originaldateien noch nicht (Cloud-Abgleich unvollständig). Es wird automatisch erneut versucht.':'Data uploaded, but the original files are not in the cloud yet (incomplete sync). It will retry automatically.','err');
+      } else {
+        if(action!=='none' || !OD.cfg.snap) await odCaptureSnapshot();
+        odSetStatus('connected');
+      }
       // Zeitstempel IMMER aktualisieren – auch wenn nichts zu tun war –, damit
       // „Jetzt synchronisieren" sichtbar reagiert.
       OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
-      odSetStatus('connected'); ok=true;
+      ok=(action!=='partial');
       // Eingehende Änderungen/Konflikte immer melden; reiner Upload/„nichts zu tun"
       // nur bei manuellem Klick (Hintergrund-Abfragen bleiben still).
       if(action==='pull'){ toast(de?'Vom Cloud-Stand aktualisiert.':'Updated from cloud.','ok'); }
       else if(action==='conflict'){ toast(de?'Konflikt aufgelöst (neuere Fassung gewinnt). Der andere Stand liegt als Sicherung in /exports.':'Conflict resolved (newer version wins). The other state is backed up in /exports.','ok'); }
-      else if(manual){ toast(action==='push' ? (de?'Hochgeladen.':'Uploaded.') : (de?'Bereits aktuell.':'Already up to date.'), 'ok'); }
+      else if(manual && action!=='partial'){ toast(action==='push' ? (de?'Hochgeladen.':'Uploaded.') : (de?'Bereits aktuell.':'Already up to date.'), 'ok'); }
     }catch(e){
       console.warn('OneDrive-Sync', e); odSetStatus('error', e.message);
       // Hintergrund-Fehler NICHT als Toast (sonst Spam bei offline/Quota/…);
@@ -3231,8 +3297,8 @@
     finally{
       OD.syncing=false; renderCloudPanel();
       // Nur NACH ERFOLG bald nachziehen, wenn waehrend des Syncs eine Aenderung kam.
-      // Bei einem Fehler NICHT eng weiterprobieren (sonst 1,5-s-Schleife) – der 90-s-
-      // Poll versucht es ohnehin erneut.
+      // Bei einem Fehler ODER uebersprungenem Blob-Upload ('partial') NICHT eng
+      // weiterprobieren (sonst 1,5-s-Endlosschleife) – der 5-Minuten-Takt greift ohnehin.
       if(ok && (OD.cfg.dirty||OD.cfg.blobDirty) && odConnected() && OD.cfg.auto!==false){ clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 1500); }
     }
   }
@@ -3245,7 +3311,10 @@
     const localNewer = !!(OD.cfg.dirtyAt && rmod && OD.cfg.dirtyAt > new Date(rmod).toISOString());
     if(localNewer){
       await odBackupRemote(true);        // Remote-Fassung sichern (Pflicht), dann lokal ueberschreiben
-      await odPush({force:true});        // force lädt Daten UND Blobs neu hoch
+      // force betrifft nur die DATA-Vorbedingung. Der Blob-Vollständigkeitsschutz greift hier
+      // WEITERHIN (kein userForce): odBackupRemote sichert die Blobs nicht, ein unvollständiges
+      // Gerät darf sie also auch im Konfliktfall nicht überschreiben.
+      await odPush({force:true});
     } else {
       // Cloud gewinnt – aber der Schnappschuss-Schutz behält neu lokal Angelegtes.
       // odPull markiert solche Extras als „dirty" → der automatische Folge-Sync lädt sie
@@ -3269,17 +3338,25 @@
     if(!odConnected()||OD.cfg.auto===false) return;
     clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 4000);
   }
-  // Dauer-Synchronisation: regelmäßig (alle 90 s), beim Zurückkehren zur App und
-  // bei (Wieder-)Verbindung nach Cloud-Änderungen sehen. odSync ist ein No-Op,
-  // wenn nichts zu tun ist – dann läuft nur eine winzige Metadaten-Abfrage.
+  // Ruhiger Takt: EIN Sync beim Öffnen (läuft in bootApp) und danach höchstens alle
+  // 5 Minuten. odSync ist ein No-Op, wenn nichts zu tun ist – dann läuft nur eine
+  // winzige Metadaten-Abfrage.
+  const OD_POLL_MS=300000;   // 5 Minuten
   function odStartAutoPoll(){
     if(OD._pollStarted) return; OD._pollStarted=true;
-    const tick=()=>{ if(odConnected() && OD.cfg.auto!==false && !document.hidden && navigator.onLine && !OD.syncing) odSync(false); };
-    // Auf Wunsch ruhiger Takt: EIN Sync beim Öffnen (läuft in bootApp) und danach nur noch
-    // alle 5 Minuten. Bewusst KEIN Auto-Sync mehr bei jedem App-Wechsel/Fokus/Reconnect –
-    // das fühlte sich wie „andauernd synchronisiert" an. Manuelles „Jetzt synchronisieren"
-    // und das Hochladen nach eigenen Änderungen (4-s-Bündelung) bleiben unberührt.
-    OD._pollTimer=setInterval(tick, 300000);   // 5 Minuten
+    // „Fällig" = seit dem letzten Abgleich sind >= 5 Minuten vergangen. Damit ist EIN
+    // gemeinsames Zeitmaß maßgeblich – egal ob der Timer feuert oder die App zurückkehrt.
+    const due=()=>{ const last=OD.cfg.syncAt?Date.parse(OD.cfg.syncAt):0; return !(last>0) || (Date.now()-last)>=OD_POLL_MS; };
+    const tick=()=>{ if(odConnected() && OD.cfg.auto!==false && !document.hidden && navigator.onLine && !OD.syncing && due()) odSync(false); };
+    OD._pollTimer=setInterval(tick, OD_POLL_MS);
+    // Nachholen statt verlieren: Hintergrund-Timer werden von iOS/Chrome gedrosselt oder
+    // ganz verworfen. Eine überwiegend im Hintergrund laufende App käme sonst nie zu einem
+    // Abgleich. Beim Zurückkehren/Online-Werden wird daher NUR nachgeholt, wenn ohnehin
+    // fällig (>= 5 Min) – kein Sync bei jedem App-Wechsel, also kein „andauernd
+    // synchronisiert". Manuelles „Jetzt synchronisieren" und das Hochladen nach eigenen
+    // Änderungen (4-s-Bündelung) bleiben unberührt.
+    document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) tick(); });
+    window.addEventListener('online', tick);
   }
   // Eindeutige Notfall-Overrides für verworrene Sync-Zustände: bewusst OHNE
   // Konflikt-Logik. Vorher wird jeweils gesichert (in /exports), damit nichts
@@ -3292,7 +3369,7 @@
     const startGen=OD.cfg.gen||0;   // Aenderungen waehrend des Uploads nicht verlieren
     try{
       await odBackupRemote(true);   // bisherige Cloud-Fassung sichern (Pflicht vor dem Ueberschreiben)
-      await odPush({force:true});
+      await odPush({force:true, userForce:true});   // userForce: bewusst bestätigt (Dialog oben)
       if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
       await odCaptureSnapshot();
       OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
@@ -3592,7 +3669,7 @@
 
     if(window.__WA_MOCK_ROOT__||window.__WA_TEST__){
       // Test-Brücke – nur aktiv, wenn explizit injiziert (automatisierte Prüfung).
-      window.WA={ importFiles, runSearch, setFindMode, askQuestion, renderChat, docAction, odFetchBlobs, blobComplete, searchArchive, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, odSetStatus, foAddComment,
+      window.WA={ importFiles, runSearch, setFindMode, askQuestion, renderChat, docAction, odFetchBlobs, blobComplete, odPush, searchArchive, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, applyBackupZip, buildBackupBlob, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, odSetStatus, foAddComment,
         rebuildCatalog: async()=>{ state.indexCache.clear(); state._foIdxReady=false; state.catalog=await rebuildCatalog(); renderLibrary(); return state.catalog; } };
     }
 
