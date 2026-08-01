@@ -255,6 +255,24 @@ export async function run(base) {
     const rows = [...document.querySelectorAll('#backup-files .queue-item')].map(e => e.textContent);
     return { listed: rows.some(x => x.includes(name)), hasRestore: !!document.querySelector('#backup-files [data-bkrs]'), count: rows.length };
   });
+  // Streamendes Packen muss ZU ENDE laufen (der Sync blieb sonst bei „📦 1 %" stehen)
+  // und eine gültige, vollständige ZIP hinterlassen.
+  const streamZip = await page.evaluate(async () => {
+    const WA = window.WA;
+    const done = await Promise.race([
+      WA.buildBackupToFile(WA.state.dirs.exports, 'wissensarchiv_backup_streamtest.zip', {}).then(f => ({ size: f.size })),
+      new Promise(r => setTimeout(() => r({ timeout: true }), 20000)),
+    ]);
+    if (done.timeout) return { timeout: true };
+    // Ergebnis muss als ZIP lesbar sein und die Index-Dateien enthalten.
+    const f = await (await WA.state.dirs.exports.getFileHandle('wissensarchiv_backup_streamtest.zip')).getFile();
+    const zip = await window.JSZip.loadAsync(f);
+    const idx = Object.keys(zip.files).filter(n => n.startsWith('index/') && n.endsWith('.json')).length;
+    return { size: done.size, idx, docs: WA.state.catalog.length };
+  });
+  t.check('Streamendes Packen läuft zu Ende (kein Hänger bei 1 %)', !streamZip.timeout && streamZip.size > 0, JSON.stringify(streamZip));
+  t.check('Gestreamte ZIP ist gültig und enthält alle Einträge', !streamZip.timeout && streamZip.idx === streamZip.docs, JSON.stringify(streamZip));
+
   t.check('Backup-Ansicht listet vorhandene Sicherungen', bkList.listed === true, JSON.stringify(bkList));
   t.check('Sicherung hat einen „Wiederherstellen"-Knopf', bkList.hasRestore === true, JSON.stringify(bkList));
 
