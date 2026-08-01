@@ -771,7 +771,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.16';
+  const APP_VERSION = '1.10.17';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2739,7 +2739,8 @@
       catch(e){ toast((de?'Wiederherstellen fehlgeschlagen: ':'Restore failed: ')+e.message,'err'); }
     });
   }
-  async function buildBackupBlob(opts={}){
+  // Sammelt die Archiv-Dateien in ein JSZip-Objekt (noch NICHTS gepackt/erzeugt).
+  async function buildBackupZip(opts={}){
     await loadScript('vendor/jszip.min.js'); const zip=new window.JSZip();
     // apikey.txt bleibt standardmaessig draussen: herunterladbare/automatische
     // Backups wandern auf andere Rechner – der API-Key gehoert dort nicht hinein.
@@ -2747,7 +2748,11 @@
     // index/ und meta/ sind Text (JSON) und schrumpfen per DEFLATE auf einen Bruchteil –
     // das verkleinert jeden Cloud-Upload deutlich. Originale/Anhaenge (PDF, Bilder,
     // Videos, Office) sind bereits komprimiert -> STORE (schnell, kein Gewinn durch DEFLATE).
-    const add=async(dirHandle, folder, skip)=>{ if(!dirHandle)return; const textish=(folder==='index'||folder==='meta'); for await(const [name,h] of dirHandle.entries()){ if(h.kind==='file'){ if(skip&&skip.has(name))continue; const f=await h.getFile(); zip.file(folder+'/'+name, await f.arrayBuffer(), textish?{compression:'DEFLATE',compressionOptions:{level:6}}:undefined); } } };
+    // Dateien als File-Objekt (nicht als ArrayBuffer) übergeben: JSZip liest sie erst beim
+    // Packen und häppchenweise. Mit arrayBuffer() lag vorher das GESAMTE Archiv im
+    // Arbeitsspeicher, bevor überhaupt gepackt wurde – auf iPhone/iPad beendet Safari die
+    // Seite deswegen mitten im Sync („wiederholt ein Problem aufgetreten").
+    const add=async(dirHandle, folder, skip)=>{ if(!dirHandle)return; const textish=(folder==='index'||folder==='meta'); for await(const [name,h] of dirHandle.entries()){ if(h.kind==='file'){ if(skip&&skip.has(name))continue; const f=await h.getFile(); zip.file(folder+'/'+name, f, textish?{compression:'DEFLATE',compressionOptions:{level:6}}:undefined); } } };
     const metaSkip = opts.includeKey ? new Set() : new Set(['apikey.txt']);
     // opts.folders schraenkt ein, welche Ordner ins ZIP kommen (getrennter Sync:
     // DATA=index+meta, BLOBS=originals+forum). Ohne Angabe: das volle Archiv.
@@ -2757,13 +2762,44 @@
     if(folders.includes('meta'))      await add(state.dirs.meta,'meta', metaSkip);
     if(folders.includes('forum') && state.dirs.forum) await add(state.dirs.forum,'forum'); // Forum-Anhänge
     // opts.onProgress (0–100): Fortschritt beim Packen (grosse Archive brauchen spürbar Zeit).
+    return zip;
+  }
+  // Kleine Archive (index/meta) dürfen weiter direkt als Blob entstehen.
+  async function buildBackupBlob(opts={}){
+    const zip=await buildBackupZip(opts);
     return await zip.generateAsync({type:'blob'}, opts.onProgress?(m)=>{ try{ opts.onProgress(Math.round(m.percent)); }catch(e){} }:undefined);
+  }
+  // Wie buildBackupBlob, aber das ZIP wird STÜCKWEISE direkt in eine Datei geschrieben,
+  // statt komplett im Arbeitsspeicher zu entstehen. Für grosse Archive (mehrere hundert MB)
+  // ist das auf iPhone/iPad der Unterschied zwischen „läuft" und „Safari beendet die Seite".
+  // Liefert die schreibfertig geschlossene Datei zurück (File = liegt auf der Platte).
+  async function buildBackupToFile(dir, name, opts={}){
+    const zip=await buildBackupZip(opts);
+    const fh=await dir.getFileHandle(name,{create:true});
+    const w=await fh.createWritable();
+    try{
+      await new Promise((resolve,reject)=>{
+        const stream=zip.generateInternalStream({type:'uint8array', streamFiles:true});
+        stream.on('data',(chunk,meta)=>{
+          // Gegendruck: erst weiterlesen, wenn der Block wirklich geschrieben ist –
+          // sonst stauen sich die Blöcke doch wieder im Speicher.
+          stream.pause();
+          w.write(chunk).then(()=>{ if(opts.onProgress&&meta){ try{ opts.onProgress(Math.round(meta.percent)); }catch(e){} } stream.resume(); }, reject);
+        });
+        stream.on('error',reject);
+        stream.on('end',resolve);
+        stream.resume();
+      });
+    }catch(e){ try{ await w.close(); }catch(_){ } await removeFile(dir,name); throw e; }
+    await w.close();
+    return await fh.getFile();
   }
   async function exportBackup(){
     try{
       toast(state.settings.lang==='de'?'Backup wird erstellt…':'Creating backup…');
-      const blob=await buildBackupBlob(); const name='wissensarchiv_backup_'+stamp()+'.zip';
-      await writeExportFile(name, blob, true);
+      const name='wissensarchiv_backup_'+stamp()+'.zip';
+      const f=await buildBackupToFile(state.dirs.exports, name, {});   // streamt auf die Platte
+      download(f, name);
       state.settings.lastBackup=new Date().toISOString(); persistSettings(); renderBackupStats();
       toast(state.settings.lang==='de'?'Backup erstellt (in /exports und Download).':'Backup created (in /exports and download).','ok');
     }catch(e){ console.error(e); toast((state.settings.lang==='de'?'Backup-Fehler: ':'Backup error: ')+e.message,'err'); }
@@ -2790,8 +2826,8 @@
     if(Date.now()-last<iv)return;
     _abBusy=true;
     try{
-      const blob=await buildBackupBlob();
-      await saveToExports('wissensarchiv_autobackup_'+stamp()+'.zip', blob);
+      // Direkt in die Datei streamen (spart bei grossen Archiven hunderte MB Speicher).
+      await buildBackupToFile(state.dirs.exports, 'wissensarchiv_autobackup_'+stamp()+'.zip', {});
       await rotateAutoBackups(5);
       state.settings.autoBackupLast=new Date().toISOString();
       state.settings.lastBackup=state.settings.autoBackupLast;
@@ -3196,9 +3232,14 @@
         else { try{ await odApplyCloudBlobAddOnly(); mayUpload=true; }catch(e){ console.warn('Vor-Upload-Heilung fehlgeschlagen – Blob-Upload übersprungen (Schutz vor Überschreiben):', e); } }
       }
       if(mayUpload){
-        const blobBlob=await buildBackupBlob({folders:['originals','forum'], onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')});
-        const bj=await odPutFile(OD.blobPath, blobBlob, {force:true});   // DATA war das Konflikt-Tor
-        if(bj!=='conflict'){ OD.cfg.etagBlob=bj.eTag||bj.cTag||''; OD.cfg.blobDirty=false; await odSaveCfg(); }
+        // Die grosse BLOB-ZIP erst auf die Platte streamen und von dort hochladen – sie
+        // liegt dadurch NICHT komplett im Arbeitsspeicher (iOS-Absturz beim Sync).
+        const TMP='_upload_blobs.tmp.zip';
+        const blobBlob=await buildBackupToFile(state.dirs.exports, TMP, {folders:['originals','forum'], onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')});
+        try{
+          const bj=await odPutFile(OD.blobPath, blobBlob, {force:true});   // DATA war das Konflikt-Tor
+          if(bj!=='conflict'){ OD.cfg.etagBlob=bj.eTag||bj.cTag||''; OD.cfg.blobDirty=false; await odSaveCfg(); }
+        } finally{ await removeFile(state.dirs.exports, TMP); }
       } else {
         blobSkipped=true;   // Aufrufer MUSS das wissen: kein Erfolg melden, kein Schnappschuss
       }
@@ -3251,11 +3292,24 @@
     if(!r.ok) throw new Error('Download '+r.status);
     if(!r.body||!r.body.getReader) return await r.blob();   // sehr alte Browser: ohne Fortschritt
     const total=+(r.headers.get('Content-Length')||0);
-    const reader=r.body.getReader(); const chunks=[]; let got=0;
-    while(true){ const {done,value}=await reader.read(); if(done)break; chunks.push(value); got+=value.byteLength;
-      odSetStatus('syncing', label+' '+(total?Math.round(got/total*100)+' %':fmtBytes(got))); }
+    // Grosse Downloads (die Blob-Datei sind schnell hunderte MB) NICHT im Speicher
+    // sammeln, sondern stückweise in eine temporäre Datei schreiben – sonst beendet
+    // Safari auf iPhone/iPad die Seite mitten im Sync. Zurück kommt eine File
+    // (liegt auf der Platte), die JSZip genauso lesen kann wie einen Blob.
+    const TMP='_download.tmp.zip';
+    const fh=await state.dirs.exports.getFileHandle(TMP,{create:true});
+    const w=await fh.createWritable();
+    const reader=r.body.getReader(); let got=0;
+    try{
+      while(true){ const {done,value}=await reader.read(); if(done)break; await w.write(value); got+=value.byteLength;
+        odSetStatus('syncing', label+' '+(total?Math.round(got/total*100)+' %':fmtBytes(got))); }
+    }catch(e){ try{ await w.close(); }catch(_){ } await removeFile(state.dirs.exports,TMP); throw e; }
+    await w.close();
     odSetStatus('syncing');
-    return new Blob(chunks);
+    const f=await fh.getFile();
+    // Aufräumen erst NACH dem Auslesen: die File bleibt gültig, solange sie gelesen wird.
+    setTimeout(()=>{ removeFile(state.dirs.exports, TMP); }, 120000);
+    return f;
   }
   async function odPull(meta, popts={}){
     await loadScript('vendor/jszip.min.js');
@@ -3275,7 +3329,9 @@
     // (alles liegt bereits in der Cloud), der Pull darf dann trotzdem laufen.
     if(state.catalog.length){
       const folders = OD.cfg.dirty ? ['originals','index','meta','forum'] : ['index','meta'];
-      const doBackup=async()=>{ await writeFile(state.dirs.exports, beforeSyncName(), await buildBackupBlob({folders, onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')})); await rotateBeforeSync(4); };
+      // Streamend sichern: die Vor-Sync-Sicherung ist der grösste Speicher-Ausschlag im
+      // ganzen Sync und hat auf iPhone/iPad regelmässig die Seite abgeschossen.
+      const doBackup=async()=>{ await buildBackupToFile(state.dirs.exports, beforeSyncName(), {folders, onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')}); await rotateBeforeSync(4); };
       try{ await doBackup(); }
       catch(e1){
         try{ await doBackup(); }
