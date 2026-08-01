@@ -337,6 +337,14 @@
       .dropzone{padding:24px 14px}
       .modal-foot{justify-content:stretch}
       .modal-foot .btn{flex:1;justify-content:center}
+      /* Listeneinträge (Sicherungen, Exporte, Import-Warteschlange) auf schmalen Displays
+         UNTEREINANDER statt nebeneinander – sonst quetscht die Textspalte auf wenige
+         Zeichen zusammen und bricht buchstabenweise um, während die Knöpfe überlappen. */
+      .queue-item{flex-wrap:wrap;align-items:flex-start;row-gap:8px}
+      .queue-item .qmain{flex:1 1 100%;order:1}
+      .queue-item .ftype{order:0}
+      .queue-item .btn{order:2}
+      .queue-item .fname{white-space:normal;overflow-wrap:anywhere}
     }
   </style>
 </head>
@@ -773,7 +781,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.19';
+  const APP_VERSION = '1.10.20';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2723,6 +2731,8 @@
         if(h.kind!=='file'||!/\.zip$/i.test(n)) continue;
         const p=BK_PREFIXES.find(([pre])=>n.startsWith(pre)); if(!p) continue;
         let f=null; try{ f=await h.getFile(); }catch(e){ continue; }
+        // Leere Reste abgebrochener Läufe gar nicht erst anbieten – und gleich entsorgen.
+        if(!f.size){ await removeFile(state.dirs.exports, n); continue; }
         out.push({name:n, kind:p[1], size:f.size||0, at:f.lastModified||0});
       }
     }catch(e){ console.warn('Sicherungen auflisten:',e); }
@@ -2787,6 +2797,18 @@
   // statt komplett im Arbeitsspeicher zu entstehen. Für grosse Archive (mehrere hundert MB)
   // ist das auf iPhone/iPad der Unterschied zwischen „läuft" und „Safari beendet die Seite".
   // Liefert die schreibfertig geschlossene Datei zurück (File = liegt auf der Platte).
+  // Packen mit Zeitgrenze: Bleibt der Vorgang hängen (auf iPhone/iPad blieb der Sync bei
+  // „📦 1 %" stehen und hinterliess eine 0-Byte-Datei), wird abgebrochen, aufgeräumt und
+  // ein Fehler gemeldet – statt den ganzen Sync unbegrenzt blockieren zu lassen.
+  async function buildBackupToFileGuarded(dir, name, opts={}, ms=180000){
+    let timer=null;
+    try{
+      return await Promise.race([
+        buildBackupToFile(dir, name, opts),
+        new Promise((_,rej)=>{ timer=setTimeout(()=>rej(new Error(state.settings.lang==='de'?'Zeitüberschreitung beim Packen der Sicherung':'Timed out while packing the backup')), ms); }),
+      ]);
+    }finally{ if(timer)clearTimeout(timer); }
+  }
   async function buildBackupToFile(dir, name, opts={}){
     const zip=await buildBackupZip(opts);
     // Fallback für Umgebungen ohne Streaming-API: dann wie bisher als Blob erzeugen.
@@ -2817,7 +2839,11 @@
       });
     }catch(e){ try{ await w.close(); }catch(_){ } await removeFile(dir,name); throw e; }
     await w.close();
-    return await fh.getFile();
+    const out=await fh.getFile();
+    // Eine leere Sicherung ist wertlos und gefährlich (sie sähe in der Liste wie eine
+    // gültige aus). Lieber gar keine Datei hinterlassen und den Fehler melden.
+    if(!out.size){ await removeFile(dir,name); throw new Error(state.settings.lang==='de'?'Sicherung blieb leer (0 Byte) – nicht gespeichert.':'Backup came out empty (0 bytes) – not saved.'); }
+    return out;
   }
   async function exportBackup(){
     try{
@@ -3360,14 +3386,20 @@
       // ERST rotieren (auf 3 alte kürzen), DANN schreiben: sonst braucht das Anlegen der
       // neuen Sicherung Platz für eine 5. Vollkopie – auf iPhone/iPad (knappe Quota, dort
       // liegen schon Auto-Backups à ~300 MB) scheiterte genau daran der ganze Sync.
-      const doBackup=async(fl)=>{ await rotateBeforeSync(3); await buildBackupToFile(state.dirs.exports, beforeSyncName(), {folders:fl, onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')}); };
-      try{ await doBackup(folders); }
+      const doBackup=async(fl)=>{ await rotateBeforeSync(3); await buildBackupToFileGuarded(state.dirs.exports, beforeSyncName(), {folders:fl, onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')}); };
+      // Im App-Speicher (iPhone/iPad) NIE das volle Archiv als Vor-Sync-Kopie packen: Eine
+      // zweite ~300-MB-Fassung sprengt dort regelmässig das Kontingent, und der Sync scheiterte
+      // an der Sicherung statt an der eigentlichen Arbeit. Nötig ist sie dort auch nicht mehr:
+      // Der Pull löscht seit den Löschmarkern keine Einträge und ergänzt Blobs nur (add-only).
+      // Die vollständige Sicherung übernimmt das Auto-Backup bzw. ein Gerät mit echtem Ordner.
+      const preFolders = state.storageMode==='opfs' ? ['index','meta'] : folders;
+      try{ await doBackup(preFolders); }
       catch(e1){
         // Rückfallstufe: NUR Daten sichern (index/meta, wenige MB). Die Originale sind seit
         // den Löschmarker-/Add-only-Schutzmaßnahmen beim Pull nicht mehr löschgefährdet –
         // ein kompletter Sync-Abbruch wegen einer gescheiterten 300-MB-Zweitkopie wäre
         // unverhältnismäßig (und liess iPhones dauerhaft im Fehlerzustand hängen).
-        try{ await doBackup(['index','meta']); console.warn('Voll-Sicherung fehlgeschlagen, Daten-Sicherung angelegt:', e1); }
+        try{ if(preFolders.length>2) { await doBackup(['index','meta']); console.warn('Voll-Sicherung fehlgeschlagen, Daten-Sicherung angelegt:', e1); } else throw e1; }
         catch(e){
           if(OD.cfg.dirty||OD.cfg.blobDirty){ const q=await storageInfo(); throw new Error((de?'Lokale Sicherung fehlgeschlagen – Pull abgebrochen (ungesicherte Änderungen): ':'Local backup failed – pull aborted (unsynced changes): ')+e.message+(q?(de?' · Speicher: ':' · storage: ')+q:'')); }
           console.warn('Vor-Pull-Sicherung fehlgeschlagen (Stand bereits synchron, Pull läuft weiter):', e);
@@ -3819,7 +3851,13 @@
     await ensureStructure(); await loadSettings(); await loadCatalog(); await loadExportDefs(); await loadForum(); await loadTombs();
     // Liegengebliebene Temp-Dateien abgebrochener Sync-Läufe entsorgen – die können
     // hunderte MB Kontingent blockieren, ohne irgendwo sichtbar zu sein.
-    try{ for await(const [nm,h] of state.dirs.exports.entries()){ if(h.kind==='file'&&/\.tmp\.zip$/i.test(nm)) await removeFile(state.dirs.exports, nm); } }catch(e){}
+    // Ebenso leere (0-Byte-)Sicherungen: Reste abgebrochener Läufe, die in der Liste wie
+    // gültige Sicherungen aussähen.
+    try{ for await(const [nm,h] of state.dirs.exports.entries()){
+      if(h.kind!=='file')continue;
+      if(/\.tmp\.zip$/i.test(nm)){ await removeFile(state.dirs.exports, nm); continue; }
+      if(/^wissensarchiv_(autobackup|beforesync|backup)_.*\.zip$/i.test(nm)){ try{ if(!(await h.getFile()).size) await removeFile(state.dirs.exports, nm); }catch(e){} }
+    } }catch(e){}
     // Ordnernamen lokal merken: geht das gespeicherte Handle verloren (Browser
     // loescht Website-Daten), kann das Onboarding darauf hinweisen, dass die
     // Daten weiterhin in diesem Ordner liegen.

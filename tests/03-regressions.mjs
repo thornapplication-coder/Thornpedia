@@ -301,6 +301,21 @@ export async function run(base) {
     return { hadDelete: !!delBtn, deleted, errShown };
   });
   t.check('Sicherung hat einen Löschen-Knopf und löscht wirklich', bkOps.hadDelete === true && bkOps.deleted === true, JSON.stringify(bkOps));
+
+  // 0-Byte-Reste abgebrochener Läufe dürfen NICHT als gültige Sicherung erscheinen.
+  const emptyBk = await page.evaluate(async () => {
+    const WA = window.WA;
+    const name = 'wissensarchiv_autobackup_2026-02-02_0000.zip';
+    const w = await (await WA.state.dirs.exports.getFileHandle(name, { create: true })).createWritable();
+    await w.close();                                  // 0 Byte, wie nach einem Abbruch
+    WA.switchView('backup');
+    await new Promise(r => setTimeout(r, 400));
+    const listed = [...document.querySelectorAll('#backup-files .queue-item')].some(e => e.textContent.includes(name));
+    let gone = false; try { await WA.state.dirs.exports.getFileHandle(name); } catch (e) { gone = true; }
+    return { listed, gone };
+  });
+  t.check('Leere (0-Byte-)Sicherung wird nicht angeboten', emptyBk.listed === false, JSON.stringify(emptyBk));
+  t.check('Leere Sicherung wird entsorgt', emptyBk.gone === true, JSON.stringify(emptyBk));
   t.check('Sync-Fehler erscheint im Klartext im Cloud-Panel', bkOps.errShown === true, JSON.stringify(bkOps));
 
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
