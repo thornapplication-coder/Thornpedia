@@ -617,6 +617,8 @@
             </div>
             <span class="chip" id="cloud-status">—</span>
           </div>
+          <!-- Klartext-Fehler: der Chip-Tooltip ist auf Touch-Geräten unerreichbar. -->
+          <div class="notice err" id="cloud-error" style="display:none;margin-top:10px"></div>
           <div id="cloud-setup" style="margin-top:14px">
             <div class="notice" style="margin-bottom:12px;font-size:13px"><span>ℹ️</span><span data-i18n="cloud-setup-note">Einmalige Einrichtung: Registriere in <b>Azure &rsaquo; App-Registrierungen</b> eine kostenlose App (Typ „Single-Page-Application"), trage unten die <b>Weiterleitungs-URI</b> ein und kopiere die <b>Anwendungs-(Client-)ID</b> hierher. Danach läuft alles automatisch.</span></div>
             <div class="field" style="margin-bottom:8px">
@@ -771,7 +773,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.18';
+  const APP_VERSION = '1.10.19';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2730,13 +2732,25 @@
     const el=$('#backup-files'); if(!el)return; const de=state.settings.lang==='de';
     const files=await listBackupFiles();
     if(!files.length){ el.innerHTML=`<p style="color:var(--text-muted);font-size:13px;margin:0">${tr('bk-none')}</p>`; return; }
-    el.innerHTML=files.map((f,i)=>`<div class="queue-item"><span class="ftype t-xlsx">ZIP</span><div class="qmain"><div class="fname">${esc(f.name)}</div><div class="fmeta">${tr(f.kind)} · ${f.at?new Date(f.at).toLocaleString(locale()):'—'} · ${fmtBytes(f.size)}</div></div><button class="btn sm" data-bkrs="${i}">♻️ ${tr('bk-restore')}</button><button class="btn sm ghost" data-bkdl="${i}" title="${de?'Herunterladen':'Download'}">⬇</button></div>`).join('');
+    el.innerHTML=files.map((f,i)=>`<div class="queue-item"><span class="ftype t-xlsx">ZIP</span><div class="qmain"><div class="fname">${esc(f.name)}</div><div class="fmeta">${tr(f.kind)} · ${f.at?new Date(f.at).toLocaleString(locale()):'—'} · ${fmtBytes(f.size)}</div></div><button class="btn sm" data-bkrs="${i}">♻️ ${tr('bk-restore')}</button><button class="btn sm ghost" data-bkdl="${i}" title="${de?'Herunterladen':'Download'}">⬇</button><button class="btn sm ghost danger" data-bkrm="${i}" title="${de?'Sicherung löschen (gibt Speicher frei)':'Delete backup (frees storage)'}">🗑</button></div>`).join('')
+      // Speicherstand direkt bei den Sicherungen: sie sind die grössten Brocken im Kontingent.
+      + `<div class="fmeta" id="bk-usage" style="margin-top:8px"></div>`;
+    storageInfo().then(q=>{ const u=$('#bk-usage'); if(u&&q) u.textContent=(de?'Speicherbelegung: ':'Storage used: ')+q; });
     $$('#backup-files [data-bkdl]').forEach(b=>b.onclick=async()=>{ const f=files[+b.dataset.bkdl]; try{ download(await (await state.dirs.exports.getFileHandle(f.name)).getFile(), f.name); }catch(e){ toast((de?'Datei nicht lesbar: ':'File not readable: ')+e.message,'err'); } });
     $$('#backup-files [data-bkrs]').forEach(b=>b.onclick=async()=>{
       const f=files[+b.dataset.bkrs];
       if(!confirm((de?'Aus dieser Sicherung wiederherstellen?\n\n':'Restore from this backup?\n\n')+f.name+(de?'\n\nFehlende Dokumente werden ergänzt. Vorhandenes bleibt erhalten – es wird nichts gelöscht.':'\n\nMissing documents are added back. Existing data is kept – nothing is deleted.'))) return;
       try{ await importBackup(await (await state.dirs.exports.getFileHandle(f.name)).getFile()); }
       catch(e){ toast((de?'Wiederherstellen fehlgeschlagen: ':'Restore failed: ')+e.message,'err'); }
+    });
+    // Löschen: auf iPhone/iPad (App-Speicher) der EINZIGE Weg, das Speicher-Kontingent von
+    // alten ~300-MB-Sicherungen zu befreien – ein volles Kontingent liess dort den Sync scheitern.
+    $$('#backup-files [data-bkrm]').forEach(b=>b.onclick=async()=>{
+      const f=files[+b.dataset.bkrm];
+      if(!confirm((de?'Diese Sicherung löschen?\n\n':'Delete this backup?\n\n')+f.name+' ('+fmtBytes(f.size)+')')) return;
+      await removeFile(state.dirs.exports, f.name);
+      toast(de?'Sicherung gelöscht.':'Backup deleted.','ok');
+      renderBackupFiles();
     });
   }
   // Sammelt die Archiv-Dateien in ein JSZip-Objekt (noch NICHTS gepackt/erzeugt).
@@ -2838,8 +2852,9 @@
     _abBusy=true;
     try{
       // Direkt in die Datei streamen (spart bei grossen Archiven hunderte MB Speicher).
+      // Erst rotieren, dann schreiben – das Anlegen braucht sonst Platz für eine 6. Vollkopie.
+      await rotateAutoBackups(4);
       await buildBackupToFile(state.dirs.exports, 'wissensarchiv_autobackup_'+stamp()+'.zip', {});
-      await rotateAutoBackups(5);
       state.settings.autoBackupLast=new Date().toISOString();
       state.settings.lastBackup=state.settings.autoBackupLast;
       await persistSettings();
@@ -3342,12 +3357,19 @@
       const folders = OD.cfg.dirty ? ['originals','index','meta','forum'] : ['index','meta'];
       // Streamend sichern: die Vor-Sync-Sicherung ist der grösste Speicher-Ausschlag im
       // ganzen Sync und hat auf iPhone/iPad regelmässig die Seite abgeschossen.
-      const doBackup=async()=>{ await buildBackupToFile(state.dirs.exports, beforeSyncName(), {folders, onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')}); await rotateBeforeSync(4); };
-      try{ await doBackup(); }
+      // ERST rotieren (auf 3 alte kürzen), DANN schreiben: sonst braucht das Anlegen der
+      // neuen Sicherung Platz für eine 5. Vollkopie – auf iPhone/iPad (knappe Quota, dort
+      // liegen schon Auto-Backups à ~300 MB) scheiterte genau daran der ganze Sync.
+      const doBackup=async(fl)=>{ await rotateBeforeSync(3); await buildBackupToFile(state.dirs.exports, beforeSyncName(), {folders:fl, onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')}); };
+      try{ await doBackup(folders); }
       catch(e1){
-        try{ await doBackup(); }
+        // Rückfallstufe: NUR Daten sichern (index/meta, wenige MB). Die Originale sind seit
+        // den Löschmarker-/Add-only-Schutzmaßnahmen beim Pull nicht mehr löschgefährdet –
+        // ein kompletter Sync-Abbruch wegen einer gescheiterten 300-MB-Zweitkopie wäre
+        // unverhältnismäßig (und liess iPhones dauerhaft im Fehlerzustand hängen).
+        try{ await doBackup(['index','meta']); console.warn('Voll-Sicherung fehlgeschlagen, Daten-Sicherung angelegt:', e1); }
         catch(e){
-          if(OD.cfg.dirty||OD.cfg.blobDirty) throw new Error((de?'Lokale Sicherung fehlgeschlagen – Pull abgebrochen (ungesicherte Änderungen): ':'Local backup failed – pull aborted (unsynced changes): ')+e.message);
+          if(OD.cfg.dirty||OD.cfg.blobDirty){ const q=await storageInfo(); throw new Error((de?'Lokale Sicherung fehlgeschlagen – Pull abgebrochen (ungesicherte Änderungen): ':'Local backup failed – pull aborted (unsynced changes): ')+e.message+(q?(de?' · Speicher: ':' · storage: ')+q:'')); }
           console.warn('Vor-Pull-Sicherung fehlgeschlagen (Stand bereits synchron, Pull läuft weiter):', e);
         }
       }
@@ -3655,6 +3677,12 @@
       const [txt,col]=map[st]||map.off;
       // Beim Synchronisieren den Fortschritt (z. B. "43 %") direkt im Chip zeigen.
       chip.textContent='● '+txt+(st==='syncing'&&OD.statusMsg?' '+OD.statusMsg:''); chip.style.color=col; chip.title=OD.statusMsg||'';
+      // Fehler IM KLARTEXT anzeigen (bisher nur als Hover-Tooltip → am iPhone unsichtbar,
+      // der Nutzer sah nur „Fehler" ohne jede Diagnose-Chance).
+      const ce=$('#cloud-error');
+      if(ce){ const showErr = st==='error' && OD.statusMsg;
+        ce.style.display=showErr?'':'none';
+        if(showErr) ce.innerHTML='<span>⚠</span><span>'+esc(OD.statusMsg)+'</span>'; }
     }
     const sw=$('#cloud-auto-sw'); if(sw) sw.classList.toggle('on', OD.cfg.auto!==false);
     const skw=$('#cloud-synckey-sw'); if(skw) skw.classList.toggle('on', state.settings.odSyncKey===true);
@@ -3789,6 +3817,9 @@
   }
   async function bootApp(){
     await ensureStructure(); await loadSettings(); await loadCatalog(); await loadExportDefs(); await loadForum(); await loadTombs();
+    // Liegengebliebene Temp-Dateien abgebrochener Sync-Läufe entsorgen – die können
+    // hunderte MB Kontingent blockieren, ohne irgendwo sichtbar zu sein.
+    try{ for await(const [nm,h] of state.dirs.exports.entries()){ if(h.kind==='file'&&/\.tmp\.zip$/i.test(nm)) await removeFile(state.dirs.exports, nm); } }catch(e){}
     // Ordnernamen lokal merken: geht das gespeicherte Handle verloren (Browser
     // loescht Website-Daten), kann das Onboarding darauf hinweisen, dass die
     // Daten weiterhin in diesem Ordner liegen.
