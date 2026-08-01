@@ -781,7 +781,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.20';
+  const APP_VERSION = '1.10.21';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2800,6 +2800,18 @@
   // Packen mit Zeitgrenze: Bleibt der Vorgang hängen (auf iPhone/iPad blieb der Sync bei
   // „📦 1 %" stehen und hinterliess eine 0-Byte-Datei), wird abgebrochen, aufgeräumt und
   // ein Fehler gemeldet – statt den ganzen Sync unbegrenzt blockieren zu lassen.
+  // Packt das VOLLE Archiv und fällt bei Fehler/Hänger auf eine reine Daten-Sicherung
+  // (index/meta, wenige MB) zurück. Im App-Speicher (iPhone/iPad) sprengt eine komplette
+  // Zweitkopie regelmässig die Grenzen des Browsers – dort wird gar nicht erst der volle
+  // Weg versucht. Eine kleine Sicherung ist immer besser als gar keine.
+  async function packBackupResilient(dir, name, opts={}, ms=180000){
+    const wantFull = !opts.folders || opts.folders.length>2;
+    if(wantFull && state.storageMode!=='opfs'){
+      try{ return await buildBackupToFileGuarded(dir, name, opts, ms); }
+      catch(e){ console.warn('Voll-Sicherung nicht möglich – weiche auf Daten-Sicherung aus:', e); }
+    }
+    return await buildBackupToFileGuarded(dir, name, Object.assign({}, opts, {folders:['index','meta']}), ms);
+  }
   async function buildBackupToFileGuarded(dir, name, opts={}, ms=180000){
     let timer=null;
     try{
@@ -2849,7 +2861,7 @@
     try{
       toast(state.settings.lang==='de'?'Backup wird erstellt…':'Creating backup…');
       const name='wissensarchiv_backup_'+stamp()+'.zip';
-      const f=await buildBackupToFile(state.dirs.exports, name, {});   // streamt auf die Platte
+      const f=await packBackupResilient(state.dirs.exports, name, {});   // streamt auf die Platte
       download(f, name);
       state.settings.lastBackup=new Date().toISOString(); persistSettings(); renderBackupStats();
       toast(state.settings.lang==='de'?'Backup erstellt (in /exports und Download).':'Backup created (in /exports and download).','ok');
@@ -2880,7 +2892,7 @@
       // Direkt in die Datei streamen (spart bei grossen Archiven hunderte MB Speicher).
       // Erst rotieren, dann schreiben – das Anlegen braucht sonst Platz für eine 6. Vollkopie.
       await rotateAutoBackups(4);
-      await buildBackupToFile(state.dirs.exports, 'wissensarchiv_autobackup_'+stamp()+'.zip', {});
+      await packBackupResilient(state.dirs.exports, 'wissensarchiv_autobackup_'+stamp()+'.zip', {});
       state.settings.autoBackupLast=new Date().toISOString();
       state.settings.lastBackup=state.settings.autoBackupLast;
       await persistSettings();
@@ -3287,10 +3299,17 @@
         // Die grosse BLOB-ZIP erst auf die Platte streamen und von dort hochladen – sie
         // liegt dadurch NICHT komplett im Arbeitsspeicher (iOS-Absturz beim Sync).
         const TMP='_upload_blobs.tmp.zip';
-        const blobBlob=await buildBackupToFile(state.dirs.exports, TMP, {folders:['originals','forum'], onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')});
         try{
+          // Mit Zeitgrenze: Auf iPhone/iPad kann das Packen des vollen Originale-Archivs an
+          // Browser-Grenzen scheitern. Das darf den GESAMTEN Sync nicht blockieren – dann
+          // wird der Blob-Upload eben ausgelassen ('partial'), Daten/Index laufen weiter.
+          const blobBlob=await buildBackupToFileGuarded(state.dirs.exports, TMP, {folders:['originals','forum'], onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')});
           const bj=await odPutFile(OD.blobPath, blobBlob, {force:true});   // DATA war das Konflikt-Tor
           if(bj!=='conflict'){ OD.cfg.etagBlob=bj.eTag||bj.cTag||''; OD.cfg.blobDirty=false; await odSaveCfg(); }
+          else blobSkipped=true;
+        }catch(e){
+          console.warn('Blob-Upload nicht möglich – Sync läuft ohne Originale weiter:', e);
+          blobSkipped=true;   // blobDirty bleibt gesetzt → späterer Versuch (oder anderes Gerät)
         } finally{ await removeFile(state.dirs.exports, TMP); }
       } else {
         blobSkipped=true;   // Aufrufer MUSS das wissen: kein Erfolg melden, kein Schnappschuss

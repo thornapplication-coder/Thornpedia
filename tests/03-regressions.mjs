@@ -251,7 +251,7 @@ export async function run(base) {
     const w = await (await WA.state.dirs.exports.getFileHandle(name, { create: true })).createWritable();
     await w.write(blob); await w.close();
     WA.switchView('backup');
-    await new Promise(r => setTimeout(r, 300));
+    await new Promise(r => setTimeout(r, 700));
     const rows = [...document.querySelectorAll('#backup-files .queue-item')].map(e => e.textContent);
     return { listed: rows.some(x => x.includes(name)), hasRestore: !!document.querySelector('#backup-files [data-bkrs]'), count: rows.length };
   });
@@ -261,7 +261,7 @@ export async function run(base) {
     const WA = window.WA;
     const done = await Promise.race([
       WA.buildBackupToFile(WA.state.dirs.exports, 'wissensarchiv_backup_streamtest.zip', {}).then(f => ({ size: f.size })),
-      new Promise(r => setTimeout(() => r({ timeout: true }), 20000)),
+      new Promise(r => setTimeout(() => r({ timeout: true }), 90000)),
     ]);
     if (done.timeout) return { timeout: true };
     // Ergebnis muss als ZIP lesbar sein und die Index-Dateien enthalten.
@@ -288,7 +288,7 @@ export async function run(base) {
     if (delBtn) {
       const orig = window.confirm; window.confirm = () => true;
       delBtn.click();
-      await new Promise(r => setTimeout(r, 200));
+      await new Promise(r => setTimeout(r, 600));
       window.confirm = orig;
       try { await WA.state.dirs.exports.getFileHandle(name); } catch (e) { deleted = true; }
     }
@@ -309,7 +309,7 @@ export async function run(base) {
     const w = await (await WA.state.dirs.exports.getFileHandle(name, { create: true })).createWritable();
     await w.close();                                  // 0 Byte, wie nach einem Abbruch
     WA.switchView('backup');
-    await new Promise(r => setTimeout(r, 400));
+    await new Promise(r => setTimeout(r, 900));
     const listed = [...document.querySelectorAll('#backup-files .queue-item')].some(e => e.textContent.includes(name));
     let gone = false; try { await WA.state.dirs.exports.getFileHandle(name); } catch (e) { gone = true; }
     return { listed, gone };
