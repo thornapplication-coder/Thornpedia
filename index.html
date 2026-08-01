@@ -673,6 +673,7 @@
           </div>
           <p style="color:var(--text-muted);font-size:12px;margin:10px 0 0" id="set-storage-info"></p>
           <div class="row" style="margin-top:14px"><span class="switch" id="sw-offline" aria-hidden="true"></span> <span id="offline-label" role="status" data-i18n="set-offline">Offline-Betrieb wird eingerichtet …</span></div>
+          <div class="fmeta" id="set-storage-usage" style="margin-top:10px"></div>
           <div class="notice warn" id="opfs-hint" style="display:none;margin-top:12px"><span>⚠</span><span data-i18n="opfs-hint">Auf diesem Gerät liegen die Daten im App-Speicher des Browsers. Erstelle regelmäßig Backup-ZIPs – wenn Website-Daten gelöscht werden, wäre das Archiv sonst weg.</span></div>
         </div>
         <div class="panel panel-pad">
@@ -770,7 +771,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.15';
+  const APP_VERSION = '1.10.16';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1603,6 +1604,17 @@
   // das (noch) weniger Dokumente hat, beim Spiegeln das Archiv für ALLE schrumpfen.
   // Die Marker werden über /meta/tombstones.json mitsynchronisiert und beim Einspielen
   // VEREINIGT (nie ersetzt), damit keine Löschabsicht verloren geht.
+  // Belegter/verfügbarer Speicher als Text – wichtig, weil ein voller Speicher sich
+  // sonst nur als „Datei ließ sich nicht schreiben" bemerkbar macht.
+  async function storageInfo(){
+    try{
+      if(!(navigator.storage&&navigator.storage.estimate))return '';
+      const {usage=0, quota=0}=await navigator.storage.estimate();
+      if(!quota)return '';
+      const pct=Math.round(usage/quota*100);
+      return `${fmtBytes(usage)} / ${fmtBytes(quota)} (${pct} %)`;
+    }catch(e){ return ''; }
+  }
   async function loadTombs(){ try{ const t=JSON.parse(await readFileText(state.dirs.meta,'tombstones.json')); state.tombs=new Set(Array.isArray(t)?t.map(String):[]); }catch(e){ state.tombs=new Set(); } }
   async function saveTombs(){ try{ await writeFile(state.dirs.meta,'tombstones.json',JSON.stringify([...state.tombs])); }catch(e){ console.warn('tombstones speichern:',e); } }
   async function saveForum(){ try{ await writeFile(state.dirs.meta,'forum.json',JSON.stringify(state.forum,null,2)); odMarkDirty(); }catch(e){ console.warn(e); } }
@@ -2813,6 +2825,9 @@
       'pdf','doc','docx','xls','xlsx','csv','txt','md','rtf','ppt','pptx','odt','ods','odp','zip']);
     // Grenzen gegen ZIP-Bomben / Speicher-DoS
     const MAX_FILES=20000, MAX_TOTAL=2*1024*1024*1024; let n=0, total=0, skipped=0;
+    // Diagnose: Was enthielt die ZIP, was kam wirklich an? Ohne diese Zahlen sieht ein
+    // gescheitertes Schreiben (z. B. Speicher voll) wie „Sicherung enthält nichts" aus.
+    const stats={idxInZip:0, wrote:0, failed:0};
     // Welche Dateinamen die ZIP je Ordner enthaelt – fuer den Spiegel-Abgleich unten.
     const present={originals:new Set(), index:new Set(), meta:new Set(), forum:new Set()};
     // Schnappschuss der VOR dem Einspielen vorhandenen lokalen Dateien: Nur diese
@@ -2836,6 +2851,7 @@
       if(!targets[folder]||!folderSet.has(folder)||!fname)continue;         // nur autoritative Ordner
       if(/[\\/]|^\.+$/.test(fname)){ skipped++; continue; }               // keine Traversal-/Sonderpfade
       present[folder].add(fname);                                         // in der ZIP vorhanden (fuer Spiegel-Prune)
+      if(folder==='index') stats.idxInZip++;                              // Diagnose: Einträge in der Sicherung
       if(folder==='meta'&&!META_ALLOW.has(fname)){ skipped++; continue; } // meta streng begrenzt
       if(folder==='index'&&!/^[A-Za-z0-9_-]+\.json$/.test(fname)){ skipped++; continue; }
       // Originale nur mit unterstützter Endung übernehmen – blockt z. B. eine
@@ -2867,9 +2883,9 @@
       // Index/meta sind JSON: nach dem Schreiben prüfen, damit eine abgebrochene
       // Wiederherstellung keine unlesbare Datei über eine intakte legt (Dokument wäre weg).
       if(folder==='index'||folder==='meta'){
-        try{ await writeJsonChecked(targets[folder], fname, new TextDecoder().decode(content)); }
-        catch(e){ console.warn('Eintrag konnte nicht sicher geschrieben werden:', fname, e); skipped++; continue; }
-      } else await writeFile(targets[folder], fname, content);
+        try{ await writeJsonChecked(targets[folder], fname, new TextDecoder().decode(content)); stats.wrote++; }
+        catch(e){ console.warn('Eintrag konnte nicht sicher geschrieben werden:', fname, e); stats.failed++; skipped++; continue; }
+      } else { await writeFile(targets[folder], fname, content); stats.wrote++; }
     }
     // 2) Spiegel-Abgleich: lokal vorhandene Dateien entfernen, die die ZIP NICHT
     //    (mehr) enthaelt – so verschwinden auf anderen Geraeten geloeschte Dokumente.
@@ -2933,6 +2949,7 @@
         }
       }
     }
+    return stats;
   }
   // Katalog/Ansichten nach einem Restore bzw. Cloud-Pull aus den (neuen) Index-
   // Dateien – der Quelle der Wahrheit – neu aufbauen. Nichts bleibt verwaist.
@@ -2950,10 +2967,11 @@
     // dazugekommen sind – „Wiederhergestellt: 42" (= Gesamtzahl) hat den Eindruck
     // erweckt, es sei etwas passiert, obwohl die Sicherung nichts Neues enthielt.
     const before=new Set(state.catalog.map(c=>c.id));
+    let stats=null;
     try{
       toast(de?'Backup wird eingelesen…':'Reading backup…');
       await loadScript('vendor/jszip.min.js'); const zip=await window.JSZip.loadAsync(await file.arrayBuffer());
-      await applyBackupZip(zip, {clearFirst:false, allowKey:false});   // manueller Import: API-Key NIE aus Fremd-ZIP
+      stats=await applyBackupZip(zip, {clearFirst:false, allowKey:false});   // manueller Import: API-Key NIE aus Fremd-ZIP
       restored=true;
     }catch(e){ console.error(e); toast((state.settings.lang==='de'?'Import-Fehler: ':'Import error: ')+e.message,'err'); }
     finally{
@@ -2969,9 +2987,15 @@
           refreshLibrary();
           const docs=added.filter(c=>c.type!=='forum').length, fo=added.length-docs;
           toast((de?'Zurückgeholt: ':'Recovered: ')+docs+(de?' Dokumente':' documents')+(fo?(de?' und ':' and ')+fo+(de?' Forum-Einträge':' forum entries'):'')+(de?`. Bibliothek jetzt: ${state.catalog.filter(c=>c.type!=='forum').length}.`:`. Library now: ${state.catalog.filter(c=>c.type!=='forum').length}.`),'ok');
+        } else if(stats && stats.failed){
+          // WICHTIGE Unterscheidung: Die Sicherung hatte Einträge, sie ließen sich aber
+          // nicht schreiben (fast immer: Speicher voll). Das früher gezeigte „Sicherung
+          // enthält nichts Fehlendes" hätte hier in die völlig falsche Richtung geschickt.
+          const q=await storageInfo();
+          toast((de?`Wiederherstellen unvollständig: ${stats.failed} Einträge konnten NICHT gespeichert werden`:`Restore incomplete: ${stats.failed} entries could NOT be saved`)+(q?(de?` – Speicher: ${q}`:` – storage: ${q}`):'')+(de?'. Bitte Speicherplatz freigeben (alte Sicherungen löschen) und erneut versuchen.':'. Please free up space (delete old backups) and try again.'),'err');
         } else {
-          // Ehrlich: Diese Sicherung enthielt nichts, was hier fehlte (meist zu neu).
-          toast(de?'Diese Sicherung enthielt keine fehlenden Dokumente – sie ist vermutlich nach dem Verlust entstanden. Bitte eine ÄLTERE Sicherung wählen.':'This backup contained no missing documents – it was probably created after the loss. Please pick an OLDER backup.','err');
+          // Ehrlich: Diese Sicherung enthielt wirklich nichts, was hier fehlte.
+          toast((de?`Diese Sicherung enthält ${stats?stats.idxInZip:0} Einträge – aber keinen, der hier fehlt. Sie ist vermutlich nach dem Verlust entstanden; bitte eine ÄLTERE wählen.`:`This backup holds ${stats?stats.idxInZip:0} entries – none of them missing here. It was probably created after the loss; please pick an OLDER one.`),'err');
         }
       }
     }
@@ -3686,6 +3710,12 @@
     const sk=$('#set-storage-kind'); if(sk)sk.textContent=isOpfs?T('set-kind-app'):T('set-kind-folder');
     const si=$('#set-storage-info'); if(si)si.textContent=isOpfs?T('set-info-opfs'):T('set-info-fsa');
     const oh=$('#opfs-hint'); if(oh)oh.style.display=isOpfs?'':'none';
+    // Speicherbelegung anzeigen und bei knappem Platz warnen (voller Speicher ist die
+    // häufigste Ursache dafür, dass Einträge nicht mehr geschrieben werden können).
+    storageInfo().then(q=>{ const se=$('#set-storage-usage'); if(!se)return;
+      se.textContent = q ? (de?'Speicherbelegung: ':'Storage used: ')+q : '';
+      const m=q&&q.match(/\((\d+) %\)/); se.style.color = (m&&+m[1]>=85) ? 'var(--danger)' : 'var(--text-muted)';
+    });
     const bc=$('#btn-change-folder'); if(bc)bc.style.display=isOpfs?'none':'';
     const bd=$('#btn-disconnect'); if(bd)bd.style.display=isOpfs?'none':'';
     const pf=$('#pick-folder'); if(pf)pf.style.display=('showDirectoryPicker' in window)?'':'none';
