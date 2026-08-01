@@ -521,6 +521,13 @@
           <div class="dropzone" id="backup-drop" style="margin-top:12px;padding:22px"><div style="font-size:24px">⬆️</div><div data-i18n="backup-drop">Backup-ZIP hierher ziehen oder klicken</div></div>
         </div>
       </div>
+      <!-- Vorhandene Sicherungen: liegen in /exports, waren bisher nur im Dateisystem
+           sichtbar (auf iPhone/iPad also gar nicht erreichbar). -->
+      <div class="panel panel-pad" style="max-width:900px;margin-top:16px">
+        <h3 style="margin:0 0 4px" data-i18n="bk-list-h">Vorhandene Sicherungen</h3>
+        <p style="color:var(--text-muted);margin:0 0 12px" data-i18n="bk-list-p">Automatisch angelegte Sicherungen dieses Geräts. „Wiederherstellen" ergänzt fehlende Dokumente – es wird nichts gelöscht.</p>
+        <div id="backup-files"></div>
+      </div>
     </section>
 
     <!-- ===== Exporte (Live-Exporte) ===== -->
@@ -762,7 +769,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.11';
+  const APP_VERSION = '1.10.13';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -795,7 +802,8 @@
     _renderSeq:0, _renderTask:null,
     parseWorker:null,
     findMode:'search',   // vereinheitlichter Suche/KI-Tab
-    chat:{ messages:[], pending:false, error:'', draft:'', gen:0, ctrl:null },  // „KI fragen"-Verlauf (Sitzung): [{role:'user'|'assistant', content, cost?}]; gen entwertet in-flight-Antworten nach „Neuer Chat"
+    chat:{ messages:[], pending:false, error:'', draft:'', gen:0, ctrl:null },
+    tombs:new Set(),            // ausdrücklich gelöschte Dokument-IDs (meta/tombstones.json)  // „KI fragen"-Verlauf (Sitzung): [{role:'user'|'assistant', content, cost?}]; gen entwertet in-flight-Antworten nach „Neuer Chat"
   };
 
   // ---------- Toast ----------
@@ -849,6 +857,11 @@
     'select-all':['Alle wählen','Select all'],'export':['Export','Export'],
     'doc-original':['Original','Original'],'reindex':['Neu-Indexieren','Re-index'],
     'backup-p':['Komplettes Archiv als eine ZIP – Originale, Indizes, Tags & Notizen.','Full archive as one ZIP – originals, indexes, tags & notes.'],
+    'bk-list-h':['Vorhandene Sicherungen','Existing backups'],
+    'bk-list-p':['Automatisch angelegte Sicherungen dieses Geräts. „Wiederherstellen" ergänzt fehlende Dokumente – es wird nichts gelöscht.','Backups this device created automatically. “Restore” adds back missing documents – nothing is deleted.'],
+    'bk-none':['Auf diesem Gerät liegen keine Sicherungen. Erstelle oben eine Backup-ZIP.','No backups on this device. Create a backup ZIP above.'],
+    'bk-restore':['Wiederherstellen','Restore'],
+    'bk-auto':['automatisch','automatic'],'bk-presync':['vor Abgleich','pre-sync'],'bk-manual':['manuell','manual'],
     'backup-exp-h':['Archiv exportieren','Export archive'],'backup-exp-p':['Erzeugt eine ZIP mit /originals, /index und /meta (ohne API-Key). Wird in /exports gespeichert und als Download angeboten.','Creates a ZIP with /originals, /index and /meta (without the API key). Saved to /exports and offered as a download.'],
     'backup-create':['Backup-ZIP erstellen','Create backup ZIP'],'backup-imp-h':['Aus ZIP wiederherstellen','Restore from ZIP'],'backup-imp-p':['Vollständige Wiederherstellung – inklusive Tags und Notizen. Vorhandene Dokumente werden ergänzt.','Full restore – including tags and notes. Existing documents are merged in.'],'backup-drop':['Backup-ZIP hierher ziehen oder klicken','Drop a backup ZIP here or click'],
     'cloud-h':['OneDrive-Synchronisation','OneDrive sync'],
@@ -1413,6 +1426,9 @@
   // Guard: existiert das Dokument noch (nicht zwischenzeitlich gelöscht)? Sonst Toast + false.
   function guardExists(doc){ if(state.catalog.some(c=>c.id===doc.id))return true; toast(state.settings.lang==='de'?'Dokument wurde inzwischen gelöscht.':'Document was deleted in the meantime.','err'); return false; }
   async function deleteDoc(id, silent){ const doc=await getIndex(id).catch(()=>null); if(doc){ if(doc.type==='forum'){ for(const a of (doc.attachments||[])) await removeFile(state.dirs.forum, a.storedAs); for(const c of (doc.comments||[])) for(const a of (c.attachments||[])) await removeFile(state.dirs.forum, a.storedAs); } else { await removeFile(state.dirs.originals, doc.storedAs); } odBlobDirty(); } await removeFile(state.dirs.index, id+'.json'); state.indexCache.delete(id); state.catalog=state.catalog.filter(c=>c.id!==id); state.lib.selected.delete(id);
+    // Löschabsicht festhalten – nur SO darf der Spiegel-Abgleich das Dokument auf den
+    // anderen Geräten ebenfalls entfernen (siehe applyBackupZip).
+    state.tombs.add(String(id)); await saveTombs();
     if(state.pdfView.docId===id) closePdfView();
     if(state.curDoc&&state.curDoc.doc&&state.curDoc.doc.id===id){ state.curDoc=null; const nd=$('#nav-doc'); if(nd)nd.style.display='none'; }
     state.lastHits=state.lastHits.filter(h=>h.docId!==id); state.search.selected.clear();
@@ -1545,6 +1561,14 @@
   // ein. Die Themen-/Untergruppen-Struktur liegt in /meta/forum.json, Anhänge als
   // echte Dateien in /forum.
   async function loadForum(){ try{ const f=JSON.parse(await readFileText(state.dirs.meta,'forum.json')); state.forum=(f&&Array.isArray(f.groups))?f:{groups:[]}; }catch(e){ state.forum={groups:[]}; } }
+  // ---------- Löschmarker („Tombstones") ----------
+  // Eine Löschung ist eine ausdrückliche Absicht und wird als ID festgehalten. Ohne das
+  // wäre „Datei fehlt in der Cloud" gleichbedeutend mit „gelöscht" – dann kann ein Gerät,
+  // das (noch) weniger Dokumente hat, beim Spiegeln das Archiv für ALLE schrumpfen.
+  // Die Marker werden über /meta/tombstones.json mitsynchronisiert und beim Einspielen
+  // VEREINIGT (nie ersetzt), damit keine Löschabsicht verloren geht.
+  async function loadTombs(){ try{ const t=JSON.parse(await readFileText(state.dirs.meta,'tombstones.json')); state.tombs=new Set(Array.isArray(t)?t.map(String):[]); }catch(e){ state.tombs=new Set(); } }
+  async function saveTombs(){ try{ await writeFile(state.dirs.meta,'tombstones.json',JSON.stringify([...state.tombs])); }catch(e){ console.warn('tombstones speichern:',e); } }
   async function saveForum(){ try{ await writeFile(state.dirs.meta,'forum.json',JSON.stringify(state.forum,null,2)); odMarkDirty(); }catch(e){ console.warn(e); } }
   const foUuid=()=>crypto.randomUUID();
   const forumGroups=()=>((state.forum&&state.forum.groups)||[]);
@@ -2635,6 +2659,37 @@
         ? (de?'Du hast noch kein Backup erstellt. Erstelle jetzt ein Backup-ZIP und lege es sicher ab.':'You have no backup yet. Create a backup ZIP now and store it safely.')
         : (de?`Dein letztes Backup ist ${days} Tage alt. Erstelle regelmäßig ein Backup-ZIP.`:`Your last backup is ${days} days old. Create a backup ZIP regularly.`);
     }
+    renderBackupFiles();
+  }
+  // Listet die tatsächlich vorhandenen Sicherungs-ZIPs aus /exports auf. Die legt die App
+  // automatisch an (Auto-Backup, Sicherung vor jedem Cloud-Abgleich, manuelles Backup),
+  // sie waren bisher aber NUR im Dateisystem sichtbar – im App-Speicher-Modus (iPhone/iPad)
+  // also gar nicht erreichbar. Genau diese Dateien braucht man aber im Ernstfall.
+  const BK_PREFIXES=[['wissensarchiv_autobackup_','bk-auto'],['wissensarchiv_beforesync_','bk-presync'],['wissensarchiv_backup_','bk-manual']];
+  async function listBackupFiles(){
+    const out=[];
+    try{
+      for await(const [n,h] of state.dirs.exports.entries()){
+        if(h.kind!=='file'||!/\.zip$/i.test(n)) continue;
+        const p=BK_PREFIXES.find(([pre])=>n.startsWith(pre)); if(!p) continue;
+        let f=null; try{ f=await h.getFile(); }catch(e){ continue; }
+        out.push({name:n, kind:p[1], size:f.size||0, at:f.lastModified||0});
+      }
+    }catch(e){ console.warn('Sicherungen auflisten:',e); }
+    return out.sort((a,b)=>b.at-a.at);   // neueste zuerst
+  }
+  async function renderBackupFiles(){
+    const el=$('#backup-files'); if(!el)return; const de=state.settings.lang==='de';
+    const files=await listBackupFiles();
+    if(!files.length){ el.innerHTML=`<p style="color:var(--text-muted);font-size:13px;margin:0">${tr('bk-none')}</p>`; return; }
+    el.innerHTML=files.map((f,i)=>`<div class="queue-item"><span class="ftype t-xlsx">ZIP</span><div class="qmain"><div class="fname">${esc(f.name)}</div><div class="fmeta">${tr(f.kind)} · ${f.at?new Date(f.at).toLocaleString(locale()):'—'} · ${fmtBytes(f.size)}</div></div><button class="btn sm" data-bkrs="${i}">♻️ ${tr('bk-restore')}</button><button class="btn sm ghost" data-bkdl="${i}" title="${de?'Herunterladen':'Download'}">⬇</button></div>`).join('');
+    $$('#backup-files [data-bkdl]').forEach(b=>b.onclick=async()=>{ const f=files[+b.dataset.bkdl]; try{ download(await (await state.dirs.exports.getFileHandle(f.name)).getFile(), f.name); }catch(e){ toast((de?'Datei nicht lesbar: ':'File not readable: ')+e.message,'err'); } });
+    $$('#backup-files [data-bkrs]').forEach(b=>b.onclick=async()=>{
+      const f=files[+b.dataset.bkrs];
+      if(!confirm((de?'Aus dieser Sicherung wiederherstellen?\n\n':'Restore from this backup?\n\n')+f.name+(de?'\n\nFehlende Dokumente werden ergänzt. Vorhandenes bleibt erhalten – es wird nichts gelöscht.':'\n\nMissing documents are added back. Existing data is kept – nothing is deleted.'))) return;
+      try{ await importBackup(await (await state.dirs.exports.getFileHandle(f.name)).getFile()); }
+      catch(e){ toast((de?'Wiederherstellen fehlgeschlagen: ':'Restore failed: ')+e.message,'err'); }
+    });
   }
   async function buildBackupBlob(opts={}){
     await loadScript('vendor/jszip.min.js'); const zip=new window.JSZip();
@@ -2712,7 +2767,7 @@
     const folderSet=new Set(folders);
     // Nur meta-Dateien aus einer festen Whitelist zulassen; apikey.txt und
     // catalog.json werden NIE aus einem fremden ZIP uebernommen.
-    const META_ALLOW=new Set(['settings.json','exports.json','forum.json']);
+    const META_ALLOW=new Set(['settings.json','exports.json','forum.json','tombstones.json']);
     // apikey.txt nur beim Cloud-Pull mit ausdruecklichem Opt-in uebernehmen –
     // niemals aus einem manuell importierten Fremd-ZIP.
     if(opts.allowKey) META_ALLOW.add('apikey.txt');
@@ -2756,6 +2811,19 @@
       total+=content.byteLength; if(total>MAX_TOTAL){ throw new Error(de?'Backup ist zu groß.':'Backup too large.'); }
       // Beim manuellen Import (kein Cloud-Pull) darf eine fremde settings.json das
       // API-Key-Sync-Opt-in NICHT stillschweigend aktivieren – der lokale Wert bleibt.
+      // Löschmarker VEREINIGEN statt ersetzen: eine anderswo getätigte Löschung darf eine
+      // hiesige nicht überschreiben (und umgekehrt) – sonst käme ein gelöschtes Dokument
+      // über das andere Gerät zurück.
+      if(folder==='meta'&&fname==='tombstones.json'){
+        try{
+          const inc=JSON.parse(new TextDecoder().decode(content));
+          const merged=new Set([...(Array.isArray(inc)?inc.map(String):[]), ...state.tombs]);
+          state.tombs=merged;
+          content=new TextEncoder().encode(JSON.stringify([...merged])).buffer;
+        }catch(e){ skipped++; continue; }
+      }
+      // onlyMissing: nur ERGÄNZEN, vorhandene Dateien nie überschreiben (Heil-Läufe).
+      if(opts.onlyMissing){ let there=false; try{ await targets[folder].getFileHandle(fname); there=true; }catch(_){ } if(there){ skipped++; continue; } }
       if(folder==='meta'&&fname==='settings.json'&&!opts.allowKey){
         try{ const s=JSON.parse(new TextDecoder().decode(content)); s.odSyncKey=state.settings.odSyncKey===true; content=new TextEncoder().encode(JSON.stringify(s,null,2)).buffer; }
         catch(e){ skipped++; continue; }   // kaputte settings.json gar nicht übernehmen
@@ -2802,6 +2870,15 @@
         const sset=snap&&snap[d];
         for(const nm of preExisting[d]||[]){
           if(present[d].has(nm))continue; if(sset&&!sset.has(nm))continue;
+          // KERN-SCHUTZ gegen „Dokumente verschwinden": Ein Dokument-Eintrag wird beim
+          // Cloud-Abgleich NUR entfernt, wenn es dafür einen ausdrücklichen Löschmarker
+          // gibt. Fehlt der, heißt „nicht in der Cloud" eben NICHT „gelöscht", sondern
+          // meistens „das andere Gerät hatte es (noch) nicht" – früher hat genau das die
+          // Bibliothek auf allen Geräten schrumpfen lassen. Der Eintrag bleibt dann hier
+          // erhalten und wird durch die bestehende „Extras"-Erkennung wieder hochgeladen.
+          // (Nur beim ausdrücklichen „Cloud → dieses Gerät" bzw. beim manuellen
+          //  Wiederherstellen gilt weiterhin der volle Spiegel: opts.tombGated ist dort aus.)
+          if(d==='index' && opts.tombGated){ const tid=String(nm).replace(/\.json$/i,''); if(!state.tombs.has(tid)) continue; }
           // Ein Original NUR entfernen, wenn sein Dokument wirklich weg ist (Index-Datei
           // fehlt). Solange der Index es noch kennt, NIE löschen – schützt davor, dass ein
           // unvollständiger Cloud-Blob (z. B. von einem Gerät mit Alt-Version) ein Original
@@ -2820,7 +2897,7 @@
   // Dateien – der Quelle der Wahrheit – neu aufbauen. Nichts bleibt verwaist.
   async function reloadArchiveViews(){
     state.indexCache.clear(); state._foIdxReady=false; state.catalog=await rebuildCatalog(); await saveCatalog();
-    await loadSettings(); await loadExportDefs(); await loadForum();
+    await loadSettings(); await loadExportDefs(); await loadForum(); await loadTombs();
     updateCount(); applyTheme(state.settings.theme); applyLang(state.settings.lang);
     refreshLibrary(); renderExportsPanel(); updateStorageLabels(); renderForum();
     const ak=$('#api-key'); if(ak && document.activeElement!==ak) ak.value=state.apiKey||''; // evtl. per Sync uebernommenen Key anzeigen
@@ -3135,7 +3212,10 @@
     let blobLoaded=false, cloudOrig=null, cloudForum=null;
     OD.applying=true;
     try{
-      await applyBackupZip(dataZip, {clearFirst:true, allowKey:true, folders:['index','meta'], syncedSnapshot:snapSets});
+      // tombGated: beim normalen Sync verschwindet ein Dokument nur mit Löschmarker.
+      // Beim Force-Pull („Cloud → dieses Gerät") will der Nutzer ausdrücklich den vollen
+      // Spiegel – dort bleibt es beim bisherigen Verhalten.
+      await applyBackupZip(dataZip, {clearFirst:true, allowKey:true, folders:['index','meta'], syncedSnapshot:snapSets, tombGated:!popts.fullMirror});
       // BLOBS (originals/forum) nur laden, wenn sich ihr eTag geändert hat – das spart
       // auf Konsum-Geräten den grossen Download bei jeder kleinen Cloud-Änderung.
       if(meta && meta.blob && meta.blob.etag !== OD.cfg.etagBlob){
@@ -3173,7 +3253,7 @@
     OD.applying=true;
     try{
       const blobZip=await window.JSZip.loadAsync(await odDownloadBlob(OD.blobPath,'↓'));
-      await applyBackupZip(blobZip, {folders:['originals','forum']});   // kein clearFirst → nur ergänzen
+      await applyBackupZip(blobZip, {folders:['originals','forum'], onlyMissing:true});   // kein clearFirst → nur ergänzen
       OD.cfg.etagBlob=m.etag||OD.cfg.etagBlob; await odSaveCfg();
     } finally{ OD.applying=false; }
     return true;
@@ -3552,7 +3632,7 @@
     const pf=$('#pick-folder'); if(pf)pf.style.display=('showDirectoryPicker' in window)?'':'none';
   }
   async function bootApp(){
-    await ensureStructure(); await loadSettings(); await loadCatalog(); await loadExportDefs(); await loadForum();
+    await ensureStructure(); await loadSettings(); await loadCatalog(); await loadExportDefs(); await loadForum(); await loadTombs();
     // Ordnernamen lokal merken: geht das gespeicherte Handle verloren (Browser
     // loescht Website-Daten), kann das Onboarding darauf hinweisen, dass die
     // Daten weiterhin in diesem Ordner liegen.

@@ -237,6 +237,41 @@ export async function run(base) {
   t.check('Übersprungener Blob-Upload meldet „partial" statt Erfolg', forceGuard.res === 'partial', JSON.stringify(forceGuard));
   t.check('blobDirty bleibt gesetzt → späterer Sync versucht es erneut', forceGuard.blobDirtyStill === true, JSON.stringify(forceGuard));
 
+  // KERN: Ein Cloud-Stand, dem Dokumente fehlen (Gerät war zurück / hatte sie nie), darf die
+  // Bibliothek NICHT schrumpfen. Nur eine ausdrückliche Löschung (Marker) entfernt Dokumente.
+  const tombs = await page3.evaluate(async () => {
+    const WA = window.WA;
+    await WA.importFiles([new File(['a'], 'bleibt.txt'), new File(['b'], 'wirklich_geloescht.txt')]);
+    const keepId = WA.state.catalog.find(c => c.name === 'bleibt.txt').id;
+    const delId = WA.state.catalog.find(c => c.name === 'wirklich_geloescht.txt').id;
+    const idxHas = async (id) => { try { await WA.state.dirs.index.getFileHandle(id + '.json'); return true; } catch (e) { return false; } };
+
+    const snap = { originals: new Set(), index: new Set([keepId + '.json', delId + '.json']), forum: new Set() };
+    // (1) Cloud-ZIP OHNE beide Dokumente und OHNE Löschmarker → beide MÜSSEN bleiben.
+    const bare = new window.JSZip();
+    await WA.applyBackupZip(bare, { clearFirst: true, folders: ['index', 'meta'], syncedSnapshot: snap, tombGated: true });
+    const keptNoTomb = (await idxHas(keepId)) && (await idxHas(delId));
+
+    // (2) Cloud-ZIP mit Löschmarker für EIN Dokument → nur dieses verschwindet.
+    const withTomb = new window.JSZip();
+    withTomb.file('meta/tombstones.json', JSON.stringify([delId]));
+    await WA.applyBackupZip(withTomb, { clearFirst: true, folders: ['index', 'meta'], syncedSnapshot: snap, tombGated: true });
+    const deletedOnlyTombed = !(await idxHas(delId)) && (await idxHas(keepId));
+
+    // (3) Löschmarker werden VEREINIGT, nicht ersetzt (lokale Löschabsicht überlebt).
+    const localTomb = 'lokal-geloescht-id';
+    WA.state.tombs.add(localTomb);
+    const other = new window.JSZip();
+    other.file('meta/tombstones.json', JSON.stringify(['fremd-id']));
+    await WA.applyBackupZip(other, { clearFirst: false, folders: ['index', 'meta'] });
+    const merged = WA.state.tombs.has(localTomb) && WA.state.tombs.has('fremd-id');
+
+    return { keptNoTomb, deletedOnlyTombed, merged };
+  });
+  t.check('Cloud ohne Löschmarker schrumpft die Bibliothek NICHT (49→42-Fall)', tombs.keptNoTomb === true, JSON.stringify(tombs));
+  t.check('Echte Löschung propagiert weiterhin (nur markiertes Dokument verschwindet)', tombs.deletedOnlyTombed === true, JSON.stringify(tombs));
+  t.check('Löschmarker werden vereinigt statt ersetzt', tombs.merged === true, JSON.stringify(tombs));
+
   t.check('Keine Konsolenfehler (Teil 3)', errors3.length === 0, errors3.join(' | '));
   await ctx3.close();
 
