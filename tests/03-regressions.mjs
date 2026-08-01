@@ -241,6 +241,23 @@ export async function run(base) {
   t.check('Download fehlendes Original: hilfreiche Meldung mit Handlungshinweis', /nicht vorhanden/.test(dl.toast) && /(importier|synchronisier)/i.test(dl.toast), dl.toast);
   t.check('odFetchBlobs ohne Cloud: false (gefahrloser No-Op)', dl.fetchFalse === false);
 
+  // Sicherungen müssen IN DER APP sichtbar und wiederherstellbar sein – im App-Speicher-
+  // Modus (iPhone/iPad) kommt man sonst gar nicht an sie heran.
+  const bkList = await page.evaluate(async () => {
+    const WA = window.WA;
+    // Echte Sicherung erzeugen und wie das Auto-Backup in /exports ablegen.
+    const blob = await WA.buildBackupBlob({ folders: ['index', 'meta'] });
+    const name = 'wissensarchiv_autobackup_2026-01-01_0000.zip';
+    const w = await (await WA.state.dirs.exports.getFileHandle(name, { create: true })).createWritable();
+    await w.write(blob); await w.close();
+    WA.switchView('backup');
+    await new Promise(r => setTimeout(r, 300));
+    const rows = [...document.querySelectorAll('#backup-files .queue-item')].map(e => e.textContent);
+    return { listed: rows.some(x => x.includes(name)), hasRestore: !!document.querySelector('#backup-files [data-bkrs]'), count: rows.length };
+  });
+  t.check('Backup-Ansicht listet vorhandene Sicherungen', bkList.listed === true, JSON.stringify(bkList));
+  t.check('Sicherung hat einen „Wiederherstellen"-Knopf', bkList.hasRestore === true, JSON.stringify(bkList));
+
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
   await browser.close();
   return t.fails();

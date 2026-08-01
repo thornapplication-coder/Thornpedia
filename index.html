@@ -521,6 +521,13 @@
           <div class="dropzone" id="backup-drop" style="margin-top:12px;padding:22px"><div style="font-size:24px">⬆️</div><div data-i18n="backup-drop">Backup-ZIP hierher ziehen oder klicken</div></div>
         </div>
       </div>
+      <!-- Vorhandene Sicherungen: liegen in /exports, waren bisher nur im Dateisystem
+           sichtbar (auf iPhone/iPad also gar nicht erreichbar). -->
+      <div class="panel panel-pad" style="max-width:900px;margin-top:16px">
+        <h3 style="margin:0 0 4px" data-i18n="bk-list-h">Vorhandene Sicherungen</h3>
+        <p style="color:var(--text-muted);margin:0 0 12px" data-i18n="bk-list-p">Automatisch angelegte Sicherungen dieses Geräts. „Wiederherstellen" ergänzt fehlende Dokumente – es wird nichts gelöscht.</p>
+        <div id="backup-files"></div>
+      </div>
     </section>
 
     <!-- ===== Exporte (Live-Exporte) ===== -->
@@ -762,7 +769,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.12';
+  const APP_VERSION = '1.10.13';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -850,6 +857,11 @@
     'select-all':['Alle wählen','Select all'],'export':['Export','Export'],
     'doc-original':['Original','Original'],'reindex':['Neu-Indexieren','Re-index'],
     'backup-p':['Komplettes Archiv als eine ZIP – Originale, Indizes, Tags & Notizen.','Full archive as one ZIP – originals, indexes, tags & notes.'],
+    'bk-list-h':['Vorhandene Sicherungen','Existing backups'],
+    'bk-list-p':['Automatisch angelegte Sicherungen dieses Geräts. „Wiederherstellen" ergänzt fehlende Dokumente – es wird nichts gelöscht.','Backups this device created automatically. “Restore” adds back missing documents – nothing is deleted.'],
+    'bk-none':['Auf diesem Gerät liegen keine Sicherungen. Erstelle oben eine Backup-ZIP.','No backups on this device. Create a backup ZIP above.'],
+    'bk-restore':['Wiederherstellen','Restore'],
+    'bk-auto':['automatisch','automatic'],'bk-presync':['vor Abgleich','pre-sync'],'bk-manual':['manuell','manual'],
     'backup-exp-h':['Archiv exportieren','Export archive'],'backup-exp-p':['Erzeugt eine ZIP mit /originals, /index und /meta (ohne API-Key). Wird in /exports gespeichert und als Download angeboten.','Creates a ZIP with /originals, /index and /meta (without the API key). Saved to /exports and offered as a download.'],
     'backup-create':['Backup-ZIP erstellen','Create backup ZIP'],'backup-imp-h':['Aus ZIP wiederherstellen','Restore from ZIP'],'backup-imp-p':['Vollständige Wiederherstellung – inklusive Tags und Notizen. Vorhandene Dokumente werden ergänzt.','Full restore – including tags and notes. Existing documents are merged in.'],'backup-drop':['Backup-ZIP hierher ziehen oder klicken','Drop a backup ZIP here or click'],
     'cloud-h':['OneDrive-Synchronisation','OneDrive sync'],
@@ -2647,6 +2659,37 @@
         ? (de?'Du hast noch kein Backup erstellt. Erstelle jetzt ein Backup-ZIP und lege es sicher ab.':'You have no backup yet. Create a backup ZIP now and store it safely.')
         : (de?`Dein letztes Backup ist ${days} Tage alt. Erstelle regelmäßig ein Backup-ZIP.`:`Your last backup is ${days} days old. Create a backup ZIP regularly.`);
     }
+    renderBackupFiles();
+  }
+  // Listet die tatsächlich vorhandenen Sicherungs-ZIPs aus /exports auf. Die legt die App
+  // automatisch an (Auto-Backup, Sicherung vor jedem Cloud-Abgleich, manuelles Backup),
+  // sie waren bisher aber NUR im Dateisystem sichtbar – im App-Speicher-Modus (iPhone/iPad)
+  // also gar nicht erreichbar. Genau diese Dateien braucht man aber im Ernstfall.
+  const BK_PREFIXES=[['wissensarchiv_autobackup_','bk-auto'],['wissensarchiv_beforesync_','bk-presync'],['wissensarchiv_backup_','bk-manual']];
+  async function listBackupFiles(){
+    const out=[];
+    try{
+      for await(const [n,h] of state.dirs.exports.entries()){
+        if(h.kind!=='file'||!/\.zip$/i.test(n)) continue;
+        const p=BK_PREFIXES.find(([pre])=>n.startsWith(pre)); if(!p) continue;
+        let f=null; try{ f=await h.getFile(); }catch(e){ continue; }
+        out.push({name:n, kind:p[1], size:f.size||0, at:f.lastModified||0});
+      }
+    }catch(e){ console.warn('Sicherungen auflisten:',e); }
+    return out.sort((a,b)=>b.at-a.at);   // neueste zuerst
+  }
+  async function renderBackupFiles(){
+    const el=$('#backup-files'); if(!el)return; const de=state.settings.lang==='de';
+    const files=await listBackupFiles();
+    if(!files.length){ el.innerHTML=`<p style="color:var(--text-muted);font-size:13px;margin:0">${tr('bk-none')}</p>`; return; }
+    el.innerHTML=files.map((f,i)=>`<div class="queue-item"><span class="ftype t-xlsx">ZIP</span><div class="qmain"><div class="fname">${esc(f.name)}</div><div class="fmeta">${tr(f.kind)} · ${f.at?new Date(f.at).toLocaleString(locale()):'—'} · ${fmtBytes(f.size)}</div></div><button class="btn sm" data-bkrs="${i}">♻️ ${tr('bk-restore')}</button><button class="btn sm ghost" data-bkdl="${i}" title="${de?'Herunterladen':'Download'}">⬇</button></div>`).join('');
+    $$('#backup-files [data-bkdl]').forEach(b=>b.onclick=async()=>{ const f=files[+b.dataset.bkdl]; try{ download(await (await state.dirs.exports.getFileHandle(f.name)).getFile(), f.name); }catch(e){ toast((de?'Datei nicht lesbar: ':'File not readable: ')+e.message,'err'); } });
+    $$('#backup-files [data-bkrs]').forEach(b=>b.onclick=async()=>{
+      const f=files[+b.dataset.bkrs];
+      if(!confirm((de?'Aus dieser Sicherung wiederherstellen?\n\n':'Restore from this backup?\n\n')+f.name+(de?'\n\nFehlende Dokumente werden ergänzt. Vorhandenes bleibt erhalten – es wird nichts gelöscht.':'\n\nMissing documents are added back. Existing data is kept – nothing is deleted.'))) return;
+      try{ await importBackup(await (await state.dirs.exports.getFileHandle(f.name)).getFile()); }
+      catch(e){ toast((de?'Wiederherstellen fehlgeschlagen: ':'Restore failed: ')+e.message,'err'); }
+    });
   }
   async function buildBackupBlob(opts={}){
     await loadScript('vendor/jszip.min.js'); const zip=new window.JSZip();
