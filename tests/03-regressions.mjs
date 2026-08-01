@@ -14,6 +14,17 @@ export async function run(base) {
   await page.goto(base, { waitUntil: 'networkidle' });
   await page.waitForFunction('!!window.WA', { timeout: 15000 });
 
+  // Im Seitenkontext: auf eine Bedingung warten statt feste Wartezeiten zu raten.
+  // Feste Pausen waren unter CI-Last die Ursache sporadisch roter Läufe.
+  await page.addInitScript(() => {});
+  await page.evaluate(() => {
+    window.waitFor = async (fn, ms = 15000, step = 50) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) { const v = await fn(); if (v) return v; await new Promise(r => setTimeout(r, step)); }
+      return null;
+    };
+  });
+
   await page.evaluate(async () => {
     const names = ['mietvertrag.pdf','scan_ohne_text.pdf','projektkonzept.docx','budget.xlsx','kunden.csv','notizen.txt','readme.md','xss_test.xlsx'];
     const files = await Promise.all(names.map(async n => new File([await (await fetch('_testfiles/'+n)).blob()], n)));
@@ -251,9 +262,13 @@ export async function run(base) {
     const w = await (await WA.state.dirs.exports.getFileHandle(name, { create: true })).createWritable();
     await w.write(blob); await w.close();
     WA.switchView('backup');
-    await new Promise(r => setTimeout(r, 700));
-    const rows = [...document.querySelectorAll('#backup-files .queue-item')].map(e => e.textContent);
-    return { listed: rows.some(x => x.includes(name)), hasRestore: !!document.querySelector('#backup-files [data-bkrs]'), count: rows.length };
+    // Auf die fertig gerenderte Liste WARTEN statt fester Wartezeit (unter CI-Last war
+    // eine feste Pause zu kurz → sporadisch rote Läufe bei identischem Code).
+    const rows = await waitFor(() => {
+      const r = [...document.querySelectorAll('#backup-files .queue-item')].map(e => e.textContent);
+      return r.some(x => x.includes(name)) ? r : null;
+    });
+    return { listed: !!rows, hasRestore: !!document.querySelector('#backup-files [data-bkrs]'), count: rows ? rows.length : 0 };
   });
   // Streamendes Packen muss ZU ENDE laufen (der Sync blieb sonst bei „📦 1 %" stehen)
   // und eine gültige, vollständige ZIP hinterlassen.
@@ -288,9 +303,10 @@ export async function run(base) {
     if (delBtn) {
       const orig = window.confirm; window.confirm = () => true;
       delBtn.click();
-      await new Promise(r => setTimeout(r, 600));
+      deleted = !!(await window.waitFor(async () => {
+        try { await WA.state.dirs.exports.getFileHandle(name); return false; } catch (e) { return true; }
+      }));
       window.confirm = orig;
-      try { await WA.state.dirs.exports.getFileHandle(name); } catch (e) { deleted = true; }
     }
     // Fehlertext im Cloud-Panel sichtbar (nicht nur als Hover-Tooltip).
     WA.OD.tokens = { access_token: 't', refresh_token: 'r', expires_at: Date.now() + 3600e3 };
@@ -309,9 +325,11 @@ export async function run(base) {
     const w = await (await WA.state.dirs.exports.getFileHandle(name, { create: true })).createWritable();
     await w.close();                                  // 0 Byte, wie nach einem Abbruch
     WA.switchView('backup');
-    await new Promise(r => setTimeout(r, 900));
+    // Warten, bis die Liste die leere Datei entsorgt hat (statt fester Wartezeit).
+    const gone = !!(await window.waitFor(async () => {
+      try { await WA.state.dirs.exports.getFileHandle(name); return false; } catch (e) { return true; }
+    }));
     const listed = [...document.querySelectorAll('#backup-files .queue-item')].some(e => e.textContent.includes(name));
-    let gone = false; try { await WA.state.dirs.exports.getFileHandle(name); } catch (e) { gone = true; }
     return { listed, gone };
   });
   t.check('Leere (0-Byte-)Sicherung wird nicht angeboten', emptyBk.listed === false, JSON.stringify(emptyBk));
