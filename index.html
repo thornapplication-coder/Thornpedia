@@ -769,7 +769,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.13';
+  const APP_VERSION = '1.10.14';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2905,6 +2905,10 @@
   async function importBackup(file){
     const de=state.settings.lang==='de';
     let restored=false;
+    // Vorher-Bestand merken: die Rückmeldung soll sagen, wie viele Dokumente WIRKLICH
+    // dazugekommen sind – „Wiederhergestellt: 42" (= Gesamtzahl) hat den Eindruck
+    // erweckt, es sei etwas passiert, obwohl die Sicherung nichts Neues enthielt.
+    const before=new Set(state.catalog.map(c=>c.id));
     try{
       toast(de?'Backup wird eingelesen…':'Reading backup…');
       await loadScript('vendor/jszip.min.js'); const zip=await window.JSZip.loadAsync(await file.arrayBuffer());
@@ -2914,7 +2918,21 @@
     finally{
       // Auch nach einem Abbruch bereits geschriebene Index-Dateien sichtbar machen.
       try{ await reloadArchiveViews(); }catch(e2){ console.error(e2); }
-      if(restored) toast((state.settings.lang==='de'?'Wiederhergestellt: ':'Restored: ')+state.catalog.length+(state.settings.lang==='de'?' Dokumente.':' documents.'),'ok');
+      if(restored){
+        const added=state.catalog.filter(c=>!before.has(c.id));
+        if(added.length){
+          // Frisch Zurückgeholtes SICHTBAR machen: Filter zurücksetzen und die betroffenen
+          // Tag-Gruppen aufklappen – sonst läge es unsichtbar in zugeklappten Gruppen.
+          state.lib.q=''; state.lib.tag=null; state.lib.type='all';
+          for(const c of added){ const tags=(c.tags||[]); if(!tags.length) state.lib.expanded.add(UNTAG_KEY); else tags.forEach(t=>state.lib.expanded.add(tagGroupKey(t))); }
+          refreshLibrary();
+          const docs=added.filter(c=>c.type!=='forum').length, fo=added.length-docs;
+          toast((de?'Zurückgeholt: ':'Recovered: ')+docs+(de?' Dokumente':' documents')+(fo?(de?' und ':' and ')+fo+(de?' Forum-Einträge':' forum entries'):'')+(de?`. Bibliothek jetzt: ${state.catalog.filter(c=>c.type!=='forum').length}.`:`. Library now: ${state.catalog.filter(c=>c.type!=='forum').length}.`),'ok');
+        } else {
+          // Ehrlich: Diese Sicherung enthielt nichts, was hier fehlte (meist zu neu).
+          toast(de?'Diese Sicherung enthielt keine fehlenden Dokumente – sie ist vermutlich nach dem Verlust entstanden. Bitte eine ÄLTERE Sicherung wählen.':'This backup contained no missing documents – it was probably created after the loss. Please pick an OLDER backup.','err');
+        }
+      }
     }
   }
 
