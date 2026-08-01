@@ -272,6 +272,32 @@ export async function run(base) {
   t.check('Echte Löschung propagiert weiterhin (nur markiertes Dokument verschwindet)', tombs.deletedOnlyTombed === true, JSON.stringify(tombs));
   t.check('Löschmarker werden vereinigt statt ersetzt', tombs.merged === true, JSON.stringify(tombs));
 
+  // Beschädigte Index-Datei: darf NICHT stumm verschwinden, sondern muss gemeldet werden.
+  const brokenIdx = await page3.evaluate(async () => {
+    const WA = window.WA;
+    await WA.importFiles([new File(['heil'], 'kaputt_test.txt')]);
+    const id = WA.state.catalog.find(c => c.name === 'kaputt_test.txt').id;
+    // Abgeschnittene Datei simulieren (so sieht ein abgebrochener Schreibvorgang aus).
+    const w = await (await WA.state.dirs.index.getFileHandle(id + '.json', { create: true })).createWritable();
+    await w.write('{"id":"' + id + '","name":"kaputt'); await w.close();
+    await WA.rebuildCatalog();
+    WA.switchView('lib');
+    await new Promise(r => setTimeout(r, 200));
+    const banner = document.querySelector('#lib-broken');
+    return { broken: (WA.state.brokenIndex || []).length, visible: !!banner && banner.style.display !== 'none', text: banner ? banner.textContent.slice(0, 60) : '' };
+  });
+  t.check('Beschädigter Index-Eintrag wird erkannt (nicht stumm übersprungen)', brokenIdx.broken === 1, JSON.stringify(brokenIdx));
+  t.check('Beschädigte Einträge werden in der Bibliothek gemeldet', brokenIdx.visible === true, JSON.stringify(brokenIdx));
+
+  // Sicher geschriebenes JSON: nach dem Schreiben lesbar (keine halben Dateien).
+  const safeWrite = await page3.evaluate(async () => {
+    const WA = window.WA;
+    await WA.importFiles([new File(['x'], 'safe_write.txt')]);
+    const id = WA.state.catalog.find(c => c.name === 'safe_write.txt').id;
+    try { JSON.parse(await (await (await WA.state.dirs.index.getFileHandle(id + '.json')).getFile()).text()); return true; } catch (e) { return false; }
+  });
+  t.check('Index-Datei nach dem Schreiben garantiert lesbar', safeWrite === true);
+
   t.check('Keine Konsolenfehler (Teil 3)', errors3.length === 0, errors3.join(' | '));
   await ctx3.close();
 
