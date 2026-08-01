@@ -298,6 +298,32 @@ export async function run(base) {
   });
   t.check('Index-Datei nach dem Schreiben garantiert lesbar', safeWrite === true);
 
+  // App-Speicher (iPhone/iPad): Der Blob-Upload wird bewusst ausgelassen ('partial'),
+  // damit Safari-Grenzen nicht den GANZEN Sync blockieren – und blobDirty bleibt erhalten.
+  const opfsPush = await page3.evaluate(async () => {
+    const WA = window.WA, OD = WA.OD;
+    const prevMode = WA.state.storageMode;
+    WA.state.storageMode = 'opfs';
+    const realFetch = window.fetch;
+    const puts = [];
+    OD.tokens = { access_token: 't', refresh_token: 'r', expires_at: Date.now() + 3600e3 };
+    window.fetch = async (url, opts) => {
+      const u = String(url);
+      if (u.includes('graph.microsoft.com')) {
+        if (opts && opts.method === 'PUT') { puts.push(u); return new Response(JSON.stringify({ eTag: 'e9' }), { status: 200, headers: { 'content-type': 'application/json' } }); }
+        return new Response(JSON.stringify({ eTag: 'e1', size: 10, lastModifiedDateTime: '2026-01-01T00:00:00Z' }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return realFetch(url, opts);
+    };
+    let res = null;
+    try { OD.cfg.blobDirty = true; res = await WA.odPush({}); }
+    finally { window.fetch = realFetch; OD.tokens = null; WA.state.storageMode = prevMode; }
+    return { res, blobPut: puts.some(u => u.includes('blobs')), dataPut: puts.some(u => u.includes('data')), blobDirtyStill: OD.cfg.blobDirty };
+  });
+  t.check('App-Speicher: Daten werden hochgeladen', opfsPush.dataPut === true, JSON.stringify(opfsPush));
+  t.check('App-Speicher: Blob-Upload wird ausgelassen (kein Hänger)', opfsPush.blobPut === false && opfsPush.res === 'partial', JSON.stringify(opfsPush));
+  t.check('App-Speicher: blobDirty bleibt für ein Ordner-Gerät gesetzt', opfsPush.blobDirtyStill === true, JSON.stringify(opfsPush));
+
   t.check('Keine Konsolenfehler (Teil 3)', errors3.length === 0, errors3.join(' | '));
   await ctx3.close();
 

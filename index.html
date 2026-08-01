@@ -781,7 +781,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.22';
+  const APP_VERSION = '1.10.23';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -3290,6 +3290,13 @@
       //   · sonst nur, wenn lokal vollständig – oder das add-only Nachziehen der Cloud-Blobs
       //     GELINGT (danach ist lokal ⊇ Cloud). Scheitert das Nachziehen (z. B. Netzfehler),
       //     wird NICHT hochgeladen; blobDirty bleibt gesetzt und odPush meldet 'partial'.
+      // App-Speicher (iPhone/iPad): Das Packen des vollen Originale-Archivs scheitert dort an
+      // Safari-Grenzen. Gar nicht erst versuchen – der Sync soll nicht daran hängenbleiben.
+      // blobDirty bleibt gesetzt: Ein Gerät mit echtem Ordner überträgt die Originale.
+      if(state.storageMode==='opfs' && !opts.userForce){
+        console.info('Blob-Upload im App-Speicher ausgelassen – Originale überträgt ein Gerät mit Ordner-Zugriff.');
+        return 'partial';
+      }
       let mayUpload = opts.userForce || opts.fresh || opts.blobMissing;
       if(!mayUpload){
         if(await blobComplete()){ mayUpload=true; }
@@ -3441,11 +3448,19 @@
       await applyBackupZip(dataZip, {clearFirst:true, allowKey:true, folders:['index','meta'], syncedSnapshot:snapSets, tombGated:!popts.fullMirror});
       // BLOBS (originals/forum) nur laden, wenn sich ihr eTag geändert hat – das spart
       // auf Konsum-Geräten den grossen Download bei jeder kleinen Cloud-Änderung.
-      if(meta && meta.blob && meta.blob.etag !== OD.cfg.etagBlob){
+      // Im App-Speicher (iPhone/iPad) die grosse Blob-Datei NICHT automatisch laden: Safari
+      // bricht das Schreiben mehrerer hundert MB mit „operation failed … (e.g. out of memory)"
+      // ab – und riss damit den ganzen Abgleich mit. Dort wird standardmässig nur der
+      // (kleine) Daten-Teil synchronisiert; Originale holt man bei Bedarf einzeln
+      // („Original nachladen" beim Download) oder über „Cloud → dieses Gerät".
+      const blobsAuto = state.storageMode!=='opfs' || popts.withBlobs;
+      if(meta && meta.blob && meta.blob.etag !== OD.cfg.etagBlob && blobsAuto){
         const blobZip=await window.JSZip.loadAsync(await odDownloadBlob(OD.blobPath, '↓'));
         await applyBackupZip(blobZip, {clearFirst:true, folders:['originals','forum'], syncedSnapshot:snapSets});
         cloudOrig=cloudSet(blobZip,'originals'); cloudForum=cloudSet(blobZip,'forum'); blobLoaded=true;
         OD.cfg.etagBlob=meta.blob.etag;
+      } else if(meta && meta.blob && meta.blob.etag !== OD.cfg.etagBlob){
+        console.info('Originale-Datei ausgelassen (App-Speicher) – Daten sind aktuell.');
       }
       await reloadArchiveViews();   // Katalog aus den (nun aktuellen) Index-Dateien neu aufbauen
     } finally{ OD.applying=false; }
@@ -3576,8 +3591,15 @@
         // Originale/Anhänge liegen noch NICHT in der Cloud. Der 5-Minuten-Takt versucht es
         // erneut – bewusst KEIN 1,5-s-Nachfassen (das wäre bei dauerhaftem Fehler eine
         // Endlosschleife mit vollem DATA-Upload und Blob-Download je Runde).
-        odSetStatus('error', de?'Originale noch nicht hochgeladen – nächster Versuch folgt':'Originals not uploaded yet – will retry');
-        if(manual) toast(de?'Daten hochgeladen, aber die Originaldateien noch nicht (Cloud-Abgleich unvollständig). Es wird automatisch erneut versucht.':'Data uploaded, but the original files are not in the cloud yet (incomplete sync). It will retry automatically.','err');
+        if(state.storageMode==='opfs'){
+          // Auf iPhone/iPad ist das KEIN Fehler, sondern die bewusste Arbeitsteilung:
+          // Daten laufen hier, die grossen Originale überträgt ein Gerät mit Ordner-Zugriff.
+          odSetStatus('connected');
+          if(manual) toast(de?'Daten synchronisiert. Die großen Originaldateien überträgt auf diesem Gerät nicht – das übernimmt dein Gerät mit Ordner-Zugriff.':'Data synced. Large original files are not transferred on this device – your folder-based device handles those.','ok');
+        } else {
+          odSetStatus('error', de?'Originale noch nicht hochgeladen – nächster Versuch folgt':'Originals not uploaded yet – will retry');
+          if(manual) toast(de?'Daten hochgeladen, aber die Originaldateien noch nicht (Cloud-Abgleich unvollständig). Es wird automatisch erneut versucht.':'Data uploaded, but the original files are not in the cloud yet (incomplete sync). It will retry automatically.','err');
+        }
       } else {
         if(action!=='none' || !OD.cfg.snap) await odCaptureSnapshot();
         odSetStatus('connected');
@@ -3585,7 +3607,9 @@
       // Zeitstempel IMMER aktualisieren – auch wenn nichts zu tun war –, damit
       // „Jetzt synchronisieren" sichtbar reagiert.
       OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
-      ok=(action!=='partial');
+      // Auf iPhone/iPad gilt 'partial' als Erfolg (Originale sind dort bewusst nicht dabei) –
+      // sonst würde das 1,5-s-Nachfassen unterbleiben bzw. dauerhaft „Fehler" angezeigt.
+      ok=(action!=='partial') || state.storageMode==='opfs';
       // Eingehende Änderungen/Konflikte immer melden; reiner Upload/„nichts zu tun"
       // nur bei manuellem Klick (Hintergrund-Abfragen bleiben still).
       if(action==='pull'){ toast(de?'Vom Cloud-Stand aktualisiert.':'Updated from cloud.','ok'); }
@@ -3602,7 +3626,11 @@
       // Nur NACH ERFOLG bald nachziehen, wenn waehrend des Syncs eine Aenderung kam.
       // Bei einem Fehler ODER uebersprungenem Blob-Upload ('partial') NICHT eng
       // weiterprobieren (sonst 1,5-s-Endlosschleife) – der 5-Minuten-Takt greift ohnehin.
-      if(ok && (OD.cfg.dirty||OD.cfg.blobDirty) && odConnected() && OD.cfg.auto!==false){ clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 1500); }
+      // Im App-Speicher bleibt blobDirty DAUERHAFT gesetzt (Originale werden dort bewusst nie
+      // hochgeladen). Daran darf kein Nachfassen hängen – sonst liefe der Sync alle 1,5 s
+      // endlos weiter. Nur echte Daten-Änderungen (dirty) lösen dort ein Nachfassen aus.
+      const pending = OD.cfg.dirty || (OD.cfg.blobDirty && state.storageMode!=='opfs');
+      if(ok && pending && odConnected() && OD.cfg.auto!==false){ clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 1500); }
     }
   }
   // Konflikt (Remote und lokal geaendert): neuere Fassung gewinnt. Beide Staende werden
