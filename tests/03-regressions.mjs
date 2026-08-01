@@ -276,6 +276,33 @@ export async function run(base) {
   t.check('Backup-Ansicht listet vorhandene Sicherungen', bkList.listed === true, JSON.stringify(bkList));
   t.check('Sicherung hat einen „Wiederherstellen"-Knopf', bkList.hasRestore === true, JSON.stringify(bkList));
 
+  // Sicherungen müssen auch LÖSCHBAR sein (auf iPhone/iPad der einzige Weg, das
+  // Speicher-Kontingent freizugeben) – und Sync-Fehler müssen im Klartext sichtbar sein.
+  const bkOps = await page.evaluate(async () => {
+    const WA = window.WA;
+    // Den Löschen-Knopf GENAU der Fixture-Zeile treffen (Liste ist „neueste zuerst").
+    const name = 'wissensarchiv_autobackup_2026-01-01_0000.zip';
+    const row = [...document.querySelectorAll('#backup-files .queue-item')].find(r => r.textContent.includes(name));
+    const delBtn = row ? row.querySelector('[data-bkrm]') : null;
+    let deleted = false;
+    if (delBtn) {
+      const orig = window.confirm; window.confirm = () => true;
+      delBtn.click();
+      await new Promise(r => setTimeout(r, 200));
+      window.confirm = orig;
+      try { await WA.state.dirs.exports.getFileHandle(name); } catch (e) { deleted = true; }
+    }
+    // Fehlertext im Cloud-Panel sichtbar (nicht nur als Hover-Tooltip).
+    WA.OD.tokens = { access_token: 't', refresh_token: 'r', expires_at: Date.now() + 3600e3 };
+    WA.odSetStatus('error', 'Testfehler: Speicher voll');
+    const ce = document.querySelector('#cloud-error');
+    const errShown = !!ce && ce.style.display !== 'none' && ce.textContent.includes('Testfehler');
+    WA.odSetStatus('connected'); WA.OD.tokens = null;
+    return { hadDelete: !!delBtn, deleted, errShown };
+  });
+  t.check('Sicherung hat einen Löschen-Knopf und löscht wirklich', bkOps.hadDelete === true && bkOps.deleted === true, JSON.stringify(bkOps));
+  t.check('Sync-Fehler erscheint im Klartext im Cloud-Panel', bkOps.errShown === true, JSON.stringify(bkOps));
+
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
   await browser.close();
   return t.fails();
