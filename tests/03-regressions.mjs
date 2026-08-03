@@ -16,7 +16,6 @@ export async function run(base) {
 
   // Im Seitenkontext: auf eine Bedingung warten statt feste Wartezeiten zu raten.
   // Feste Pausen waren unter CI-Last die Ursache sporadisch roter Läufe.
-  await page.addInitScript(() => {});
   await page.evaluate(() => {
     window.waitFor = async (fn, ms = 15000, step = 50) => {
       const end = Date.now() + ms;

@@ -781,7 +781,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.25';
+  const APP_VERSION = '1.10.26';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -2735,17 +2735,23 @@
   // also gar nicht erreichbar. Genau diese Dateien braucht man aber im Ernstfall.
   const BK_PREFIXES=[['wissensarchiv_autobackup_','bk-auto'],['wissensarchiv_beforesync_','bk-presync'],['wissensarchiv_backup_','bk-manual']];
   async function listBackupFiles(){
-    const out=[];
+    const out=[]; const empties=[];
     try{
       for await(const [n,h] of state.dirs.exports.entries()){
         if(h.kind!=='file'||!/\.zip$/i.test(n)) continue;
         const p=BK_PREFIXES.find(([pre])=>n.startsWith(pre)); if(!p) continue;
         let f=null; try{ f=await h.getFile(); }catch(e){ continue; }
-        // Leere Reste abgebrochener Läufe gar nicht erst anbieten – und gleich entsorgen.
-        if(!f.size){ await removeFile(state.dirs.exports, n); continue; }
+        if(!f.size){
+          // Gerade entstehende Sicherungen sind ebenfalls 0 Byte – die NICHT anfassen.
+          if(!_packingNow.has(n)) empties.push(n);
+          continue;
+        }
         out.push({name:n, kind:p[1], size:f.size||0, at:f.lastModified||0});
       }
     }catch(e){ console.warn('Sicherungen auflisten:',e); }
+    // Erst NACH dem Durchlaufen löschen – ein Verzeichnis während der Iteration zu
+    // verändern ist unsauber und kann Einträge überspringen.
+    for(const n of empties) await removeFile(state.dirs.exports, n);
     return out.sort((a,b)=>b.at-a.at);   // neueste zuerst
   }
   async function renderBackupFiles(){
@@ -2769,7 +2775,11 @@
       const f=files[+b.dataset.bkrm];
       if(!confirm((de?'Diese Sicherung löschen?\n\n':'Delete this backup?\n\n')+f.name+' ('+fmtBytes(f.size)+')')) return;
       await removeFile(state.dirs.exports, f.name);
-      toast(de?'Sicherung gelöscht.':'Backup deleted.','ok');
+      // removeFile schluckt Fehler – deshalb PRÜFEN, ob die Datei wirklich weg ist.
+      // Sonst meldete die App freigewordenen Speicher, den es gar nicht gibt.
+      let gone=false; try{ await state.dirs.exports.getFileHandle(f.name); }catch(_){ gone=true; }
+      toast(gone ? (de?'Sicherung gelöscht.':'Backup deleted.')
+                 : (de?'Sicherung konnte NICHT gelöscht werden.':'Backup could NOT be deleted.'), gone?'ok':'err');
       renderBackupFiles();
     });
   }
@@ -2814,24 +2824,42 @@
   // (index/meta, wenige MB) zurück. Im App-Speicher (iPhone/iPad) sprengt eine komplette
   // Zweitkopie regelmässig die Grenzen des Browsers – dort wird gar nicht erst der volle
   // Weg versucht. Eine kleine Sicherung ist immer besser als gar keine.
+  // Liefert {file, dataOnly}. Eine abgespeckte Sicherung bekommt einen ANDEREN Dateinamen
+  // („…_nur-daten.zip"), damit sie sich nicht als vollständige Sicherung ausgibt – sonst
+  // hielte man eine Datei ohne Originale für ein komplettes Backup.
   async function packBackupResilient(dir, name, opts={}, ms=180000){
     const wantFull = !opts.folders || opts.folders.length>2;
     if(wantFull && state.storageMode!=='opfs'){
-      try{ return await buildBackupToFileGuarded(dir, name, opts, ms); }
+      try{ return {file:await buildBackupToFileGuarded(dir, name, opts, ms), dataOnly:false}; }
       catch(e){ console.warn('Voll-Sicherung nicht möglich – weiche auf Daten-Sicherung aus:', e); }
     }
-    return await buildBackupToFileGuarded(dir, name, Object.assign({}, opts, {folders:['index','meta']}), ms);
+    const dataName=String(name).replace(/\.zip$/i,'')+'_nur-daten.zip';
+    return {file:await buildBackupToFileGuarded(dir, dataName, Object.assign({}, opts, {folders:['index','meta']}), ms), dataOnly:true};
   }
   async function buildBackupToFileGuarded(dir, name, opts={}, ms=180000){
+    // Der Abbruch muss den Packvorgang WIRKLICH stoppen. Ein blosses Promise.race liesse
+    // ihn im Hintergrund weiterlaufen – er könnte die eben aufgeräumte Datei neu anlegen
+    // oder eine schon rotierte Sicherung nachträglich zurückschreiben.
+    const cancel={cancelled:false};
     let timer=null;
     try{
       return await Promise.race([
-        buildBackupToFile(dir, name, opts),
-        new Promise((_,rej)=>{ timer=setTimeout(()=>rej(new Error(state.settings.lang==='de'?'Zeitüberschreitung beim Packen der Sicherung':'Timed out while packing the backup')), ms); }),
+        buildBackupToFile(dir, name, Object.assign({}, opts, {_cancel:cancel})),
+        new Promise((_,rej)=>{ timer=setTimeout(()=>{ cancel.cancelled=true; rej(new Error(state.settings.lang==='de'?'Zeitüberschreitung beim Packen der Sicherung':'Timed out while packing the backup')); }, ms); }),
       ]);
-    }finally{ if(timer)clearTimeout(timer); }
+    }catch(e){ cancel.cancelled=true; throw e; }
+    finally{ if(timer)clearTimeout(timer); }
   }
+  // Namen der GERADE entstehenden Sicherungen. Während des Packens ist die Zieldatei
+  // 0 Byte gross (createWritable() schreibt erst beim Schliessen fest) – die Aufräumung
+  // leerer Reste darf sie deshalb auf keinen Fall wegräumen.
+  const _packingNow=new Set();
   async function buildBackupToFile(dir, name, opts={}){
+    _packingNow.add(name);
+    try{ return await buildBackupToFileInner(dir, name, opts); }
+    finally{ _packingNow.delete(name); }
+  }
+  async function buildBackupToFileInner(dir, name, opts={}){
     const zip=await buildBackupZip(opts);
     // Fallback für Umgebungen ohne Streaming-API: dann wie bisher als Blob erzeugen.
     if(typeof zip.generateInternalStream!=='function'){
@@ -2844,14 +2872,24 @@
     try{
       await new Promise((resolve,reject)=>{
         // Schreibvorgänge werden über eine Promise-Kette SERIALISIERT (jeder Block wartet
-        // auf den vorherigen). Bewusst OHNE stream.pause()/resume(): dieses Gegendruck-
-        // Paar konnte sich verklemmen – der Sync blieb dann bei „📦 1 %" stehen.
-        let chain=Promise.resolve(), failed=false;
+        // auf den vorherigen). Kein stream.pause()/resume() im Normalfall: dieses
+        // Gegendruck-Paar verklemmte sich auf Safari – der Sync blieb bei „📦 1 %" stehen.
+        // Damit sich die Blöcke trotzdem nicht unbegrenzt im Speicher stauen, wird ab einer
+        // Obergrenze doch gebremst – aber NUR dort, wo pause/resume nachweislich trägt
+        // (Geräte mit echtem Ordner). Im App-Speicher bleibt es beim einfachen Weg.
+        const HIGH=48*1024*1024, LOW=16*1024*1024;
+        const mayThrottle = state.storageMode!=='opfs';
+        let chain=Promise.resolve(), failed=false, queued=0, paused=false;
         const fail=(e)=>{ if(!failed){ failed=true; reject(e); } };
         const stream=zip.generateInternalStream({type:'uint8array', streamFiles:true});
         stream.on('data',(chunk,meta)=>{
           if(failed)return;
+          if(opts._cancel&&opts._cancel.cancelled){ fail(new Error(state.settings.lang==='de'?'Packen abgebrochen':'Packing cancelled')); return; }
+          queued+=chunk.length||0;
+          if(mayThrottle&&!paused&&queued>HIGH){ paused=true; try{ stream.pause(); }catch(e){ paused=false; } }
           chain=chain.then(()=>w.write(chunk)).then(()=>{
+            queued-=chunk.length||0;
+            if(paused&&queued<LOW){ paused=false; try{ stream.resume(); }catch(e){} }
             if(opts.onProgress&&meta){ try{ opts.onProgress(Math.round(meta.percent)); }catch(e){} }
           }, fail);
         });
@@ -2871,10 +2909,15 @@
     try{
       toast(state.settings.lang==='de'?'Backup wird erstellt…':'Creating backup…');
       const name='wissensarchiv_backup_'+stamp()+'.zip';
-      const f=await packBackupResilient(state.dirs.exports, name, {});   // streamt auf die Platte
-      download(f, name);
-      state.settings.lastBackup=new Date().toISOString(); persistSettings(); renderBackupStats();
-      toast(state.settings.lang==='de'?'Backup erstellt (in /exports und Download).':'Backup created (in /exports and download).','ok');
+      const r=await packBackupResilient(state.dirs.exports, name, {});   // streamt auf die Platte
+      download(r.file, r.file.name||name);
+      // lastBackup nur bei einer VOLLSTÄNDIGEN Sicherung setzen – sonst verstummt die
+      // Backup-Erinnerung, obwohl es gar kein komplettes Backup gibt.
+      if(!r.dataOnly){ state.settings.lastBackup=new Date().toISOString(); persistSettings(); }
+      renderBackupStats();
+      toast(r.dataOnly
+        ? (state.settings.lang==='de'?'Nur DATEN gesichert (Dokumentliste, Tags, Forum) – die Originaldateien sind NICHT enthalten. Für ein vollständiges Backup ein Gerät mit Ordner-Zugriff nutzen.':'Only DATA backed up (document list, tags, forum) – original files are NOT included. Use a device with folder access for a full backup.')
+        : (state.settings.lang==='de'?'Backup erstellt (in /exports und Download).':'Backup created (in /exports and download).'), r.dataOnly?'err':'ok');
     }catch(e){ console.error(e); toast((state.settings.lang==='de'?'Backup-Fehler: ':'Backup error: ')+e.message,'err'); }
   }
 
@@ -2902,9 +2945,10 @@
       // Direkt in die Datei streamen (spart bei grossen Archiven hunderte MB Speicher).
       // Erst rotieren, dann schreiben – das Anlegen braucht sonst Platz für eine 6. Vollkopie.
       await rotateAutoBackups(4);
-      await packBackupResilient(state.dirs.exports, 'wissensarchiv_autobackup_'+stamp()+'.zip', {});
+      const r=await packBackupResilient(state.dirs.exports, 'wissensarchiv_autobackup_'+stamp()+'.zip', {});
       state.settings.autoBackupLast=new Date().toISOString();
-      state.settings.lastBackup=state.settings.autoBackupLast;
+      // Nur eine vollständige Sicherung darf die „letztes Backup"-Erinnerung beruhigen.
+      if(!r.dataOnly) state.settings.lastBackup=state.settings.autoBackupLast;
       await persistSettings();
       renderBackupStats();
     }catch(e){ console.warn('Auto-Backup fehlgeschlagen', e); }
@@ -3303,7 +3347,10 @@
       // App-Speicher (iPhone/iPad): Das Packen des vollen Originale-Archivs scheitert dort an
       // Safari-Grenzen. Gar nicht erst versuchen – der Sync soll nicht daran hängenbleiben.
       // blobDirty bleibt gesetzt: Ein Gerät mit echtem Ordner überträgt die Originale.
-      if(state.storageMode==='opfs' && !opts.userForce){
+      // Im App-Speicher den ROUTINE-Upload auslassen. Ausdrückliche Fälle laufen weiter:
+      // userForce („Dieses Gerät → Cloud"), fresh und blobMissing – sonst entstünde bei
+      // einem reinen iPhone-Bestand NIE eine Originale-Datei in der Cloud.
+      if(state.storageMode==='opfs' && !opts.userForce && !opts.fresh && !opts.blobMissing){
         console.info('Blob-Upload im App-Speicher ausgelassen – Originale überträgt ein Gerät mit Ordner-Zugriff.');
         return 'partial';
       }
@@ -3429,18 +3476,24 @@
       // Der Pull löscht seit den Löschmarkern keine Einträge und ergänzt Blobs nur (add-only).
       // Die vollständige Sicherung übernimmt das Auto-Backup bzw. ein Gerät mit echtem Ordner.
       const preFolders = state.storageMode==='opfs' ? ['index','meta'] : folders;
+      // EIN echter Wiederholversuch mit denselben Ordnern (Speicher-/Verbindungsaussetzer
+      // sind oft vorübergehend) – der ging beim Umbau verloren.
       try{ await doBackup(preFolders); }
-      catch(e1){
+      catch(e0){ try{ await doBackup(preFolders); }catch(e1){
         // Rückfallstufe: NUR Daten sichern (index/meta, wenige MB). Die Originale sind seit
         // den Löschmarker-/Add-only-Schutzmaßnahmen beim Pull nicht mehr löschgefährdet –
         // ein kompletter Sync-Abbruch wegen einer gescheiterten 300-MB-Zweitkopie wäre
         // unverhältnismäßig (und liess iPhones dauerhaft im Fehlerzustand hängen).
         try{ if(preFolders.length>2) { await doBackup(['index','meta']); console.warn('Voll-Sicherung fehlgeschlagen, Daten-Sicherung angelegt:', e1); } else throw e1; }
         catch(e){
-          if(OD.cfg.dirty||OD.cfg.blobDirty){ const q=await storageInfo(); throw new Error((de?'Lokale Sicherung fehlgeschlagen – Pull abgebrochen (ungesicherte Änderungen): ':'Local backup failed – pull aborted (unsynced changes): ')+e.message+(q?(de?' · Speicher: ':' · storage: ')+q:'')); }
+          // Abbrechen NUR bei echten ungesicherten Änderungen. Im App-Speicher ist
+          // blobDirty dauerhaft gesetzt (Originale werden dort nie hochgeladen) – das darf
+          // den Pull nicht dauerhaft blockieren.
+          const unsynced = OD.cfg.dirty || (OD.cfg.blobDirty && state.storageMode!=='opfs');
+          if(unsynced){ const q=await storageInfo(); throw new Error((de?'Lokale Sicherung fehlgeschlagen – Pull abgebrochen (ungesicherte Änderungen): ':'Local backup failed – pull aborted (unsynced changes): ')+e.message+(q?(de?' · Speicher: ':' · storage: ')+q:'')); }
           console.warn('Vor-Pull-Sicherung fehlgeschlagen (Stand bereits synchron, Pull läuft weiter):', e);
         }
-      }
+      } }
     }
     // DATA laden – immer (klein). Spiegelt nur index/meta, lässt Originale/Anhänge unangetastet.
     const dataZip=await window.JSZip.loadAsync(await odDownloadBlob(OD.dataPath, '↓'));
@@ -3575,7 +3628,13 @@
         // Remote-DATA unverändert. Hochladen nur bei lokaler Änderung (dirty wird seit
         // v1.9.10 auch offline gepflegt), oder wenn die BLOB-Datei in der Cloud fehlt
         // (Migration/erster Blob-Upload). Sonst „Bereits aktuell".
-        if(OD.cfg.dirty || OD.cfg.blobDirty || blobMissing){
+        // WICHTIG: Im App-Speicher bleibt blobDirty dauerhaft gesetzt (Originale werden dort
+        // bewusst nicht hochgeladen). Es darf deshalb ALLEIN keinen Push mehr auslösen –
+        // sonst liefe alle 5 Minuten ein DATA-Upload, der auf JEDEM anderen Gerät einen
+        // vollen Abgleich erzwingt. Fehlt die Blob-Datei in der Cloud ganz, wird trotzdem
+        // gepusht (dann gibt es dort nichts zu verlieren).
+        const blobPushable = state.storageMode!=='opfs' || blobMissing;
+        if(OD.cfg.dirty || (OD.cfg.blobDirty && blobPushable) || blobMissing){
           const res=await odPush({blobMissing});
           if(res==='conflict'){ await odConflict(); action='conflict'; }   // Remote hat sich im Fenster geaendert
           else action=(res==='partial'?'partial':'push');
@@ -3727,7 +3786,10 @@
     try{
       const meta=await odRemoteMeta(); if(!meta.data) throw new Error(de?'Keine Cloud-Datei vorhanden.':'No cloud file present.');
       OD.cfg.etagBlob='';           // Blobs beim Force-Pull immer frisch aus der Cloud holen
-      await odPull(meta, {fullMirror:true});   // bewusst voller Spiegel: Cloud ersetzt lokal komplett
+      // withBlobs: ausdrücklicher Nutzerwunsch – hier werden die Originale AUCH im
+      // App-Speicher geholt (der automatische Sync lässt sie dort aus). Ohne das gäbe es
+      // auf iPhone/iPad überhaupt keinen Weg, die Originale zu bekommen.
+      await odPull(meta, {fullMirror:true, withBlobs:true});   // bewusst voller Spiegel: Cloud ersetzt lokal komplett
       if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
       await odCaptureSnapshot();
       OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
@@ -3910,11 +3972,16 @@
     // hunderte MB Kontingent blockieren, ohne irgendwo sichtbar zu sein.
     // Ebenso leere (0-Byte-)Sicherungen: Reste abgebrochener Läufe, die in der Liste wie
     // gültige Sicherungen aussähen.
-    try{ for await(const [nm,h] of state.dirs.exports.entries()){
-      if(h.kind!=='file')continue;
-      if(/\.tmp\.zip$/i.test(nm)){ await removeFile(state.dirs.exports, nm); continue; }
-      if(/^wissensarchiv_(autobackup|beforesync|backup)_.*\.zip$/i.test(nm)){ try{ if(!(await h.getFile()).size) await removeFile(state.dirs.exports, nm); }catch(e){} }
-    } }catch(e){}
+    // Erst sammeln, dann löschen (Verzeichnis nicht während der Iteration verändern).
+    try{
+      const junk=[];
+      for await(const [nm,h] of state.dirs.exports.entries()){
+        if(h.kind!=='file')continue;
+        if(/\.tmp\.zip$/i.test(nm)){ junk.push(nm); continue; }
+        if(/^wissensarchiv_(autobackup|beforesync|backup)_.*\.zip$/i.test(nm)){ try{ if(!(await h.getFile()).size) junk.push(nm); }catch(e){} }
+      }
+      for(const nm of junk) await removeFile(state.dirs.exports, nm);
+    }catch(e){}
     // Ordnernamen lokal merken: geht das gespeicherte Handle verloren (Browser
     // loescht Website-Daten), kann das Onboarding darauf hinweisen, dass die
     // Daten weiterhin in diesem Ordner liegen.
@@ -4031,7 +4098,7 @@
 
     if(window.__WA_MOCK_ROOT__||window.__WA_TEST__){
       // Test-Brücke – nur aktiv, wenn explizit injiziert (automatisierte Prüfung).
-      window.WA={ importFiles, runSearch, setFindMode, askQuestion, renderChat, docAction, odFetchBlobs, blobComplete, odPush, searchArchive, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, applyBackupZip, buildBackupBlob, buildBackupToFile, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, odSetStatus, foAddComment,
+      window.WA={ importFiles, runSearch, setFindMode, askQuestion, renderChat, docAction, odFetchBlobs, blobComplete, odPush, odSync, renderBackupFiles, __packingNowAdd:(n)=>_packingNow.add(n), __packingNowDelete:(n)=>_packingNow.delete(n), searchArchive, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, applyBackupZip, buildBackupBlob, buildBackupToFile, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, odSetStatus, foAddComment,
         rebuildCatalog: async()=>{ state.indexCache.clear(); state._foIdxReady=false; state.catalog=await rebuildCatalog(); renderLibrary(); return state.catalog; } };
     }
 
