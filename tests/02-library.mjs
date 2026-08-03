@@ -1,6 +1,35 @@
 // Bibliothek: Tabelle, Sortierung, Duplikat-Dialog.
 import { MOCK, launchBrowser, collectErrors, makeChecker } from './helper.mjs';
 
+// Mehrfach-Tags: Ein Dokument mit zwei Haupt-Tags steht in BEIDEN Gruppen – die Summe der
+// Gruppenzahlen ist dann höher als der Bestand. Das muss erklärt werden, sonst wirkt es
+// wie ein Zählfehler (genau so gemeldet: Gruppen ergaben 52, oben stand 51).
+async function checkMultiTagNote(page, t) {
+  const res = await page.evaluate(async () => {
+    const WA = window.WA;
+    await WA.importFiles([new File(['m'], 'mehrfach_tag.txt')]);
+    const id = WA.state.catalog.find(c => c.name === 'mehrfach_tag.txt').id;
+    const doc = await WA.getIndex(id);
+    doc.tags = ['Alpha', 'Beta'];
+    await WA.state.dirs.index.getFileHandle(id + '.json', { create: true });
+    const w = await (await WA.state.dirs.index.getFileHandle(id + '.json')).createWritable();
+    await w.write(JSON.stringify(doc)); await w.close();
+    await WA.rebuildCatalog();
+    WA.state.lib.q = ''; WA.state.lib.tag = null; WA.state.lib.type = 'all';
+    WA.switchView('lib');
+    const note = await window.waitFor(() => {
+      const p = [...document.querySelectorAll('#lib-content p.fmeta')].find(e => /mehrere Tags|several tags/.test(e.textContent));
+      return p ? p.textContent : null;
+    });
+    return { note };
+  });
+  // Der Hinweis muss die BEIDEN Zahlen nennen (Gruppen-Summe und Bestand), sonst erklärt
+  // er die Abweichung nicht wirklich.
+  const nums = (res.note || '').match(/\((\d+)\)[\s\S]*\((\d+)\)/);
+  t.check('Mehrfach-Tag: Abweichung Gruppen-Summe vs. Bestand wird erklärt',
+    !!res.note && /mehreren Gruppen/.test(res.note) && !!nums && +nums[1] > +nums[2], JSON.stringify(res));
+}
+
 export async function run(base) {
   const t = makeChecker('02-library');
   const browser = await launchBrowser();
@@ -12,6 +41,13 @@ export async function run(base) {
 
   await page.goto(base, { waitUntil: 'networkidle' });
   await page.waitForFunction('!!window.WA', { timeout: 15000 });
+  await page.evaluate(() => {
+    window.waitFor = async (fn, ms = 15000, step = 50) => {
+      const end = Date.now() + ms;
+      while (Date.now() < end) { const v = await fn(); if (v) return v; await new Promise(r => setTimeout(r, step)); }
+      return null;
+    };
+  });
 
   await page.evaluate(async () => {
     const names = ['mietvertrag.pdf','budget.xlsx','projektkonzept.docx'];
@@ -336,6 +372,8 @@ export async function run(base) {
   t.check('Tag-Auswahl: Untertag-Klick filtert exakt auf den Untertag',
     JSON.stringify(narrowed.rows) === JSON.stringify(['mietvertrag.pdf']) && narrowed.childOn === true, JSON.stringify(narrowed));
   await page.evaluate(() => { window.WA.state.lib.tag = null; window.WA.switchView('lib'); });
+
+  await checkMultiTagNote(page, t);
 
   t.check('Keine Konsolenfehler', errors.length === 0, errors.join(' | '));
   await browser.close();
