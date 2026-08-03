@@ -324,6 +324,49 @@ export async function run(base) {
   t.check('App-Speicher: Blob-Upload wird ausgelassen (kein Hänger)', opfsPush.blobPut === false && opfsPush.res === 'partial', JSON.stringify(opfsPush));
   t.check('App-Speicher: blobDirty bleibt für ein Ordner-Gerät gesetzt', opfsPush.blobDirtyStill === true, JSON.stringify(opfsPush));
 
+  // Kein Dauer-Upload: Im App-Speicher bleibt blobDirty gesetzt. Das darf ALLEIN keinen
+  // Push mehr auslösen – sonst liefe alle 5 Minuten ein DATA-Upload, der auf jedem anderen
+  // Gerät einen vollen Abgleich erzwingt.
+  const noLoop = await page3.evaluate(async () => {
+    const WA = window.WA, OD = WA.OD;
+    const prevMode = WA.state.storageMode;
+    WA.state.storageMode = 'opfs';
+    const realFetch = window.fetch;
+    const puts = [];
+    OD.tokens = { access_token: 't', refresh_token: 'r', expires_at: Date.now() + 3600e3 };
+    OD.cfg.dirty = false; OD.cfg.blobDirty = true; OD.cfg.etag = 'SAME'; OD.cfg.auto = true;
+    window.fetch = async (url, opts) => {
+      const u = String(url);
+      if (u.includes('graph.microsoft.com')) {
+        if (opts && opts.method === 'PUT') { puts.push(u); return new Response(JSON.stringify({ eTag: 'x' }), { status: 200, headers: { 'content-type': 'application/json' } }); }
+        // Beide Cloud-Dateien existieren, DATA-eTag unverändert → es gäbe nichts zu tun.
+        return new Response(JSON.stringify({ eTag: 'SAME', size: 10, lastModifiedDateTime: '2026-01-01T00:00:00Z' }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      return realFetch(url, opts);
+    };
+    try { await WA.odSync(true); }
+    finally { window.fetch = realFetch; OD.tokens = null; WA.state.storageMode = prevMode; OD.cfg.blobDirty = false; }
+    return { puts: puts.length };
+  });
+  t.check('App-Speicher: blobDirty allein löst KEINEN Upload aus (kein 5-Min-Dauerlauf)', noLoop.puts === 0, JSON.stringify(noLoop));
+
+  // Eine gerade entstehende Sicherung ist 0 Byte gross – die Aufräumung darf sie nicht löschen.
+  const inFlight = await page3.evaluate(async () => {
+    const WA = window.WA;
+    const name = 'wissensarchiv_autobackup_2026-03-03_0000.zip';
+    const w = await (await WA.state.dirs.exports.getFileHandle(name, { create: true })).createWritable();
+    await w.close();                                   // 0 Byte wie während des Packens
+    WA.__packingNowAdd(name);                          // als „wird gerade gepackt" markieren
+    await WA.renderBackupFiles();
+    let survived = true; try { await WA.state.dirs.exports.getFileHandle(name); } catch (e) { survived = false; }
+    WA.__packingNowDelete(name);
+    await WA.renderBackupFiles();                      // jetzt darf sie entsorgt werden
+    let cleaned = false; try { await WA.state.dirs.exports.getFileHandle(name); } catch (e) { cleaned = true; }
+    return { survived, cleaned };
+  });
+  t.check('Entstehende Sicherung wird NICHT gelöscht', inFlight.survived === true, JSON.stringify(inFlight));
+  t.check('Nach dem Packen wird ein echter 0-Byte-Rest entsorgt', inFlight.cleaned === true, JSON.stringify(inFlight));
+
   t.check('Keine Konsolenfehler (Teil 3)', errors3.length === 0, errors3.join(' | '));
   await ctx3.close();
 
