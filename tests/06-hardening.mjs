@@ -272,6 +272,32 @@ export async function run(base) {
   t.check('Echte Löschung propagiert weiterhin (nur markiertes Dokument verschwindet)', tombs.deletedOnlyTombed === true, JSON.stringify(tombs));
   t.check('Löschmarker werden vereinigt statt ersetzt', tombs.merged === true, JSON.stringify(tombs));
 
+  // Wiederherstellen muss einen Löschmarker AUFHEBEN – sonst entfernt der nächste Abgleich
+  // das gerade zurückgeholte Dokument sofort wieder (die Rettung liefe ins Leere).
+  const undelete = await page3.evaluate(async () => {
+    const WA = window.WA;
+    await WA.importFiles([new File(['zurueck'], 'wieder_da.txt')]);
+    const id = WA.state.catalog.find(c => c.name === 'wieder_da.txt').id;
+    // Sicherung MIT dem Dokument erstellen, dann löschen (setzt den Marker).
+    const blob = await WA.buildBackupBlob({ folders: ['index', 'meta'] });
+    window.confirm = () => true;
+    await WA.deleteDoc(id);
+    const tombAfterDelete = WA.state.tombs.has(id);
+    // Aus der Sicherung zurückholen.
+    await WA.importBackup(new File([blob], 'restore.zip'));
+    const back = WA.state.catalog.some(c => c.id === id);
+    const tombCleared = !WA.state.tombs.has(id);
+    // Gegenprobe: Ein Cloud-Abgleich darf es jetzt NICHT wieder entfernen.
+    const snap = { originals: new Set(), index: new Set([id + '.json']), forum: new Set() };
+    await WA.applyBackupZip(new window.JSZip(), { clearFirst: true, folders: ['index', 'meta'], syncedSnapshot: snap, tombGated: true });
+    let stillThere = false; try { await WA.state.dirs.index.getFileHandle(id + '.json'); stillThere = true; } catch (e) {}
+    return { tombAfterDelete, back, tombCleared, stillThere };
+  });
+  t.check('Löschen setzt den Marker', undelete.tombAfterDelete === true, JSON.stringify(undelete));
+  t.check('Wiederherstellen holt das gelöschte Dokument zurück', undelete.back === true, JSON.stringify(undelete));
+  t.check('Wiederherstellen hebt den Löschmarker auf', undelete.tombCleared === true, JSON.stringify(undelete));
+  t.check('Nächster Abgleich löscht das zurückgeholte Dokument NICHT erneut', undelete.stillThere === true, JSON.stringify(undelete));
+
   // Beschädigte Index-Datei: darf NICHT stumm verschwinden, sondern muss gemeldet werden.
   const brokenIdx = await page3.evaluate(async () => {
     const WA = window.WA;
