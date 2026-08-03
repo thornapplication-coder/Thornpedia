@@ -233,9 +233,8 @@ export async function run(base) {
     return { incomplete, res, err, blobPut, blobDirtyStill: OD.cfg.blobDirty };
   });
   t.check('Vorbedingung: Gerät ist unvollständig', forceGuard.incomplete === true, JSON.stringify(forceGuard));
-  t.check('Auto-Konflikt (force) überschreibt den Cloud-Blob NICHT bei unvollständigem Stand', forceGuard.blobPut === false, JSON.stringify(forceGuard));
-  t.check('Übersprungener Blob-Upload meldet „partial" statt Erfolg', forceGuard.res === 'partial', JSON.stringify(forceGuard));
-  t.check('blobDirty bleibt gesetzt → späterer Sync versucht es erneut', forceGuard.blobDirtyStill === true, JSON.stringify(forceGuard));
+  t.check('odPush schreibt die alte Blob-ZIP NIE mehr (auch nicht bei force)', forceGuard.blobPut === false, JSON.stringify(forceGuard));
+  t.check('Daten-Push meldet ok (Dateien laufen über den Einzeldatei-Abgleich)', forceGuard.res === 'ok', JSON.stringify(forceGuard));
 
   // KERN: Ein Cloud-Stand, dem Dokumente fehlen (Gerät war zurück / hatte sie nie), darf die
   // Bibliothek NICHT schrumpfen. Nur eine ausdrückliche Löschung (Marker) entfernt Dokumente.
@@ -310,7 +309,12 @@ export async function run(base) {
     WA.switchView('lib');
     await new Promise(r => setTimeout(r, 200));
     const banner = document.querySelector('#lib-broken');
-    return { broken: (WA.state.brokenIndex || []).length, visible: !!banner && banner.style.display !== 'none', text: banner ? banner.textContent.slice(0, 60) : '' };
+    const out = { broken: (WA.state.brokenIndex || []).length, visible: !!banner && banner.style.display !== 'none', text: banner ? banner.textContent.slice(0, 60) : '' };
+    // Fixture abräumen: Die kaputte Index-Datei würde sonst spätere Prüfungen kippen –
+    // der Einzeldatei-Sync verweigert bei unlesbarem Index bewusst JEDE Aktion (fail-safe).
+    await WA.state.dirs.index.removeEntry(id + '.json').catch(() => {});
+    await WA.rebuildCatalog();
+    return out;
   });
   t.check('Beschädigter Index-Eintrag wird erkannt (nicht stumm übersprungen)', brokenIdx.broken === 1, JSON.stringify(brokenIdx));
   t.check('Beschädigte Einträge werden in der Bibliothek gemeldet', brokenIdx.visible === true, JSON.stringify(brokenIdx));
@@ -324,57 +328,98 @@ export async function run(base) {
   });
   t.check('Index-Datei nach dem Schreiben garantiert lesbar', safeWrite === true);
 
-  // App-Speicher (iPhone/iPad): Der Blob-Upload wird bewusst ausgelassen ('partial'),
-  // damit Safari-Grenzen nicht den GANZEN Sync blockieren – und blobDirty bleibt erhalten.
-  const opfsPush = await page3.evaluate(async () => {
+  // Einzeldatei-Sync (v1.11): Hochladen add-only, Herunterladen gezielt, Löschen NUR
+  // deterministisch (Löschmarker bzw. keine Referenz) – und die alte Blob-ZIP bleibt
+  // unangetastet. Der ganze Abgleich läuft auch im App-Speicher (iPhone/iPad).
+  const filesSync = await page3.evaluate(async () => {
     const WA = window.WA, OD = WA.OD;
     const prevMode = WA.state.storageMode;
-    WA.state.storageMode = 'opfs';
+    WA.state.storageMode = 'opfs';                       // bewusst: iPhone-Modus
+    // Lokal: Doc A (Original vorhanden) + Doc B (nur Index – Original liegt in der Cloud).
+    await WA.importFiles([new File(['adata'], 'einzel_a.txt')]);
+    const aId = WA.state.catalog.find(c => c.name === 'einzel_a.txt').id;
+    const aStored = (await WA.getIndex(aId)).storedAs;
+    const bId = 'einzel-b-id', bStored = bId + '__einzel_b.txt';
+    let w = await (await WA.state.dirs.index.getFileHandle(bId + '.json', { create: true })).createWritable();
+    await w.write(JSON.stringify({ id: bId, name: 'einzel_b.txt', storedAs: bStored, type: 'txt', importedAt: '2026', units: [] })); await w.close();
+    WA.state.catalog.push({ id: bId, name: 'einzel_b.txt', type: 'txt' });
+    // Löschmarker für ein drittes Dokument, dessen Datei noch in der Cloud liegt.
+    const tId = 'einzel-tomb-id', tStored = tId + '__geloescht.txt';
+    WA.state.tombs.add(tId);
+    // Graph-Mock: Cloud kennt B (zum Herunterladen), T (zu löschen) und einen
+    // verwaisten Forum-Anhang; A fehlt in der Cloud (muss hochgeladen werden).
     const realFetch = window.fetch;
-    const puts = [];
+    const puts = [], dels = [];
     OD.tokens = { access_token: 't', refresh_token: 'r', expires_at: Date.now() + 3600e3 };
     window.fetch = async (url, opts) => {
-      const u = String(url);
-      if (u.includes('graph.microsoft.com')) {
-        if (opts && opts.method === 'PUT') { puts.push(u); return new Response(JSON.stringify({ eTag: 'e9' }), { status: 200, headers: { 'content-type': 'application/json' } }); }
-        return new Response(JSON.stringify({ eTag: 'e1', size: 10, lastModifiedDateTime: '2026-01-01T00:00:00Z' }), { status: 200, headers: { 'content-type': 'application/json' } });
-      }
-      return realFetch(url, opts);
+      const u = String(url); const method = (opts && opts.method) || 'GET';
+      if (!u.includes('graph.microsoft.com')) return realFetch(url, opts);
+      if (method === 'PUT') { puts.push(decodeURIComponent(u)); return new Response(JSON.stringify({ eTag: 'e9' }), { status: 200, headers: { 'content-type': 'application/json' } }); }
+      if (method === 'DELETE') { dels.push(decodeURIComponent(u)); return new Response(null, { status: 204 }); }
+      if (u.includes('/originals:/children')) return new Response(JSON.stringify({ value: [{ name: bStored, size: 5 }, { name: tStored, size: 5 }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      if (u.includes('/forum:/children')) return new Response(JSON.stringify({ value: [{ name: 'waise__x.png', size: 3 }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+      if (u.includes(':/content')) return new Response('bdata', { status: 200 });
+      return new Response(JSON.stringify({ eTag: 'e1' }), { status: 200, headers: { 'content-type': 'application/json' } });
     };
-    let res = null;
-    try { OD.cfg.blobDirty = true; res = await WA.odPush({}); }
+    let res = null, err = '';
+    try { res = await WA.odFilesReconcile(); }
+    catch (e) { err = e.message; }
     finally { window.fetch = realFetch; OD.tokens = null; WA.state.storageMode = prevMode; }
-    return { res, blobPut: puts.some(u => u.includes('blobs')), dataPut: puts.some(u => u.includes('data')), blobDirtyStill: OD.cfg.blobDirty };
+    let bLocal = false; try { bLocal = (await (await (await WA.state.dirs.originals.getFileHandle(bStored)).getFile()).text()) === 'bdata'; } catch (e) {}
+    // Aufräumen der Fixtures.
+    WA.state.tombs.delete(tId);
+    await WA.state.dirs.index.removeEntry(bId + '.json').catch(() => {});
+    WA.state.catalog = WA.state.catalog.filter(c => c.id !== bId);
+    return { err, res,
+      aUp: puts.some(u => u.includes('/originals/' + aStored)),
+      bDown: bLocal,
+      tDel: dels.some(u => u.includes(tStored)),
+      orphanDel: dels.some(u => u.includes('waise__x.png')),
+      bNotDeleted: !dels.some(u => u.includes(bStored)),
+      oldZipUntouched: !puts.concat(dels).some(u => u.includes('thornpedia_blobs.zip')) };
   });
-  t.check('App-Speicher: Daten werden hochgeladen', opfsPush.dataPut === true, JSON.stringify(opfsPush));
-  t.check('App-Speicher: Blob-Upload wird ausgelassen (kein Hänger)', opfsPush.blobPut === false && opfsPush.res === 'partial', JSON.stringify(opfsPush));
-  t.check('App-Speicher: blobDirty bleibt für ein Ordner-Gerät gesetzt', opfsPush.blobDirtyStill === true, JSON.stringify(opfsPush));
+  t.check('Einzeldatei: fehlendes Original wird hochgeladen (auch im App-Speicher)', filesSync.aUp === true, JSON.stringify(filesSync));
+  t.check('Einzeldatei: fehlendes Original wird gezielt heruntergeladen', filesSync.bDown === true, JSON.stringify(filesSync));
+  t.check('Einzeldatei: Löschmarker löscht die Cloud-Datei', filesSync.tDel === true, JSON.stringify(filesSync));
+  t.check('Einzeldatei: verwaister Forum-Anhang wird in der Cloud entfernt', filesSync.orphanDel === true, JSON.stringify(filesSync));
+  t.check('Einzeldatei: „fehlt lokal" führt NICHT zur Cloud-Löschung (add-only)', filesSync.bNotDeleted === true, JSON.stringify(filesSync));
+  t.check('Einzeldatei: alte Blob-ZIP bleibt unangetastet', filesSync.oldZipUntouched === true, JSON.stringify(filesSync));
 
-  // Kein Dauer-Upload: Im App-Speicher bleibt blobDirty gesetzt. Das darf ALLEIN keinen
-  // Push mehr auslösen – sonst liefe alle 5 Minuten ein DATA-Upload, der auf jedem anderen
-  // Gerät einen vollen Abgleich erzwingt.
+  // Kein Dauer-Upload: Der Sync muss KONVERGIEREN. Erster Lauf darf Einzeldateien
+  // hochladen (Erst-Migration), aber nie die DATA-ZIP ohne echte Daten-Änderung – und der
+  // zweite Lauf (Cloud kennt jetzt alles) darf GAR NICHTS mehr übertragen.
   const noLoop = await page3.evaluate(async () => {
     const WA = window.WA, OD = WA.OD;
     const prevMode = WA.state.storageMode;
     WA.state.storageMode = 'opfs';
     const realFetch = window.fetch;
-    const puts = [];
+    const dataPuts = []; const cloud = { originals: [], forum: [] };   // Cloud-Zustand wächst mit den PUTs
+    let filePuts1 = 0, filePuts2 = 0, phase = 1;
     OD.tokens = { access_token: 't', refresh_token: 'r', expires_at: Date.now() + 3600e3 };
     OD.cfg.dirty = false; OD.cfg.blobDirty = true; OD.cfg.etag = 'SAME'; OD.cfg.auto = true;
     window.fetch = async (url, opts) => {
-      const u = String(url);
-      if (u.includes('graph.microsoft.com')) {
-        if (opts && opts.method === 'PUT') { puts.push(u); return new Response(JSON.stringify({ eTag: 'x' }), { status: 200, headers: { 'content-type': 'application/json' } }); }
-        // Beide Cloud-Dateien existieren, DATA-eTag unverändert → es gäbe nichts zu tun.
-        return new Response(JSON.stringify({ eTag: 'SAME', size: 10, lastModifiedDateTime: '2026-01-01T00:00:00Z' }), { status: 200, headers: { 'content-type': 'application/json' } });
+      const u = decodeURIComponent(String(url)); const method = (opts && opts.method) || 'GET';
+      if (!u.includes('graph.microsoft.com')) return realFetch(url, opts);
+      if (method === 'PUT') {
+        if (u.includes('thornpedia_data.zip')) dataPuts.push(u);
+        else { const m = u.match(/\/(originals|forum)\/([^:]+):/); if (m) { cloud[m[1]].push(m[2]); if (phase === 1) filePuts1++; else filePuts2++; } }
+        return new Response(JSON.stringify({ eTag: 'x' }), { status: 200, headers: { 'content-type': 'application/json' } });
       }
-      return realFetch(url, opts);
+      if (method === 'DELETE') return new Response(null, { status: 204 });
+      if (u.includes('/originals:/children')) return new Response(JSON.stringify({ value: cloud.originals.map(n => ({ name: n, size: 1 })) }), { status: 200, headers: { 'content-type': 'application/json' } });
+      if (u.includes('/forum:/children')) return new Response(JSON.stringify({ value: cloud.forum.map(n => ({ name: n, size: 1 })) }), { status: 200, headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify({ eTag: 'SAME', size: 10, lastModifiedDateTime: '2026-01-01T00:00:00Z' }), { status: 200, headers: { 'content-type': 'application/json' } });
     };
-    try { await WA.odSync(true); }
+    try {
+      await WA.odSync(true);
+      phase = 2; OD.cfg.blobDirty = true;               // selbst mit gesetztem Flag: nichts mehr zu tun
+      await WA.odSync(true);
+    }
     finally { window.fetch = realFetch; OD.tokens = null; WA.state.storageMode = prevMode; OD.cfg.blobDirty = false; }
-    return { puts: puts.length };
+    return { dataPuts: dataPuts.length, filePuts1, filePuts2 };
   });
-  t.check('App-Speicher: blobDirty allein löst KEINEN Upload aus (kein 5-Min-Dauerlauf)', noLoop.puts === 0, JSON.stringify(noLoop));
+  t.check('Ohne Daten-Änderung wird die DATA-ZIP nicht hochgeladen', noLoop.dataPuts === 0, JSON.stringify(noLoop));
+  t.check('Zweiter Lauf überträgt NICHTS mehr (Sync konvergiert, kein Dauerlauf)', noLoop.filePuts2 === 0, JSON.stringify(noLoop));
 
   // Eine gerade entstehende Sicherung ist 0 Byte gross – die Aufräumung darf sie nicht löschen.
   const inFlight = await page3.evaluate(async () => {
