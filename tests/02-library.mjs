@@ -18,16 +18,19 @@ async function checkMultiTagNote(page, t) {
     WA.state.lib.q = ''; WA.state.lib.tag = null; WA.state.lib.type = 'all';
     WA.switchView('lib');
     const note = await window.waitFor(() => {
-      const p = [...document.querySelectorAll('#lib-content p.fmeta')].find(e => /mehrere Tags|several tags/.test(e.textContent));
+      const p = [...document.querySelectorAll("#lib-content p.fmeta")].find(e => /Haupt-Tags|main tags/.test(e.textContent));
       return p ? p.textContent : null;
     });
     return { note };
   });
   // Der Hinweis muss die BEIDEN Zahlen nennen (Gruppen-Summe und Bestand), sonst erklärt
   // er die Abweichung nicht wirklich.
-  const nums = (res.note || '').match(/\((\d+)\)[\s\S]*\((\d+)\)/);
+  // Der Hinweis muss beide Zahlen NENNEN und das betroffene Dokument benennen – sonst ist
+  // er nicht überprüfbar und wirkt wie ein Rechenfehler der App.
   t.check('Mehrfach-Tag: Abweichung Gruppen-Summe vs. Bestand wird erklärt',
-    !!res.note && /mehreren Gruppen/.test(res.note) && !!nums && +nums[1] > +nums[2], JSON.stringify(res));
+    !!res.note && /Haupt-Tags/.test(res.note) && /\b5\b/.test(res.note) && /\b4\b/.test(res.note), JSON.stringify(res));
+  t.check('Mehrfach-Tag: Hinweis benennt das betroffene Dokument',
+    !!res.note && res.note.includes('mehrfach_tag.txt'), JSON.stringify(res));
 }
 
 export async function run(base) {
