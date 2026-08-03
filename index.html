@@ -781,7 +781,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.28';
+  const APP_VERSION = '1.11.0';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1465,7 +1465,7 @@
           if(OD.syncing){ toast(de?'Ein Abgleich läuft – bitte kurz warten und erneut versuchen.':'A sync is running – please wait and try again.'); return; }
           toast(de?'Original wird aus der Cloud nachgeladen …':'Fetching original from the cloud …');
           let fetched=false;
-          try{ fetched=await odFetchBlobs(); }catch(err){ toast((de?'Nachladen fehlgeschlagen: ':'Fetch failed: ')+err.message,'err'); return; }
+          try{ fetched=await odFetchOriginal(doc); }catch(err){ toast((de?'Nachladen fehlgeschlagen: ':'Fetch failed: ')+err.message,'err'); return; }
           if(fetched){ try{ deliver(await getOrig()); return; }catch(_){} }
           toast(de?'Diese Kopie enthält die Originaldatei nicht. Bitte auf dem Gerät, das sie importiert hat, einmal synchronisieren – danach hier erneut versuchen.':'This copy does not contain the original file. Please sync once on the device that imported it, then try again here.','err');
         } else {
@@ -3188,7 +3188,8 @@
     graph:'https://graph.microsoft.com/v1.0',
     scope:'Files.ReadWrite offline_access openid',
     dataPath:'/me/drive/root:/Thornpedia/thornpedia_data.zip',
-    blobPath:'/me/drive/root:/Thornpedia/thornpedia_blobs.zip',
+    blobPath:'/me/drive/root:/Thornpedia/thornpedia_blobs.zip',   // Alt-Format: bleibt als Sicherheitsnetz liegen, wird nicht mehr geschrieben
+    filesRoot:'/me/drive/root:/Thornpedia',                       // Einzeldatei-Sync: …/originals/<datei>, …/forum/<datei>
     cfg:{ clientId:'', auto:true, etag:'', etagBlob:'', syncAt:'', dirty:false, blobDirty:false, dirtyAt:'', gen:0, syncModel:0, snap:null },
     tokens:null,      // {access_token, refresh_token, expires_at}
     syncing:false, applying:false, _pushTimer:null, status:'off',
@@ -3346,57 +3347,11 @@
     const dj=await odPutFile(OD.dataPath, dataBlob, {fresh:opts.fresh, force:opts.force, etag:OD.cfg.etag});
     if(dj==='conflict') return 'conflict';
     OD.cfg.etag=dj.eTag||dj.cTag||''; await odSaveCfg();
-    let blobSkipped=false;
-    if(OD.cfg.blobDirty || opts.fresh || opts.force || opts.blobMissing){
-      // DATENVERLUST-SCHUTZ: Fehlen DIESEM Gerät lokal Blob-Dateien (Originale/Forum-Anhänge;
-      // getrennter Sync liegt zurück – Index/Status „indexiert" da, die große Datei noch
-      // nicht), darf der hier gebaute BLOB die vollständige Cloud-Fassung NICHT überschreiben
-      // – sonst verschwänden dort vorhandene Dateien (und würden per Spiegel überall gelöscht).
-      // Erst hochladen, wenn der lokale Stand sicher eine OBERMENGE der Cloud ist:
-      //   · userForce (ausdrückliche Nutzer-Entscheidung in odForcePush, inkl. Rückfrage)
-      //     oder fresh/blobMissing (Cloud hat nichts zu verlieren) → immer erlaubt.
-      //     BEWUSST NICHT opts.force allein: den setzt auch der AUTOMATISCHE Konfliktpfad
-      //     (odConflict) – dort entscheidet niemand bewusst, und die Vor-Sicherung
-      //     odBackupRemote sichert nur die DATA-Datei, nicht die Blobs.
-      //   · sonst nur, wenn lokal vollständig – oder das add-only Nachziehen der Cloud-Blobs
-      //     GELINGT (danach ist lokal ⊇ Cloud). Scheitert das Nachziehen (z. B. Netzfehler),
-      //     wird NICHT hochgeladen; blobDirty bleibt gesetzt und odPush meldet 'partial'.
-      // App-Speicher (iPhone/iPad): Das Packen des vollen Originale-Archivs scheitert dort an
-      // Safari-Grenzen. Gar nicht erst versuchen – der Sync soll nicht daran hängenbleiben.
-      // blobDirty bleibt gesetzt: Ein Gerät mit echtem Ordner überträgt die Originale.
-      // Im App-Speicher den ROUTINE-Upload auslassen. Ausdrückliche Fälle laufen weiter:
-      // userForce („Dieses Gerät → Cloud"), fresh und blobMissing – sonst entstünde bei
-      // einem reinen iPhone-Bestand NIE eine Originale-Datei in der Cloud.
-      if(state.storageMode==='opfs' && !opts.userForce && !opts.fresh && !opts.blobMissing){
-        console.info('Blob-Upload im App-Speicher ausgelassen – Originale überträgt ein Gerät mit Ordner-Zugriff.');
-        return 'partial';
-      }
-      let mayUpload = opts.userForce || opts.fresh || opts.blobMissing;
-      if(!mayUpload){
-        if(await blobComplete()){ mayUpload=true; }
-        else { try{ await odApplyCloudBlobAddOnly(); mayUpload=true; }catch(e){ console.warn('Vor-Upload-Heilung fehlgeschlagen – Blob-Upload übersprungen (Schutz vor Überschreiben):', e); } }
-      }
-      if(mayUpload){
-        // Die grosse BLOB-ZIP erst auf die Platte streamen und von dort hochladen – sie
-        // liegt dadurch NICHT komplett im Arbeitsspeicher (iOS-Absturz beim Sync).
-        const TMP='_upload_blobs.tmp.zip';
-        try{
-          // Mit Zeitgrenze: Auf iPhone/iPad kann das Packen des vollen Originale-Archivs an
-          // Browser-Grenzen scheitern. Das darf den GESAMTEN Sync nicht blockieren – dann
-          // wird der Blob-Upload eben ausgelassen ('partial'), Daten/Index laufen weiter.
-          const blobBlob=await buildBackupToFileGuarded(state.dirs.exports, TMP, {folders:['originals','forum'], onProgress:(p)=>odSetStatus('syncing','📦 '+p+' %')});
-          const bj=await odPutFile(OD.blobPath, blobBlob, {force:true});   // DATA war das Konflikt-Tor
-          if(bj!=='conflict'){ OD.cfg.etagBlob=bj.eTag||bj.cTag||''; OD.cfg.blobDirty=false; await odSaveCfg(); }
-          else blobSkipped=true;
-        }catch(e){
-          console.warn('Blob-Upload nicht möglich – Sync läuft ohne Originale weiter:', e);
-          blobSkipped=true;   // blobDirty bleibt gesetzt → späterer Versuch (oder anderes Gerät)
-        } finally{ await removeFile(state.dirs.exports, TMP); }
-      } else {
-        blobSkipped=true;   // Aufrufer MUSS das wissen: kein Erfolg melden, kein Schnappschuss
-      }
-    }
-    return blobSkipped ? 'partial' : 'ok';
+    // Originale/Anhänge laufen seit v1.11 über den Einzeldatei-Sync (odFilesReconcile in
+    // odSync) – die frühere 300-MB-Blob-ZIP wird nicht mehr geschrieben. Damit entfallen
+    // hier auch alle Überschreib-Schutzprüfungen: add-only Einzeldateien können die Cloud
+    // nicht clobbern, gelöscht wird nur per Löschmarker/Referenz.
+    return 'ok';
   }
   // Grosse Dateien per Graph-Upload-Session: createUploadSession (traegt die Konflikt-
   // Vorbedingungen), danach sequenzielle PUT-Bloecke an die vor-authentifizierte
@@ -3519,42 +3474,25 @@
     // behaltene, in der Cloud fehlende Einträge) zu erkennen und zum Hochladen zu markieren.
     const cloudSet=(zip,folder)=>{ const s=new Set(); for(const p of Object.keys(zip.files)){ const pr=p.split('/'); if(pr.length===2&&pr[0]===folder&&pr[1])s.add(pr[1]); } return s; };
     const cloudIndex=cloudSet(dataZip,'index');
-    let blobLoaded=false, cloudOrig=null, cloudForum=null;
     OD.applying=true;
     try{
       // tombGated: beim normalen Sync verschwindet ein Dokument nur mit Löschmarker.
       // Beim Force-Pull („Cloud → dieses Gerät") will der Nutzer ausdrücklich den vollen
       // Spiegel – dort bleibt es beim bisherigen Verhalten.
       await applyBackupZip(dataZip, {clearFirst:true, allowKey:true, folders:['index','meta'], syncedSnapshot:snapSets, tombGated:!popts.fullMirror});
-      // BLOBS (originals/forum) nur laden, wenn sich ihr eTag geändert hat – das spart
-      // auf Konsum-Geräten den grossen Download bei jeder kleinen Cloud-Änderung.
-      // Im App-Speicher (iPhone/iPad) die grosse Blob-Datei NICHT automatisch laden: Safari
-      // bricht das Schreiben mehrerer hundert MB mit „operation failed … (e.g. out of memory)"
-      // ab – und riss damit den ganzen Abgleich mit. Dort wird standardmässig nur der
-      // (kleine) Daten-Teil synchronisiert; Originale holt man bei Bedarf einzeln
-      // („Original nachladen" beim Download) oder über „Cloud → dieses Gerät".
-      const blobsAuto = state.storageMode!=='opfs' || popts.withBlobs;
-      if(meta && meta.blob && meta.blob.etag !== OD.cfg.etagBlob && blobsAuto){
-        const blobZip=await window.JSZip.loadAsync(await odDownloadBlob(OD.blobPath, '↓'));
-        await applyBackupZip(blobZip, {clearFirst:true, folders:['originals','forum'], syncedSnapshot:snapSets});
-        cloudOrig=cloudSet(blobZip,'originals'); cloudForum=cloudSet(blobZip,'forum'); blobLoaded=true;
-        OD.cfg.etagBlob=meta.blob.etag;
-      } else if(meta && meta.blob && meta.blob.etag !== OD.cfg.etagBlob){
-        console.info('Originale-Datei ausgelassen (App-Speicher) – Daten sind aktuell.');
-      }
+      // Originale/Anhänge kommen seit v1.11 NICHT mehr als grosse ZIP: Der Einzeldatei-Sync
+      // (odFilesReconcile, läuft in odSync nach diesem Pull) lädt gezielt die fehlenden
+      // Dateien herunter – auf allen Geräten, auch iPhone/iPad.
       await reloadArchiveViews();   // Katalog aus den (nun aktuellen) Index-Dateien neu aufbauen
     } finally{ OD.applying=false; }
     OD.cfg.etag=(meta&&meta.data&&meta.data.etag)||OD.cfg.etag;
     // Vom Schnappschuss-Schutz behaltene lokale Extras (Cloud kennt sie noch nicht) als
     // „zu übertragen" markieren – sonst würde ein späterer Pull sie fälschlich löschen.
     // gen erhöhen, damit odSync das dirty nicht gleich wieder zurücksetzt.
-    let extra=false, extraBlob=false;
+    let extra=false;
     const hasExtra=async(dir,cloud)=>{ if(!dir||!cloud)return false; try{ for await(const [nm,h] of dir.entries()){ if(h.kind==='file'&&!cloud.has(nm))return true; } }catch(e){} return false; };
-    if(!popts.fullMirror){
-      extra=await hasExtra(state.dirs.index, cloudIndex);
-      if(blobLoaded) extraBlob=(await hasExtra(state.dirs.originals,cloudOrig))||(await hasExtra(state.dirs.forum,cloudForum));
-    }
-    if(extra||extraBlob){ OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); OD.cfg.gen=(OD.cfg.gen||0)+1; if(extraBlob)OD.cfg.blobDirty=true; }
+    if(!popts.fullMirror) extra=await hasExtra(state.dirs.index, cloudIndex);
+    if(extra){ OD.cfg.dirty=true; OD.cfg.dirtyAt=new Date().toISOString(); OD.cfg.gen=(OD.cfg.gen||0)+1; }
     await odSaveCfg();
     // Key-Sync aktiv, dieses Gerät HAT einen Key, die Cloud aber noch nicht: genau einmal hochladen.
     if(state.settings.odSyncKey===true && state.apiKey && !keyInZip){
@@ -3614,6 +3552,141 @@
     try{ return await odApplyCloudBlobAddOnly(); }
     finally{ OD.syncing=false; odSetStatus(odConnected()?'connected':''); renderCloudPanel(); }
   }
+
+  // ---------- Einzeldatei-Sync der Originale und Forum-Anhänge (v1.11) ----------
+  // Statt EINER ~300-MB-ZIP liegt jede Datei einzeln in OneDrive
+  // (Thornpedia/originals/… bzw. Thornpedia/forum/…). Damit:
+  //  · können iPhone/iPad zuverlässig hoch- UND herunterladen (kleine Einzeldateien
+  //    statt eines Riesenpakets – die Safari-„out of memory"-Klasse entfällt),
+  //  · ist Hochladen ADD-ONLY (Dateinamen <id>__… sind unveränderlich): ein
+  //    unvollständiges Gerät kann die Cloud nicht mehr überschreiben,
+  //  · wird in der Cloud NUR deterministisch gelöscht: Originale mit Löschmarker,
+  //    Forum-Anhänge ohne verbleibende Referenz – nie „fehlt hier ⇒ weg".
+  // Die alte thornpedia_blobs.zip bleibt unangetastet als Sicherheitsnetz liegen.
+  const odFilePath=(folder,name)=>OD.filesRoot+'/'+folder+'/'+encodeURIComponent(name);
+  // Cloud-Ordner auflisten (Map name→Größe). Fehlender Ordner (404) gilt als leer.
+  async function odListFolder(folder){
+    const out=new Map();
+    let url=OD.filesRoot+'/'+folder+':/children?$select=name,size,folder&$top=200';
+    while(url){
+      const r=await odGraph(url);
+      if(r.status===404) return out;
+      if(!r.ok) throw new Error('Cloud-Liste '+folder+' '+r.status);
+      const j=await r.json();
+      for(const it of (j.value||[])){ if(!it.folder && it.name) out.set(it.name, it.size||0); }
+      url=j['@odata.nextLink']||null;   // odGraph akzeptiert absolute URLs
+    }
+    return out;
+  }
+  async function odDeleteCloudFile(folder,name){
+    const r=await odGraph(odFilePath(folder,name), {method:'DELETE'});
+    if(!(r.ok||r.status===404)) throw new Error('Cloud-Löschen '+r.status);
+  }
+  // Einzelne Cloud-Datei STREAMEND in den lokalen Ordner schreiben (kein Blob im Speicher).
+  async function odDownloadToDir(folder,name,dir){
+    const r=await odGraph(odFilePath(folder,name)+':/content');
+    if(!r.ok) throw new Error('Download '+r.status);
+    const fh=await dir.getFileHandle(name,{create:true});
+    const w=await fh.createWritable();
+    try{
+      if(r.body&&r.body.getReader){ const reader=r.body.getReader(); while(true){ const {done,value}=await reader.read(); if(done)break; await w.write(value); } }
+      else await w.write(await r.blob());
+    }catch(e){ try{ await w.close(); }catch(_){ } await removeFile(dir,name); throw e; }
+    await w.close();
+  }
+  // SOLL-Zustand aus den Index-Dateien auf der Platte (nach dem DATA-Abgleich die
+  // Wahrheit): orig = Dokument-id → storedAs, forum = Menge referenzierter Anhänge.
+  // null bei Lesefehler ⇒ Aufrufer lässt ALLE Löschungen aus (fail-safe).
+  async function referencedBlobFiles(){
+    try{
+      const orig=new Map(), forum=new Set();
+      for await(const [nm,h] of state.dirs.index.entries()){
+        if(h.kind!=='file'||!/\.json$/i.test(nm))continue;
+        let d=null; try{ d=JSON.parse(await (await h.getFile()).text()); }catch(e){ throw new Error('Index unlesbar: '+nm); }
+        if(!d)continue;
+        if(d.type==='forum'){ for(const n of attNamesOf(d)) forum.add(n); }
+        else if(d.storedAs) orig.set(nm.slice(0,-5), String(d.storedAs));
+      }
+      return {orig, forum};
+    }catch(e){ console.warn('Blob-Referenzen nicht ermittelbar:', e); return null; }
+  }
+  // Kern des Einzeldatei-Syncs: lokalen und Cloud-Bestand abgleichen.
+  //  1) Hochladen, was hier referenziert ist und in der Cloud fehlt (add-only).
+  //  2) Herunterladen, was hier referenziert ist, lokal fehlt und in der Cloud liegt.
+  //  3) Cloud-Löschungen NUR deterministisch (Löschmarker / keine Referenz).
+  //  4) Lokal aufräumen: Original mit Löschmarker ohne Index-Eintrag; Anhang ohne Referenz.
+  // opts.mirror (nur „Dieses Gerät → Cloud", mit Rückfrage): zusätzlich Cloud-Dateien
+  // entfernen, die lokal nicht existieren – der einzige nicht-deterministische Spiegel,
+  // und der ist eine ausdrückliche Nutzerentscheidung.
+  async function odFilesReconcile(opts={}){
+    const de=state.settings.lang==='de';
+    const res={up:0,down:0,delCloud:0,delLocal:0,failed:0};
+    const refs=await referencedBlobFiles();
+    const localList=async(dir)=>{ const s=new Map(); if(!dir)return s; try{ for await(const [n,h] of dir.entries()){ if(h.kind==='file') s.set(n,h); } }catch(e){} return s; };
+    const locO=await localList(state.dirs.originals), locF=await localList(state.dirs.forum);
+    let cloudO, cloudF;
+    try{ cloudO=await odListFolder('originals'); cloudF=await odListFolder('forum'); }
+    catch(e){ console.warn('Einzeldatei-Sync: Cloud-Liste fehlgeschlagen:', e); res.failed++; return res; }
+
+    // Übergang vom Alt-Format: Cloud-Ordner noch leer, lokal fehlen referenzierte Originale,
+    // alte Blob-ZIP existiert → auf Ordner-Geräten die ZIP EINMAL add-only übernehmen, damit
+    // dieses Gerät vollständig wird und anschliessend die Einzeldateien hochladen kann.
+    if(cloudO.size===0 && state.storageMode!=='opfs' && refs){
+      let missing=false; for(const [,sa] of refs.orig){ if(!locO.has(sa)){ missing=true; break; } }
+      if(missing){ try{ if(await odApplyCloudBlobAddOnly()){ (await localList(state.dirs.originals)).forEach((v,k)=>locO.set(k,v)); (await localList(state.dirs.forum)).forEach((v,k)=>locF.set(k,v)); } }catch(e){ console.warn('Übernahme aus Alt-ZIP fehlgeschlagen:', e); } }
+    }
+
+    const jobs=[];   // erst zählen, dann mit Fortschritt abarbeiten
+    if(refs){
+      for(const [,sa] of refs.orig){
+        if(locO.has(sa) && !cloudO.has(sa)) jobs.push({dir:'up', folder:'originals', name:sa, h:locO.get(sa)});
+        else if(!locO.has(sa) && cloudO.has(sa)) jobs.push({dir:'down', folder:'originals', name:sa});
+      }
+      for(const n of refs.forum){
+        if(locF.has(n) && !cloudF.has(n)) jobs.push({dir:'up', folder:'forum', name:n, h:locF.get(n)});
+        else if(!locF.has(n) && cloudF.has(n)) jobs.push({dir:'down', folder:'forum', name:n});
+      }
+    }
+    let done=0;
+    for(const j of jobs){
+      odSetStatus('syncing', (j.dir==='up'?'↑ ':'↓ ')+(++done)+'/'+jobs.length+(de?' Dateien':' files'));
+      try{
+        if(j.dir==='up'){ const f=await j.h.getFile(); const r=await odPutFile(odFilePath(j.folder,j.name), f, {force:true}); if(r==='conflict')throw new Error('conflict'); res.up++; }
+        else { const dir=j.folder==='originals'?state.dirs.originals:state.dirs.forum; await odDownloadToDir(j.folder,j.name,dir); res.down++; }
+      }catch(e){ console.warn('Einzeldatei-Sync fehlgeschlagen:', j.dir, j.folder, j.name, e); res.failed++; }
+    }
+
+    if(refs){
+      // Cloud-Löschungen – nur deterministisch.
+      for(const [name] of cloudO){
+        const id=String(name).split('__')[0];
+        const tombed = id && state.tombs.has(id) && !refs.orig.has(id);
+        const mirrored = opts.mirror && !locO.has(name);
+        if(tombed||mirrored){ try{ await odDeleteCloudFile('originals',name); res.delCloud++; }catch(e){ res.failed++; } }
+      }
+      for(const [name] of cloudF){
+        const mirrored = opts.mirror && !locF.has(name);
+        if(!refs.forum.has(name)||mirrored){ try{ await odDeleteCloudFile('forum',name); res.delCloud++; }catch(e){ res.failed++; } }
+      }
+      // Lokal aufräumen (Gegenstück zum früheren ZIP-Spiegel, aber deterministisch).
+      for(const [name] of locO){
+        const id=String(name).split('__')[0];
+        if(id && state.tombs.has(id) && !refs.orig.has(id)){ await removeFile(state.dirs.originals,name); res.delLocal++; }
+      }
+      for(const [name] of locF){ if(!refs.forum.has(name)){ await removeFile(state.dirs.forum,name); res.delLocal++; } }
+    }
+    return res;
+  }
+  // Einzelnes fehlendes Original gezielt holen (Download-Selbstheilung): erst die
+  // Einzeldatei, als Rückfall (Übergangszeit) die alte Blob-ZIP – letzteres nur auf
+  // Ordner-Geräten, im App-Speicher wäre die 300-MB-ZIP genau das alte Problem.
+  async function odFetchOriginal(doc){
+    if(!odConnected()) return false;
+    try{ await odDownloadToDir('originals', doc.storedAs, state.dirs.originals); return true; }
+    catch(e){ console.warn('Einzeldatei nicht in der Cloud:', doc.storedAs, e); }
+    if(state.storageMode!=='opfs'){ try{ return await odFetchBlobs(); }catch(e){} }
+    return false;
+  }
   // Zentrale, konfliktbewusste Synchronisation. Modell fuer den Einzelnutzer:
   //  · Remote unveraendert  -> nur hochladen, wenn lokal etwas geaendert wurde.
   //  · Remote veraendert    -> herunterladen (Spiegel). Gab es zugleich lokale
@@ -3636,25 +3709,19 @@
       const meta=await odRemoteMeta();
       let action='none';
       // Die DATA-Datei ist das Konflikt-Tor: an ihr entscheiden sich fresh/etag/pull.
-      const blobMissing = !meta.blob;
+      // Originale/Anhänge laufen getrennt über den Einzeldatei-Abgleich weiter unten.
       if(!meta.data){
-        const res=await odPush({fresh:true});   // fresh lädt Daten UND Blobs hoch
+        const res=await odPush({fresh:true});
         if(res==='conflict'){ await odConflict(); action='conflict'; }   // anderes Gerät war schneller → zusammenführen
-        else action=(res==='partial'?'partial':'push');
+        else action='push';
       } else if(meta.data.etag && meta.data.etag===OD.cfg.etag){
-        // Remote-DATA unverändert. Hochladen nur bei lokaler Änderung (dirty wird seit
-        // v1.9.10 auch offline gepflegt), oder wenn die BLOB-Datei in der Cloud fehlt
-        // (Migration/erster Blob-Upload). Sonst „Bereits aktuell".
-        // WICHTIG: Im App-Speicher bleibt blobDirty dauerhaft gesetzt (Originale werden dort
-        // bewusst nicht hochgeladen). Es darf deshalb ALLEIN keinen Push mehr auslösen –
-        // sonst liefe alle 5 Minuten ein DATA-Upload, der auf JEDEM anderen Gerät einen
-        // vollen Abgleich erzwingt. Fehlt die Blob-Datei in der Cloud ganz, wird trotzdem
-        // gepusht (dann gibt es dort nichts zu verlieren).
-        const blobPushable = state.storageMode!=='opfs' || blobMissing;
-        if(OD.cfg.dirty || (OD.cfg.blobDirty && blobPushable) || blobMissing){
-          const res=await odPush({blobMissing});
+        // Remote-DATA unverändert. Hochladen nur bei lokaler Daten-Änderung (dirty wird
+        // seit v1.9.10 auch offline gepflegt). blobDirty löst KEINEN Daten-Upload aus –
+        // Dateien überträgt der Einzeldatei-Abgleich unten von selbst.
+        if(OD.cfg.dirty){
+          const res=await odPush({});
           if(res==='conflict'){ await odConflict(); action='conflict'; }   // Remote hat sich im Fenster geaendert
-          else action=(res==='partial'?'partial':'push');
+          else action='push';
         }
       } else if(OD.cfg.dirty){
         // KONFLIKT: Remote UND lokal geaendert → die NEUERE Fassung gewinnt (Zeit).
@@ -3667,40 +3734,34 @@
       // kam (Generationsnummer unveraendert) – sonst ginge eine waehrend des Uploads
       // getaetigte Aenderung (z. B. eine Loeschung) verloren.
       if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
-      // Nach erfolgreichem Abgleich sind lokal und Cloud gleich → Schnappschuss der
-      // aktuellen Dateien als Basis für den nächsten Spiegel-Abgleich festhalten. NICHT bei
-      // 'partial' (Blob-Upload übersprungen): dann sind Cloud und lokal gerade NICHT gleich –
-      // ein Schnappschuss würde die nicht hochgeladenen Dateien als „synchronisiert" merken
-      // und sie beim nächsten Spiegel-Pull zum Löschkandidaten machen.
-      if(action==='partial'){
-        // Ehrlich bleiben: kein Erfolg. Daten sind sicher (nichts überschrieben), aber die
-        // Originale/Anhänge liegen noch NICHT in der Cloud. Der 5-Minuten-Takt versucht es
-        // erneut – bewusst KEIN 1,5-s-Nachfassen (das wäre bei dauerhaftem Fehler eine
-        // Endlosschleife mit vollem DATA-Upload und Blob-Download je Runde).
-        if(state.storageMode==='opfs'){
-          // Auf iPhone/iPad ist das KEIN Fehler, sondern die bewusste Arbeitsteilung:
-          // Daten laufen hier, die grossen Originale überträgt ein Gerät mit Ordner-Zugriff.
-          odSetStatus('connected');
-          if(manual) toast(de?'Daten synchronisiert. Die großen Originaldateien werden auf diesem Gerät nicht übertragen – das übernimmt dein Gerät mit Ordner-Zugriff.':'Data synced. Large original files are not transferred on this device – your folder-based device handles those.','ok');
-        } else {
-          odSetStatus('error', de?'Originale noch nicht hochgeladen – nächster Versuch folgt':'Originals not uploaded yet – will retry');
-          if(manual) toast(de?'Daten hochgeladen, aber die Originaldateien noch nicht (Cloud-Abgleich unvollständig). Es wird automatisch erneut versucht.':'Data uploaded, but the original files are not in the cloud yet (incomplete sync). It will retry automatically.','err');
-        }
+      // Einzeldatei-Abgleich der Originale/Anhänge – NACH dem Daten-Abgleich, damit die
+      // Index-Dateien (die Wahrheit über „was soll existieren") frisch sind. Läuft auf
+      // ALLEN Geräten, auch iPhone/iPad: kleine Einzeldateien statt einer Riesen-ZIP.
+      let files={up:0,down:0,delCloud:0,delLocal:0,failed:0};
+      try{ files=await odFilesReconcile(); }
+      catch(e){ console.warn('Einzeldatei-Abgleich fehlgeschlagen:', e); files.failed++; }
+      if(!files.failed && (OD.cfg.gen||0)===startGen) OD.cfg.blobDirty=false;
+      // Nach erfolgreichem Abgleich Schnappschuss der Index-Dateien als Basis für den
+      // nächsten Spiegel-Abgleich festhalten.
+      if(action!=='none' || !OD.cfg.snap) await odCaptureSnapshot();
+      if(files.failed){
+        // Ehrlich: ein Teil der Dateien kam nicht durch. Kein Abbruch – der 5-Minuten-Takt
+        // (bzw. der nächste manuelle Klick) versucht es erneut, der Abgleich ist selbstheilend.
+        odSetStatus('error', de?`${files.failed} Datei(en) nicht übertragen – nächster Versuch folgt`:`${files.failed} file(s) not transferred – will retry`);
+        if(manual) toast(de?`Daten synchronisiert, aber ${files.failed} Originaldatei(en) konnten nicht übertragen werden. Es wird automatisch erneut versucht.`:`Data synced, but ${files.failed} original file(s) could not be transferred. It will retry automatically.`,'err');
       } else {
-        if(action!=='none' || !OD.cfg.snap) await odCaptureSnapshot();
         odSetStatus('connected');
       }
       // Zeitstempel IMMER aktualisieren – auch wenn nichts zu tun war –, damit
       // „Jetzt synchronisieren" sichtbar reagiert.
       OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
-      // Auf iPhone/iPad gilt 'partial' als Erfolg (Originale sind dort bewusst nicht dabei) –
-      // sonst würde das 1,5-s-Nachfassen unterbleiben bzw. dauerhaft „Fehler" angezeigt.
-      ok=(action!=='partial') || state.storageMode==='opfs';
+      ok=true;   // Daten-Abgleich war erfolgreich; Datei-Reste heilen sich im nächsten Takt
       // Eingehende Änderungen/Konflikte immer melden; reiner Upload/„nichts zu tun"
       // nur bei manuellem Klick (Hintergrund-Abfragen bleiben still).
-      if(action==='pull'){ toast(de?'Vom Cloud-Stand aktualisiert.':'Updated from cloud.','ok'); }
+      const moved = files.down||files.up ? (de?` (${files.down?'↓'+files.down+' ':''}${files.up?'↑'+files.up:''} Dateien)`:` (${files.down?'↓'+files.down+' ':''}${files.up?'↑'+files.up:''} files)`) : '';
+      if(action==='pull'){ toast((de?'Vom Cloud-Stand aktualisiert.':'Updated from cloud.')+moved,'ok'); }
       else if(action==='conflict'){ toast(de?'Konflikt aufgelöst (neuere Fassung gewinnt). Der andere Stand liegt als Sicherung in /exports.':'Conflict resolved (newer version wins). The other state is backed up in /exports.','ok'); }
-      else if(manual && action!=='partial'){ toast(action==='push' ? (de?'Hochgeladen.':'Uploaded.') : (de?'Bereits aktuell.':'Already up to date.'), 'ok'); }
+      else if(manual && !files.failed){ toast((action==='push' ? (de?'Hochgeladen.':'Uploaded.') : (de?'Bereits aktuell.':'Already up to date.'))+moved, 'ok'); }
     }catch(e){
       console.warn('OneDrive-Sync', e); odSetStatus('error', e.message);
       // Hintergrund-Fehler NICHT als Toast (sonst Spam bei offline/Quota/…);
@@ -3712,10 +3773,10 @@
       // Nur NACH ERFOLG bald nachziehen, wenn waehrend des Syncs eine Aenderung kam.
       // Bei einem Fehler ODER uebersprungenem Blob-Upload ('partial') NICHT eng
       // weiterprobieren (sonst 1,5-s-Endlosschleife) – der 5-Minuten-Takt greift ohnehin.
-      // Im App-Speicher bleibt blobDirty DAUERHAFT gesetzt (Originale werden dort bewusst nie
-      // hochgeladen). Daran darf kein Nachfassen hängen – sonst liefe der Sync alle 1,5 s
-      // endlos weiter. Nur echte Daten-Änderungen (dirty) lösen dort ein Nachfassen aus.
-      const pending = OD.cfg.dirty || (OD.cfg.blobDirty && state.storageMode!=='opfs');
+      // Bald nachfassen NUR, wenn während dieses Abgleichs eine NEUE Nutzer-Änderung kam
+      // (Generationsnummer gestiegen). Bewusst nicht an dirty/blobDirty allein hängen:
+      // bleibt z. B. ein Datei-Transfer dauerhaft hängen, wäre das sonst eine 1,5-s-Schleife.
+      const pending = (OD.cfg.gen||0)!==startGen;
       if(ok && pending && odConnected() && OD.cfg.auto!==false){ clearTimeout(OD._pushTimer); OD._pushTimer=setTimeout(()=>odSync(false), 1500); }
     }
   }
@@ -3728,9 +3789,9 @@
     const localNewer = !!(OD.cfg.dirtyAt && rmod && OD.cfg.dirtyAt > new Date(rmod).toISOString());
     if(localNewer){
       await odBackupRemote(true);        // Remote-Fassung sichern (Pflicht), dann lokal ueberschreiben
-      // force betrifft nur die DATA-Vorbedingung. Der Blob-Vollständigkeitsschutz greift hier
-      // WEITERHIN (kein userForce): odBackupRemote sichert die Blobs nicht, ein unvollständiges
-      // Gerät darf sie also auch im Konfliktfall nicht überschreiben.
+      // force betrifft nur die DATA-Vorbedingung. Die Einzeldateien bleiben davon unberührt:
+      // Der automatische Konfliktpfad löscht in der Cloud NIE ohne Löschmarker (kein mirror) –
+      // der Einzeldatei-Abgleich danach lädt höchstens Fehlendes nach.
       await odPush({force:true});
     } else {
       // Cloud gewinnt – aber der Schnappschuss-Schutz behält neu lokal Angelegtes.
@@ -3786,7 +3847,12 @@
     const startGen=OD.cfg.gen||0;   // Aenderungen waehrend des Uploads nicht verlieren
     try{
       await odBackupRemote(true);   // bisherige Cloud-Fassung sichern (Pflicht vor dem Ueberschreiben)
-      await odPush({force:true, userForce:true});   // userForce: bewusst bestätigt (Dialog oben)
+      await odPush({force:true});   // Daten-Datei überschreiben (bewusst bestätigt, Dialog oben)
+      // mirror: der EINZIGE Fall, in dem Cloud-Dateien ohne Löschmarker entfernt werden –
+      // „dieser Stand gilt überall" ist eine ausdrückliche Nutzerentscheidung (Dialog oben).
+      const fr=await odFilesReconcile({mirror:true});
+      if(fr.failed) throw new Error(de?`${fr.failed} Datei(en) nicht übertragen – bitte erneut versuchen`:`${fr.failed} file(s) not transferred – please retry`);
+      OD.cfg.blobDirty=false;
       if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
       await odCaptureSnapshot();
       OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
@@ -3802,11 +3868,10 @@
     const startGen=OD.cfg.gen||0;   // Key-Upload-Marker/Edits im Apply-Fenster nicht verlieren
     try{
       const meta=await odRemoteMeta(); if(!meta.data) throw new Error(de?'Keine Cloud-Datei vorhanden.':'No cloud file present.');
-      OD.cfg.etagBlob='';           // Blobs beim Force-Pull immer frisch aus der Cloud holen
-      // withBlobs: ausdrücklicher Nutzerwunsch – hier werden die Originale AUCH im
-      // App-Speicher geholt (der automatische Sync lässt sie dort aus). Ohne das gäbe es
-      // auf iPhone/iPad überhaupt keinen Weg, die Originale zu bekommen.
-      await odPull(meta, {fullMirror:true, withBlobs:true});   // bewusst voller Spiegel: Cloud ersetzt lokal komplett
+      await odPull(meta, {fullMirror:true});   // bewusst voller Spiegel: Cloud ersetzt lokal komplett
+      // Danach die Einzeldateien nachziehen (lädt alle fehlenden Originale/Anhänge herunter).
+      const fr=await odFilesReconcile();
+      if(fr.failed) toast(de?`${fr.failed} Datei(en) konnten nicht geladen werden – der nächste Abgleich versucht es erneut.`:`${fr.failed} file(s) could not be loaded – the next sync will retry.`,'err');
       if((OD.cfg.gen||0)===startGen) OD.cfg.dirty=false;
       await odCaptureSnapshot();
       OD.cfg.syncAt=new Date().toISOString(); await odSaveCfg();
@@ -4115,7 +4180,7 @@
 
     if(window.__WA_MOCK_ROOT__||window.__WA_TEST__){
       // Test-Brücke – nur aktiv, wenn explizit injiziert (automatisierte Prüfung).
-      window.WA={ importFiles, runSearch, setFindMode, askQuestion, renderChat, docAction, odFetchBlobs, blobComplete, odPush, odSync, renderBackupFiles, __packingNowAdd:(n)=>_packingNow.add(n), __packingNowDelete:(n)=>_packingNow.delete(n), searchArchive, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, applyBackupZip, buildBackupBlob, buildBackupToFile, deleteDoc, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, odSetStatus, foAddComment,
+      window.WA={ importFiles, runSearch, setFindMode, askQuestion, renderChat, docAction, odFetchBlobs, odFetchOriginal, odFilesReconcile, blobComplete, odPush, odSync, renderBackupFiles, __packingNowAdd:(n)=>_packingNow.add(n), __packingNowDelete:(n)=>_packingNow.delete(n), searchArchive, exportBackup, importBackup, exportReport, refreshAllExports, getExportDefs:()=>exportDefs, maybeAutoBackup, ocrDoc, openDoc, openHit, switchView, getIndex, state, foSaveEntry, saveForum, exportForumTopic, applyBackupZip, buildBackupBlob, buildBackupToFile, deleteDoc, reloadArchiveViews, OD, odRedirectUri, odPkce, odMarkDirty, odSetStatus, foAddComment,
         rebuildCatalog: async()=>{ state.indexCache.clear(); state._foIdxReady=false; state.catalog=await rebuildCatalog(); renderLibrary(); return state.catalog; } };
     }
 
