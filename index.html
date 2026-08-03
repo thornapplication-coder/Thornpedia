@@ -781,7 +781,7 @@
 (() => {
   'use strict';
 
-  const APP_VERSION = '1.10.26';
+  const APP_VERSION = '1.10.27';
   const SUPPORTED = ['pdf','docx','xlsx','xls','csv','txt','md','markdown'];
   const typeOf = (ext) => ({pdf:'pdf',docx:'docx',xlsx:'xlsx',xls:'xlsx',csv:'csv',txt:'txt',md:'md',markdown:'md'}[ext] || ext);
   const $ = (s, r=document) => r.querySelector(s);
@@ -1343,10 +1343,13 @@
       // Zählfehler aus. Daher erklären, sobald Summe und Gesamtzahl auseinandergehen.
       let sum=untagged.length; for(const P of parents.values()) sum+=P.total;
       if(sum!==rows.length){
-        const diff=sum-rows.length;
+        // Betroffene Dokumente BENENNEN – ein blosser Zahlenhinweis ist nicht überprüfbar
+        // und wirkt wie ein Rechenfehler der App.
+        const multi=rows.filter(r=>{ const ps=new Set((r.tags||[]).map(t=>parseTag(t).p).filter(Boolean)); return ps.size>1; });
+        const names=multi.slice(0,3).map(r=>esc(r.name)).join(', ')+(multi.length>3?` … (+${multi.length-3})`:'');
         groupsHtml+=`<p class="fmeta" style="margin-top:10px">${de2
-          ? `Hinweis: ${diff} Dokument${diff===1?'':'e'} ${diff===1?'trägt':'tragen'} mehrere Tags und ${diff===1?'erscheint':'erscheinen'} deshalb in mehreren Gruppen. Die Summe der Gruppen (${sum}) ist darum höher als der Bestand (${rows.length}).`
-          : `Note: ${diff} document${diff===1?'':'s'} carr${diff===1?'ies':'y'} several tags and therefore appear${diff===1?'s':''} in several groups. That is why the groups add up to ${sum} while the library holds ${rows.length}.`}</p>`;
+          ? `Hinweis: Die Gruppen ergeben zusammen ${sum}, die Bibliothek enthält ${rows.length} Dokumente. Das ist richtig so: ${multi.length} Dokument${multi.length===1?'':'e'} ${multi.length===1?'trägt':'tragen'} mehrere Haupt-Tags und ${multi.length===1?'wird':'werden'} deshalb in jeder dieser Gruppen aufgeführt${names?` – ${names}`:''}. Es fehlt nichts, und es ist nichts doppelt vorhanden.`
+          : `Note: the groups add up to ${sum} while the library holds ${rows.length} documents. That is correct: ${multi.length} document${multi.length===1?'':'s'} carr${multi.length===1?'ies':'y'} several main tags and ${multi.length===1?'is':'are'} therefore listed in each of those groups${names?` – ${names}`:''}. Nothing is missing and nothing is duplicated.`}</p>`;
       }
     }
 
